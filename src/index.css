@@ -1,0 +1,274 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+* {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.font-mono, .font-mono *, code, pre, kbd, samp, [class*="font-mono"] {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace !important;
+}
+
+/* Custom styles for dark operations panel scrollbars and styles */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #080808;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #6366F1;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-pulse-slow {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Light mode overrides for literal dark hex color class names */
+.light {
+  color-scheme: light;
+}
+
+/* Base body / root layout background to an elegant, soft, cool warm-grey */
+.light .bg-\[\#080808\],
+.light .bg-\[\#060608\],
+.light .bg-\[\#070709\],
+.light .bg-\[\#080808EE\],
+.light .bg-\[\#080808F0\],
+.light .bg-\[\#080808F5\],
+.light .bg-\[\#08080A\],
+.light .bg-\[\#09090C\],
+.light .bg-\[\#0C0C0F\],
+.light .bg-\[\#0D0D11\],
+.light .bg-black {
+  background-color: #F3F4F6 !important;
+}
+
+/* Primary cards, main content area, headers, sidebars to brilliant crisp white */
+.light .bg-\[\#090909\],
+.light .bg-\[\#0A0A0A\],
+.light .bg-\[\#0A0A0B\],
+.light .bg-\[\#0A0A0C\],
+.light .bg-\[\#0C0C0C\],
+.light .bg-\[\#0C0C0E\],
+.light .bg-\[\#0B0B0D\],
+.light .bg-\[\#0E0E10\],
+.light .bg-\[\#0E0E11\],
+.light .bg-\[\#111\],
+.light .bg-\[\#111114\],
+.light .bg-\[\#121214\],
+.light .bg-\[\#121215\],
+.light .bg-\[\#121216\],
+.light .bg-\[\#141416\],
+.light .bg-\[\#181818\],
+.light .bg-\[\#18181B\],
+.light .bg-\[\#1A1A1A\],
+.light .bg-\[\#1A1A22\],
+.light .bg-\[\#1A1A24\],
+.light .bg-\[\#1C1C1F\],
+.light .bg-zinc-900,
+.light .bg-zinc-950 {
+  background-color: #FFFFFF !important;
+}
+
+/* Sub-panels, secondary containers, nested blocks to subtle grey highlight fields */
+.light .bg-\[\#0F0F0F\],
+.light .bg-\[\#0F0F11\],
+.light .bg-\[\#0F0F12\],
+.light .bg-\[\#101012\],
+.light .bg-\[\#141414\],
+.light .bg-\[\#151518\],
+.light .bg-\[\#15151A\],
+.light .bg-\[\#15151B\],
+.light .bg-\[\#161616\],
+.light .bg-\[\#161619\],
+.light .bg-\[\#1C1C22\],
+.light .bg-\[\#0C0C0E\] {
+  background-color: #F8F9FA !important;
+}
+
+/* Hover panel backgrounds to soft grey hover states */
+.light .hover\:bg-zinc-800:hover,
+.light .hover\:bg-\[\#121215\]:hover,
+.light .hover\:bg-\[\#121216\]:hover,
+.light .hover\:bg-\[\#0C0C0C\]:hover {
+  background-color: #F3F4F6 !important;
+}
+
+/* Elevated Sidebar list items, Workspace buttons, Cards, and Headers with drop-shadows */
+.light .shadow-xl,
+.light .shadow-md,
+.light [class*="bg-[#090909]"],
+.light [class*="bg-[#0A0A0A]"],
+.light [class*="bg-[#0F0F12]"],
+.light [class*="bg-[#121216]"],
+.light [class*="bg-[#15151B]"] {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -4px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.02) !important;
+}
+
+/* Interactive navigation tabs, workspace cards, action items - high-contrast layout & shadow */
+.light [class*="group relative py-2 px-3 rounded cursor-pointer"],
+.light [class*="group relative py-2 px-4 cursor-pointer"],
+.light [class*="bg-[#0F0F12]"] {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03), 0 2px 4px -1px rgba(0, 0, 0, 0.02) !important;
+  border: 1px solid #E5E7EB !important;
+}
+
+/* Sidebar selected tabs, active tab indicators, and main navigation cards */
+.light .bg-\[\#0F0F0F\].border-\[\#6366F1\],
+.light [class*="border-[#6366F1]"] {
+  background-color: #EEF2FF !important; /* Soft, premium indigo-grey highlight tint */
+  border-left: 3px solid #6366F1 !important;
+  box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.08), 0 2px 4px -1px rgba(99, 102, 241, 0.04) !important;
+}
+
+/* Explicit Active Tab override in dropdowns and lists */
+.light .bg-\[\#1C1C22\],
+.light [class*="bg-[#1C1C22]"] {
+  background-color: #EEF2FF !important;
+  color: #6366F1 !important;
+}
+
+/* Translucent Headers & Blur effects */
+.light .bg-\[\#0A0A0A\]\/50 {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(8px);
+}
+
+/* Borders overridden to a light, subtle clean silver border */
+.light .border,
+.light .border-\[\#141414\],
+.light .border-\[\#141416\],
+.light .border-\[\#151515\],
+.light .border-\[\#151518\],
+.light .border-\[\#1a1a1a\],
+.light .border-\[\#1A1A1A\],
+.light .border-\[\#1A1A1C\],
+.light .border-\[\#1A1A1D\],
+.light .border-\[\#1A1A1E\],
+.light .border-\[\#1A1A22\],
+.light .border-\[\#1C1C1F\],
+.light .border-\[\#1C1C20\],
+.light .border-\[\#1C1C22\],
+.light .border-\[\#1C1C24\],
+.light .border-\[\#1E1E22\],
+.light .border-\[\#222\],
+.light .border-\[\#222225\],
+.light .border-\[\#232326\],
+.light .border-\[\#242427\],
+.light .border-\[\#25252B\],
+.light .border-\[\#27272A\],
+.light .border-\[\#27272E\],
+.light .border-\[\#27273A\],
+.light .border-\[\#2A2A2A\],
+.light .border-\[\#2A2A2E\],
+.light .border-zinc-800,
+.light .border-zinc-700 {
+  border-color: #E5E7EB !important;
+}
+
+/* Specific shadows behind tabs and main navigation headers */
+.light header {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.01) !important;
+}
+
+/* Primary texts overrides to a crisp dark charcoal for high readability */
+.light .text-\[\#F5F5F5\],
+.light .text-\[\#f0ece4\],
+.light .text-\[\#F0ECE4\],
+.light .text-white,
+.light .text-zinc-100 {
+  color: #1F2937 !important; /* Tailwind gray-800 */
+}
+
+/* Secondary & Muted text colors overridden to standard zinc slate */
+.light .text-\[\#A1A1AA\],
+.light .text-\[\#C4C4C4\],
+.light .text-\[\#D4D4D8\],
+.light .text-\[\#E4E4E7\],
+.light .text-zinc-400,
+.light .text-zinc-300 {
+  color: #4B5563 !important; /* Tailwind gray-600 */
+}
+
+.light .text-\[\#3F3F46\],
+.light .text-\[\#52525B\],
+.light .text-\[\#7c7c85\],
+.light .text-\[\#7C7C85\],
+.light .text-\[\#7F7F8A\],
+.light .text-\[\#88888B\],
+.light .text-\[\#8E8E93\],
+.light .text-zinc-500 {
+  color: #6B7280 !important; /* Tailwind gray-500 */
+}
+
+/* Hover texts to true black */
+.light .hover\:text-white:hover,
+.light .hover\:text-zinc-100:hover,
+.light .hover\:text-\[\#C4C4C4\]:hover {
+  color: #111827 !important;
+}
+
+/* Navigation active tab texts */
+.light .text-[#F5F5F5] {
+  color: #111827 !important;
+}
+
+/* Input, Textarea, Select element overrides for light mode styling */
+.light input,
+.light textarea,
+.light select {
+  background-color: #FFFFFF !important;
+  color: #1F2937 !important;
+  border-color: #E5E7EB !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02) !important;
+}
+
+.light input::placeholder,
+.light textarea::placeholder {
+  color: #9CA3AF !important;
+}
+
+/* Scrollbar customizations in light mode */
+.light ::-webkit-scrollbar-track {
+  background: #F3F4F6;
+}
+.light ::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+}
+.light ::-webkit-scrollbar-thumb:hover {
+  background: #6366F1;
+}
+
+/* Card/Panel shadow enhancements for high-contrast light mode depth */
+.light .shadow-xl {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.03) !important;
+}
+.light .shadow-md {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.04), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
+}
+
+/* Chart support and axis labels in light mode */
+.light .recharts-cartesian-grid-horizontal line,
+.light .recharts-cartesian-grid-vertical line {
+  stroke: #E5E7EB !important;
+}
+.light .recharts-text {
+  fill: #4B5563 !important;
+}
+
+
