@@ -102,6 +102,7 @@ let socket: Socket = io(SERVER, {
   reconnectionDelay: 1000
 });
 
+let currentSocketUrl = SERVER;
 const wsUrl = getWsUrlFromUrl(SERVER);
 
 interface LiveViewerProps {
@@ -2103,7 +2104,7 @@ export default function App() {
       }
     };
 
-    if (socket && socket.io.uri !== serverUrl) {
+    if (socket && currentSocketUrl !== serverUrl) {
       console.log(`Re-connecting socket to new serverUrl: ${serverUrl}`);
       socket.disconnect();
       socket = io(serverUrl, {
@@ -2112,6 +2113,7 @@ export default function App() {
         reconnectionAttempts: 5,
         reconnectionDelay: 1000
       });
+      currentSocketUrl = serverUrl;
     }
 
     socket.on('task_progress', handleProgress);
