@@ -58,8 +58,28 @@ import {
 import { runGapAnalysis, generatePitch } from './services/gapAnalysisAgent';
 
 // Dynamic server paths for development context
-const SERVER = window.location.origin;
-const WS_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
+const getBackendUrl = (): string => {
+  if (import.meta.env.VITE_SERVER_URL) {
+    return import.meta.env.VITE_SERVER_URL;
+  }
+  const saved = localStorage.getItem('assix_server_url');
+  if (saved && (saved.startsWith('http://') || saved.startsWith('https://'))) {
+    return saved;
+  }
+  return window.location.origin;
+};
+
+const SERVER = getBackendUrl();
+const getWsUrlFromUrl = (urlStr: string) => {
+  try {
+    const u = new URL(urlStr);
+    const proto = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${u.host}`;
+  } catch (e) {
+    return (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
+  }
+};
+const WS_URL = getWsUrlFromUrl(SERVER);
 
 const TASK_TYPES = [
   { id: 'google_maps_scrape', label: 'Google Maps Scrape', desc: 'Scan local listings for website, phone, and coordinates' },
@@ -75,15 +95,14 @@ const CITIES_EN = ['Toronto', 'Mississauga', 'Brampton', 'Hamilton', 'Ottawa', '
 const CITIES_FR = ['Montreal', 'Quebec City', 'Laval', 'Longueuil', 'Gatineau', 'Sherbrooke', 'Paris', 'Lyon', 'Marseille', 'Bordeaux', 'Nice'];
 const PLATFORMS = ['reddit', 'google', 'youtube', 'yelp', 'trustpilot'];
 
-const socket: Socket = io(window.location.origin, {
+let socket: Socket = io(SERVER, {
   transports: ["websocket", "polling"],
   reconnection: true,
   reconnectionAttempts: 5,
   reconnectionDelay: 1000
 });
 
-const wsUrl = window.location.origin.replace('https://', 'wss://')
-              .replace('http://', 'ws://');
+const wsUrl = getWsUrlFromUrl(SERVER);
 
 interface LiveViewerProps {
   taskId: string;
@@ -649,7 +668,7 @@ export default function App() {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 
   const [serverUrl, setServerUrl] = useState<string>(() => {
-    let url = localStorage.getItem('assix_server_url') || window.location.origin;
+    let url = import.meta.env.VITE_SERVER_URL || localStorage.getItem('assix_server_url') || window.location.origin;
     if (url.startsWith('ws://')) {
       url = url.replace('ws://', 'http://');
     } else if (url.startsWith('wss://')) {
@@ -2084,6 +2103,17 @@ export default function App() {
       }
     };
 
+    if (socket && socket.io.uri !== serverUrl) {
+      console.log(`Re-connecting socket to new serverUrl: ${serverUrl}`);
+      socket.disconnect();
+      socket = io(serverUrl, {
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000
+      });
+    }
+
     socket.on('task_progress', handleProgress);
     socket.on('human_needed', handleHumanNeeded);
     socket.on('agency_update', handleAgencyUpdate);
@@ -2109,7 +2139,7 @@ export default function App() {
       socket.off('hermes_result', handleHermesResult);
       socket.off('hermes_update', handleHermesUpdate);
     };
-  }, []);
+  }, [serverUrl]);
 
   const fetchBrowserUseTasksFallback = async () => {
     try {
