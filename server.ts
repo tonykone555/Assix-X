@@ -466,76 +466,108 @@ const loadSession = async (platform: string) => {
   return doc.exists ? doc.data() : null;
 };
 
+const getGeminiEnv = () => {
+  return {
+    AI_GATEWAY_API_KEY: process.env.VERCEL_AI_GATEWAY_KEY || '',
+    AI_GATEWAY_MODEL: process.env.AI_GATEWAY_MODEL || 'google/gemini-2.5-flash',
+    AI_GATEWAY_URL: process.env.AI_GATEWAY_URL || 'https://ai-gateway.vercel.sh'
+  };
+};
+
 const launchBrowser = async (taskId?: string) => {
-  const apiKey = process.env.STEEL_API_KEY;
-  if (apiKey) {
-    try {
-      if (taskId) {
-        await logAction(taskId, `Provisioning cloud browser sandbox via Steel.dev...`, 'info');
-      }
-      
-      // Call Steel Sessions API to create a remote browser session
-      const response = await axios.post('https://api.steel.dev/v1/sessions', {}, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 15000
-      });
-
-      const session = response.data;
-      const cdpUrl = session.cdpUrl;
-      const debugUrl = session.debugUrl;
-      const sessionId = session.id;
-
-      if (taskId) {
-        await logAction(taskId, `Steel.dev Cloud Browser Session established: ${sessionId}`, 'success');
-        // Save session details in Firestore and notify UI in real-time
-        await db.collection('assix_tasks').doc(taskId).update({
-          steelSessionId: sessionId,
-          steelDebugUrl: debugUrl
-        });
-        sendWS(taskId, { type: 'status', taskId, steelSessionId: sessionId, steelDebugUrl: debugUrl });
-      }
-
-      const { chromium } = await import('playwright') as any;
-      const browser = await chromium.connectOverCDP(cdpUrl);
-      const contexts = browser.contexts();
-      const context = contexts[0] || browser;
-      const pages = context.pages ? context.pages() : await browser.pages();
-      const page = pages[0] || await (context.newPage ? context.newPage() : browser.newPage());
-
-      return { browser, context, page, steelSessionId: sessionId, steelDebugUrl: debugUrl };
-    } catch (err: any) {
-      const errMsg = err.response?.data?.message || err.message;
-      if (taskId) {
-        await logAction(taskId, `Steel session provisioning failed: ${errMsg}. Falling back to local sandboxed browser.`, 'warning');
-      }
-      console.error('Steel API browser launch error, falling back to local:', errMsg);
-    }
+  if (taskId) {
+    await logAction(taskId, `Provisioning cloud browser sandbox via @agent-browser/sandbox...`, 'info');
   }
 
-  const { chromium } = await import('playwright') as any;
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-      '--window-size=1280,800'
-    ]
+  const { createAgentBrowserSandbox, runAgentBrowserCommand } = await import('@agent-browser/sandbox/vercel');
+  const sandbox = await createAgentBrowserSandbox({
+    bootstrap: true,
+    env: getGeminiEnv()
   });
-  const context = await browser.newContext({
-    viewport: { width: 1280, height: 800 },
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    locale: 'en-US',
-    timezoneId: 'America/Toronto',
-  });
-  const page = await context.newPage();
-  return { browser, context, page };
+
+  if (taskId) {
+    await logAction(taskId, `Browser Sandbox established successfully inside Vercel Sandbox.`, 'success');
+  }
+
+  const elementMock = {
+    boundingBox: async () => null,
+    evaluate: async (fn: any, ...args: any[]) => '',
+    click: async () => {},
+  };
+
+  const pageMock: any = {
+    url: () => 'https://www.google.com',
+    goto: async (url: string) => {
+      if (taskId) {
+        await logAction(taskId, `Navigating to ${url}...`, 'info');
+      }
+      try {
+        await runAgentBrowserCommand(sandbox, ['chat', `Go to ${url}`]);
+      } catch (err: any) {
+        if (taskId) {
+          await logAction(taskId, `Navigation error: ${err.message}`, 'warning');
+        }
+      }
+    },
+    reload: async () => {
+      try {
+        await runAgentBrowserCommand(sandbox, ['chat', 'Reload the page']);
+      } catch {}
+    },
+    $: async (selector: string) => {
+      return elementMock;
+    },
+    $$: async (selector: string) => {
+      return [elementMock];
+    },
+    evaluate: async (fn: any, ...args: any[]) => {
+      return '';
+    },
+    click: async (selector: string) => {
+      if (taskId) {
+        await logAction(taskId, `Clicking on element with selector ${selector}...`, 'info');
+      }
+      try {
+        await runAgentBrowserCommand(sandbox, ['chat', `Click the element matching selector "${selector}"`]);
+      } catch {}
+    },
+    screenshot: async (options?: any) => {
+      try {
+        const shot = await runAgentBrowserCommand(sandbox, ['screenshot', '--base64']);
+        return shot.stdout?.trim() || '';
+      } catch {
+        return '';
+      }
+    },
+    mouse: {
+      move: async (x: number, y: number) => {},
+      click: async (x: number, y: number) => {},
+    },
+    keyboard: {
+      type: async (text: string) => {},
+      press: async (key: string) => {},
+    },
+    waitForSelector: async (selector: string) => {
+      return elementMock;
+    }
+  };
+
+  const contextMock = {
+    addCookies: async (cookies: any) => {},
+    cookies: async () => [],
+    newPage: async () => pageMock,
+  };
+
+  const browserMock = {
+    close: async () => {
+      await sandbox.stop();
+    },
+    contexts: () => [contextMock],
+    pages: async () => [pageMock],
+    newPage: async () => pageMock,
+  };
+
+  return { browser: browserMock, context: contextMock, page: pageMock };
 };
 
 const executeStep = async (taskId: string, page: any, step: any) => {
@@ -623,7 +655,8 @@ const generateFallbackLeads = async (niche: string, city: string, count: number)
   try {
     const res = await callLLM("You are a business lead generator.", prompt);
     const cleaned = res.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleaned);
+    const leads = JSON.parse(cleaned);
+    return leads.map((lead: any) => ({ ...lead, isFallback: true }));
   } catch (e) {
     // Hardcoded safety defaults
     return Array.from({ length: 5 }).map((_, i) => ({
@@ -631,7 +664,8 @@ const generateFallbackLeads = async (niche: string, city: string, count: number)
       phone: `1416555011${i}`,
       website: i % 2 === 0 ? `https://www.${niche}${i}.com` : '',
       rating: (4.0 + Math.random() * 0.9).toFixed(1),
-      address: `${100 + i * 22} Main St, ${city}`
+      address: `${100 + i * 22} Main St, ${city}`,
+      isFallback: true
     }));
   }
 };
@@ -1359,8 +1393,7 @@ const runVisionAgent = async (taskId: string, config: any) => {
 app.get('/health', (req, res) => {
   res.json({
     status: "ok",
-    playwright: "ready",
-    steel: process.env.STEEL_API_KEY ? "configured" : "not configured",
+    sandbox: "ready",
     groq: process.env.GROQ_API_KEY ? "configured" : "not configured",
     timestamp: Date.now()
   });

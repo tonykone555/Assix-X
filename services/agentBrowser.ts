@@ -1,3 +1,5 @@
+import { sendToHermes } from './hermes';
+
 export function getGeminiEnv() {
   return {
     AI_GATEWAY_API_KEY: process.env.VERCEL_AI_GATEWAY_KEY || '',
@@ -34,8 +36,7 @@ export async function runBrowserTask(
     // Execute the instruction
     const outputPromise = runAgentBrowserCommand(
       sandbox,
-      ['chat', instruction],
-      { env: getGeminiEnv() }
+      ['chat', instruction]
     );
 
     // Poll screenshots every 3 seconds while running
@@ -43,8 +44,7 @@ export async function runBrowserTask(
       try {
         const shot = await runAgentBrowserCommand(
           sandbox,
-          ['screenshot', '--base64'],
-          { env: getGeminiEnv() }
+          ['screenshot', '--base64']
         );
         if (shot.stdout) {
           onProgress({
@@ -63,8 +63,7 @@ export async function runBrowserTask(
       // Final screenshot
       const finalShot = await runAgentBrowserCommand(
         sandbox,
-        ['screenshot', '--base64'],
-        { env: getGeminiEnv() }
+        ['screenshot', '--base64']
       );
 
       onProgress({
@@ -75,6 +74,12 @@ export async function runBrowserTask(
         data: output.stdout
       });
 
+      try {
+        await sendToHermes(`Browser automation task completed. Instruction: "${instruction}". Results: ${JSON.stringify(output.stdout)}`);
+      } catch (hermesErr: any) {
+        console.error('Failed to report to Hermes:', hermesErr);
+      }
+
       return output.stdout;
       
     } catch (err: any) {
@@ -84,9 +89,14 @@ export async function runBrowserTask(
         status: 'failed',
         message: err.message
       });
+      try {
+        await sendToHermes(`Browser automation task failed. Instruction: "${instruction}". Error: ${err.message}`);
+      } catch (hermesErr: any) {
+        console.error('Failed to report to Hermes:', hermesErr);
+      }
       throw err;
     }
-  });
+  }, { env: getGeminiEnv() });
 }
 
 export async function scrapeGoogleMaps(
