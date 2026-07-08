@@ -42,7 +42,7 @@ import {
 import { Task, Lead, LogEntry, ChatMessage, Session } from './types';
 import { io, Socket } from 'socket.io-client';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { getFirestore, collection, query, where, orderBy, limit, onSnapshot, doc } from 'firebase/firestore';
 import { LeadCard } from './components/LeadCard';
 import { SwipeableTaskItem } from './components/SwipeableTaskItem';
 import { AgencyTab } from './components/AgencyTab';
@@ -113,9 +113,10 @@ interface LiveViewerProps {
   onComplete?: (data: any) => void;
   onError?: (error: string) => void;
   serverUrl?: string;
+  useFirestore?: boolean;
 }
 
-const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, serverUrl = window.location.origin }) => {
+const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, serverUrl = window.location.origin, useFirestore }) => {
   const [status, setStatus] = useState<
     'idle' | 'planning' | 'running' | 'intervention' | 'complete' | 'completed' | 'error' | 'failed' | 'reconnecting'
   >('idle');
@@ -196,116 +197,169 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
     setScreenshot('');
     setBrowserId('');
 
-    // Fetch initial task state (including liveViewUrl/browserId if it already exists)
-    fetch(`${serverUrl}/api/task/${taskId}/status`)
-      .then(res => {
-        if (res.ok) return res.json();
-        throw new Error('Not found');
-      })
-      .then(data => {
-        if (data.task) {
-          setStatus(data.task.status);
-          if (data.task.liveViewUrl) {
-            setLiveViewUrl(data.task.liveViewUrl);
+    if (useFirestore) {
+      let unsubscribe: (() => void) | null = null;
+      fetch(`${serverUrl}/api/firebase-config`)
+        .then(res => res.json())
+        .then(config => {
+          let app;
+          if (getApps().length === 0) {
+            app = initializeApp(config);
+          } else {
+            app = getApp();
           }
-          if (data.task.browserId) {
-            setBrowserId(data.task.browserId);
+          const db = getFirestore(app, config.firestoreDatabaseId || undefined);
+          unsubscribe = onSnapshot(doc(db, 'tasks', taskId), (docSnap) => {
+            if (docSnap.exists()) {
+              const data = docSnap.data();
+              if (data.status) {
+                setStatus(data.status);
+              }
+              if (data.step !== undefined) {
+                setStep(typeof data.step === 'number' ? data.step : parseInt(data.step) || 0);
+              }
+              if (data.description !== undefined) {
+                setDescription(data.description || '');
+              }
+              if (data.screenshot) {
+                const src = data.screenshot.startsWith('data:') 
+                  ? data.screenshot 
+                  : `data:image/png;base64,${data.screenshot}`;
+                setScreenshot(src);
+              }
+              if (data.leadsCount !== undefined) {
+                setLeadsCount(data.leadsCount);
+              } else if (data.results?.saved !== undefined) {
+                setLeadsCount(data.results.saved);
+              } else if (data.results?.leads && Array.isArray(data.results.leads)) {
+                setLeadsCount(data.results.leads.length);
+              }
+
+              if (data.status === 'complete' || data.status === 'completed') {
+                if (onComplete) onComplete(data);
+              } else if (data.status === 'failed' || data.status === 'error') {
+                if (onError) onError(data.description || 'Task failed');
+              }
+            }
+          });
+        })
+        .catch(err => console.error("Failed to load Firebase config for LiveViewer:", err));
+
+      return () => {
+        if (unsubscribe) unsubscribe();
+      };
+    } else {
+      // Fetch initial task state (including liveViewUrl/browserId if it already exists)
+      fetch(`${serverUrl}/api/task/${taskId}/status`)
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error('Not found');
+        })
+        .then(data => {
+          if (data.task) {
+            setStatus(data.task.status);
+            if (data.task.liveViewUrl) {
+              setLiveViewUrl(data.task.liveViewUrl);
+            }
+            if (data.task.browserId) {
+              setBrowserId(data.task.browserId);
+            }
+            if (data.task.progress) {
+              setStep(data.task.progress);
+            }
           }
-          if (data.task.progress) {
-            setStep(data.task.progress);
-          }
+        })
+        .catch(() => {});
+
+      socket.emit('join_task', taskId);
+
+      socket.on('task_status', (data: any) => {
+        setStatus(data.status);
+        setDescription(data.message || '');
+        if (data.liveViewUrl) {
+          setLiveViewUrl(data.liveViewUrl);
         }
-      })
-      .catch(() => {});
+        if (data.browserId) {
+          setBrowserId(data.browserId);
+        }
+      });
 
-    socket.emit('join_task', taskId);
+      socket.on('task_planned', (data: any) => {
+        setTotalSteps(data.totalSteps);
+        setStatus('running');
+      });
 
-    socket.on('task_status', (data: any) => {
-      setStatus(data.status);
-      setDescription(data.message || '');
-      if (data.liveViewUrl) {
-        setLiveViewUrl(data.liveViewUrl);
-      }
-      if (data.browserId) {
-        setBrowserId(data.browserId);
-      }
-    });
+      socket.on('task_progress', (data: any) => {
+        setStep(data.step);
+        setDescription(data.description || '');
+        setStatus('running');
+        if (data.data?.liveViewUrl) {
+          setLiveViewUrl(data.data.liveViewUrl);
+        }
+        if (data.browserId || data.data?.browserId) {
+          setBrowserId(data.browserId || data.data.browserId);
+        }
+        if (data.screenshot || data.data?.screenshot) {
+          const rawScreenshot = data.screenshot || data.data.screenshot;
+          const src = rawScreenshot.startsWith('data:') 
+            ? rawScreenshot 
+            : `data:image/png;base64,${rawScreenshot}`;
+          setScreenshot(src);
+        }
+      });
 
-    socket.on('task_planned', (data: any) => {
-      setTotalSteps(data.totalSteps);
-      setStatus('running');
-    });
+      // Listen for custom task_update containing screenshot or browserId
+      socket.on('task_update', (update: any) => {
+        if (update.message) {
+          appendLog(update.message);
+        }
+        if (update.screenshot) {
+          setLiveView(
+            `data:image/png;base64,${update.screenshot}`
+          );
+        }
+        if (update.status === 'done') {
+          setTaskStatus('complete');
+        }
+        if (update.status === 'failed') {
+          setTaskStatus('error');
+        }
+      });
 
-    socket.on('task_progress', (data: any) => {
-      setStep(data.step);
-      setDescription(data.description || '');
-      setStatus('running');
-      if (data.data?.liveViewUrl) {
-        setLiveViewUrl(data.data.liveViewUrl);
-      }
-      if (data.browserId || data.data?.browserId) {
-        setBrowserId(data.browserId || data.data.browserId);
-      }
-      if (data.screenshot || data.data?.screenshot) {
-        const rawScreenshot = data.screenshot || data.data.screenshot;
-        const src = rawScreenshot.startsWith('data:') 
-          ? rawScreenshot 
-          : `data:image/png;base64,${rawScreenshot}`;
-        setScreenshot(src);
-      }
-    });
+      socket.on('human_needed', (data: any) => {
+        setStatus('intervention');
+        setIntervention(data);
+      });
 
-    // Listen for custom task_update containing screenshot or browserId
-    socket.on('task_update', (update: any) => {
-      if (update.message) {
-        appendLog(update.message);
-      }
-      if (update.screenshot) {
-        setLiveView(
-          `data:image/png;base64,${update.screenshot}`
-        );
-      }
-      if (update.status === 'done') {
-        setTaskStatus('complete');
-      }
-      if (update.status === 'failed') {
-        setTaskStatus('error');
-      }
-    });
+      socket.on('task_complete', (data: any) => {
+        setStatus('completed');
+        if (data?.results?.saved !== undefined) {
+          setLeadsCount(data.results.saved);
+        } else if (data?.results?.leads && Array.isArray(data.results.leads)) {
+          setLeadsCount(data.results.leads.length);
+        } else if (data?.results?.results && Array.isArray(data.results.results)) {
+          setLeadsCount(data.results.results.length);
+        }
+        if (onComplete) onComplete(data);
+      });
 
-    socket.on('human_needed', (data: any) => {
-      setStatus('intervention');
-      setIntervention(data);
-    });
+      socket.on('task_error', (data: any) => {
+        setStatus('failed');
+        setDescription(data.error || 'Unknown error occurred');
+        if (onError) onError(data.error);
+      });
 
-    socket.on('task_complete', (data: any) => {
-      setStatus('completed');
-      if (data?.results?.saved !== undefined) {
-        setLeadsCount(data.results.saved);
-      } else if (data?.results?.leads && Array.isArray(data.results.leads)) {
-        setLeadsCount(data.results.leads.length);
-      } else if (data?.results?.results && Array.isArray(data.results.results)) {
-        setLeadsCount(data.results.results.length);
-      }
-      if (onComplete) onComplete(data);
-    });
-
-    socket.on('task_error', (data: any) => {
-      setStatus('failed');
-      setDescription(data.error || 'Unknown error occurred');
-      if (onError) onError(data.error);
-    });
-
-    return () => {
-      socket.off('task_status');
-      socket.off('task_planned');
-      socket.off('task_progress');
-      socket.off('task_update');
-      socket.off('human_needed');
-      socket.off('task_complete');
-      socket.off('task_error');
-    };
-  }, [taskId, onComplete, onError, serverUrl]);
+      return () => {
+        socket.off('task_status');
+        socket.off('task_planned');
+        socket.off('task_progress');
+        socket.off('task_update');
+        socket.off('human_needed');
+        socket.off('task_complete');
+        socket.off('task_error');
+      };
+    }
+  }, [taskId, onComplete, onError, serverUrl, useFirestore]);
 
   useEffect(() => {
     if ((status === 'complete' || status === 'completed') && taskId) {
@@ -1043,7 +1097,7 @@ export default function App() {
 
   // Actions
   const handleStartTask = async () => {
-    if (newTaskType === 'google_maps_scrape' || newTaskType === 'pages_jaunes_scrape') {
+    if (newTaskType === 'google_maps_scrape' || newTaskType === 'pages_jaunes_scrape' || newTaskType === 'leboncoin_scrape') {
       if (!taskConfig.niche || !taskConfig.city) {
         alert('Please indicate niche and city objectives before continuing');
         return;
@@ -1058,16 +1112,47 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`${serverUrl}/api/task/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          taskType: newTaskType, 
-          config: taskConfig, 
-          label: `${newTaskType.toUpperCase().replace(/_/g, ' ')} [${taskConfig.niche || taskConfig.topic || 'Custom'}]` 
-        })
-      });
-      const { taskId } = await res.json();
+      let taskId = '';
+      if (newTaskType === 'google_maps_scrape') {
+        taskId = 'gmaps-' + Date.now();
+        fetch(`/api/scrape-google-maps`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskId,
+            query: taskConfig.niche,
+            city: taskConfig.city,
+            count: taskConfig.maxLeads || 20,
+            userId
+          })
+        }).catch(err => console.error("Google Maps task error:", err));
+      } else if (newTaskType === 'leboncoin_scrape') {
+        taskId = 'lbc-' + Date.now();
+        fetch(`/api/scrape-leboncoin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskId,
+            category: taskConfig.niche,
+            city: taskConfig.city,
+            count: taskConfig.maxLeads || 20,
+            userId
+          })
+        }).catch(err => console.error("Leboncoin task error:", err));
+      } else {
+        const res = await fetch(`${serverUrl}/api/task/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            taskType: newTaskType, 
+            config: taskConfig, 
+            label: `${newTaskType.toUpperCase().replace(/_/g, ' ')} [${taskConfig.niche || taskConfig.topic || 'Custom'}]` 
+          })
+        });
+        const { taskId: serverTaskId } = await res.json();
+        taskId = serverTaskId;
+      }
+
       setNewTaskModal(false);
       await fetchTasks();
       // Setup live view stream instantly with direct status detail fallback if list is delayed
@@ -1565,13 +1650,14 @@ export default function App() {
       const goal = text.replace(/^(do:|run:)/i, '').trim();
       setIsSending(false);
       try {
-        const res = await fetch(`${serverUrl}/api/task/dynamic`, {
+        const taskId = 'dyn-' + Date.now();
+        fetch(`/api/task/dynamic`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ goal, context: '' })
-        });
-        const { taskId } = await res.json();
-        setChat(prev => [...prev, { role: 'agent', msg: `Sequence initiated for objective "${goal}". Monitoring live browser socket session...` }]);
+          body: JSON.stringify({ goal, context: '', taskId })
+        }).catch(err => console.error("Dynamic task error:", err));
+
+        setChat(prev => [...prev, { role: 'agent', msg: `Sequence initiated for objective "${goal}". Monitoring live browser Firestore session...` }]);
         fetchTasks();
         const updatedTasks = await fetch(`${serverUrl}/api/tasks/all`).then(r => r.json());
         let selected = updatedTasks.find((t: Task) => t.taskId === taskId);
@@ -2886,7 +2972,12 @@ export default function App() {
                     <div className="flex-1 relative bg-[#090909] overflow-hidden flex items-center justify-center">
                       {workspaceBoxTab === 'viewport' ? (
                         activeTask ? (
-                          <LiveViewer taskId={activeTask.taskId} ws={ws.current} serverUrl={serverUrl} />
+                          <LiveViewer 
+                            taskId={activeTask.taskId} 
+                            ws={ws.current} 
+                            serverUrl={serverUrl} 
+                            useFirestore={['dynamic', 'google_maps_scrape', 'leboncoin_scrape'].includes(activeTask.taskType)} 
+                          />
                         ) : true ? (
                           <div className="w-full h-full overflow-y-auto p-6 bg-[#080808] text-[#F5F5F5] flex flex-col items-center justify-center text-center space-y-4 select-none">
                             <div className="w-12 h-12 rounded-full bg-[#7C5335]/10 border border-[#7C5335]/20 flex items-center justify-center text-lg text-[#7C5335] animate-pulse">
