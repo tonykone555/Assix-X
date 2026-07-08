@@ -28,8 +28,13 @@ export default async function handler(req: any, res: any) {
   try {
     await db.collection('tasks').doc(taskId).set(initialTask);
     await db.collection('assix_tasks').doc(taskId).set(initialTask);
-  } catch (err) {
+  } catch (err: any) {
     console.warn('Initial Firestore write failed:', err);
+    try {
+      const errMsg = `Initial Firestore write failed: ${err?.message || String(err)}`;
+      await db.collection('tasks').doc(taskId).update({ description: errMsg });
+      await db.collection('assix_tasks').doc(taskId).update({ description: errMsg });
+    } catch {}
   }
 
   const onProgress = async (update: any) => {
@@ -42,8 +47,13 @@ export default async function handler(req: any, res: any) {
     try {
       await db.collection('tasks').doc(taskId).update(updateData);
       await db.collection('assix_tasks').doc(taskId).update(updateData);
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Firestore progress write failed:', err);
+      try {
+        const errMsg = `Firestore progress write failed: ${err?.message || String(err)}`;
+        await db.collection('tasks').doc(taskId).update({ description: errMsg });
+        await db.collection('assix_tasks').doc(taskId).update({ description: errMsg });
+      } catch {}
     }
   };
 
@@ -91,8 +101,13 @@ export default async function handler(req: any, res: any) {
             isFallback: false
           });
           savedCount++;
-        } catch (addErr) {
+        } catch (addErr: any) {
           console.error('Failed to add dynamic lead:', addErr);
+          try {
+            const errMsg = `Failed to add dynamic lead: ${addErr?.message || String(addErr)}`;
+            await db.collection('tasks').doc(taskId).update({ description: errMsg });
+            await db.collection('assix_tasks').doc(taskId).update({ description: errMsg });
+          } catch {}
         }
       }
     }
@@ -108,8 +123,13 @@ export default async function handler(req: any, res: any) {
     try {
       await db.collection('tasks').doc(taskId).update(finalUpdate);
       await db.collection('assix_tasks').doc(taskId).update(finalUpdate);
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Final Firestore write failed:', err);
+      try {
+        const errMsg = `Final Firestore write failed: ${err?.message || String(err)}`;
+        await db.collection('tasks').doc(taskId).update({ description: errMsg });
+        await db.collection('assix_tasks').doc(taskId).update({ description: errMsg });
+      } catch {}
     }
 
     return res.status(200).json({ success: true, taskId, result });
@@ -117,15 +137,15 @@ export default async function handler(req: any, res: any) {
     const failedUpdate = {
       status: 'failed',
       step: 'error',
-      description: err.message || 'Unknown error'
+      description: err.message || String(err)
     };
     try {
       await db.collection('tasks').doc(taskId).update(failedUpdate);
       await db.collection('assix_tasks').doc(taskId).update(failedUpdate);
-    } catch (firestoreErr) {
+    } catch (firestoreErr: any) {
       console.warn('Failed Firestore write on error:', firestoreErr);
     }
 
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message || String(err) });
   }
 }

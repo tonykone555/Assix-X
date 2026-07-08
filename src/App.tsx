@@ -1182,8 +1182,8 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-    } catch (e) {
-      alert('Network launch error on task trigger');
+    } catch (e: any) {
+      alert(`Task launch error: ${e?.message || String(e)}`);
     }
   };
 
