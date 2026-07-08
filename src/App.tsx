@@ -42,7 +42,7 @@ import {
 import { Task, Lead, LogEntry, ChatMessage, Session } from './types';
 import { io, Socket } from 'socket.io-client';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { getFirestore, collection, query, where, orderBy, limit, onSnapshot, doc } from 'firebase/firestore';
 import { LeadCard } from './components/LeadCard';
 import { SwipeableTaskItem } from './components/SwipeableTaskItem';
 import { AgencyTab } from './components/AgencyTab';
@@ -84,8 +84,6 @@ const WS_URL = getWsUrlFromUrl(SERVER);
 const TASK_TYPES = [
   { id: 'google_maps_scrape', label: 'Google Maps Scrape', desc: 'Scan local listings for website, phone, and coordinates' },
   { id: 'pages_jaunes_scrape', label: 'Pages Jaunes Scrape', desc: 'Extract Canadian/French B2B directory prospects' },
-  { id: 'facebook_ads_scrape', label: 'Facebook Ads Scrape', desc: 'Scrape and analyze Facebook Ads Library for active ads' },
-  { id: 'facebook_groups_scrape', label: 'Facebook Groups Scrape', desc: 'Search and extract prospect leads from Facebook Group posts' },
   { id: 'instagram_dm', label: 'Instagram DM Campaign', desc: 'Auto-pilot outreach to targeted IG influencers/brands' },
   { id: 'whatsapp_outreach', label: 'WhatsApp Outreach', desc: 'Bulk delivery of personalized WhatsApp followups' },
   { id: 'market_research', label: 'Market Research', desc: 'Scrape Reddit/Google/Yelp for customer feedback analysis' },
@@ -113,9 +111,10 @@ interface LiveViewerProps {
   onComplete?: (data: any) => void;
   onError?: (error: string) => void;
   serverUrl?: string;
+  useFirestore?: boolean;
 }
 
-const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, serverUrl = window.location.origin }) => {
+const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, serverUrl = window.location.origin, useFirestore }) => {
   const [status, setStatus] = useState<
     'idle' | 'planning' | 'running' | 'intervention' | 'complete' | 'completed' | 'error' | 'failed' | 'reconnecting'
   >('idle');
@@ -154,7 +153,7 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
 
   // Polling screenshot every 3 seconds during active task
   useEffect(() => {
-    if ((!browserId && !taskId) || (status !== 'running' && status !== 'intervention')) return;
+    if (!browserId || (status !== 'running' && status !== 'intervention')) return;
 
     const interval = setInterval(async () => {
       try {
@@ -163,7 +162,7 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ browserId, taskId })
+          body: JSON.stringify({ browserId })
         });
         if (res.ok) {
           const data = await res.json();
@@ -180,7 +179,7 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [browserId, taskId, status, serverUrl]);
+  }, [browserId, status, serverUrl]);
 
   useEffect(() => {
     if (!taskId) return;
@@ -196,116 +195,169 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
     setScreenshot('');
     setBrowserId('');
 
-    // Fetch initial task state (including liveViewUrl/browserId if it already exists)
-    fetch(`${serverUrl}/api/task/${taskId}/status`)
-      .then(res => {
-        if (res.ok) return res.json();
-        throw new Error('Not found');
-      })
-      .then(data => {
-        if (data.task) {
-          setStatus(data.task.status);
-          if (data.task.liveViewUrl) {
-            setLiveViewUrl(data.task.liveViewUrl);
+    if (useFirestore) {
+      let unsubscribe: (() => void) | null = null;
+      fetch(`/api/firebase-config`)
+        .then(res => res.json())
+        .then(cfg => {
+          let app;
+          if (getApps().length === 0) {
+            app = initializeApp(cfg);
+          } else {
+            app = getApp();
           }
-          if (data.task.browserId) {
-            setBrowserId(data.task.browserId);
+          const db = getFirestore(app, cfg.firestoreDatabaseId || undefined);
+          unsubscribe = onSnapshot(doc(db, 'tasks', taskId), (docSnap) => {
+            if (docSnap.exists()) {
+              const data = docSnap.data();
+              if (data.status) {
+                setStatus(data.status);
+              }
+              if (data.step !== undefined) {
+                setStep(typeof data.step === 'number' ? data.step : parseInt(data.step) || 0);
+              }
+              if (data.description !== undefined) {
+                setDescription(data.description || '');
+              }
+              if (data.screenshot) {
+                const src = data.screenshot.startsWith('data:')
+                  ? data.screenshot
+                  : `data:image/png;base64,${data.screenshot}`;
+                setScreenshot(src);
+              }
+              if (data.leadsCount !== undefined) {
+                setLeadsCount(data.leadsCount);
+              } else if (data.results?.saved !== undefined) {
+                setLeadsCount(data.results.saved);
+              } else if (data.results?.leads && Array.isArray(data.results.leads)) {
+                setLeadsCount(data.results.leads.length);
+              }
+
+              if (data.status === 'complete' || data.status === 'completed') {
+                if (onComplete) onComplete(data);
+              } else if (data.status === 'failed' || data.status === 'error') {
+                if (onError) onError(data.description || 'Task failed');
+              }
+            }
+          });
+        })
+        .catch(err => console.error('Failed to load Firebase config for LiveViewer:', err));
+
+      return () => {
+        if (unsubscribe) unsubscribe();
+      };
+    } else {
+      // Fetch initial task state (including liveViewUrl/browserId if it already exists)
+      fetch(`${serverUrl}/api/task/${taskId}/status`)
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error('Not found');
+        })
+        .then(data => {
+          if (data.task) {
+            setStatus(data.task.status);
+            if (data.task.liveViewUrl) {
+              setLiveViewUrl(data.task.liveViewUrl);
+            }
+            if (data.task.browserId) {
+              setBrowserId(data.task.browserId);
+            }
+            if (data.task.progress) {
+              setStep(data.task.progress);
+            }
           }
-          if (data.task.progress) {
-            setStep(data.task.progress);
-          }
+        })
+        .catch(() => {});
+
+      socket.emit('join_task', taskId);
+
+      socket.on('task_status', (data: any) => {
+        setStatus(data.status);
+        setDescription(data.message || '');
+        if (data.liveViewUrl) {
+          setLiveViewUrl(data.liveViewUrl);
         }
-      })
-      .catch(() => {});
+        if (data.browserId) {
+          setBrowserId(data.browserId);
+        }
+      });
 
-    socket.emit('join_task', taskId);
+      socket.on('task_planned', (data: any) => {
+        setTotalSteps(data.totalSteps);
+        setStatus('running');
+      });
 
-    socket.on('task_status', (data: any) => {
-      setStatus(data.status);
-      setDescription(data.message || '');
-      if (data.liveViewUrl) {
-        setLiveViewUrl(data.liveViewUrl);
-      }
-      if (data.browserId) {
-        setBrowserId(data.browserId);
-      }
-    });
+      socket.on('task_progress', (data: any) => {
+        setStep(data.step);
+        setDescription(data.description || '');
+        setStatus('running');
+        if (data.data?.liveViewUrl) {
+          setLiveViewUrl(data.data.liveViewUrl);
+        }
+        if (data.browserId || data.data?.browserId) {
+          setBrowserId(data.browserId || data.data.browserId);
+        }
+        if (data.screenshot || data.data?.screenshot) {
+          const rawScreenshot = data.screenshot || data.data.screenshot;
+          const src = rawScreenshot.startsWith('data:')
+            ? rawScreenshot
+            : `data:image/png;base64,${rawScreenshot}`;
+          setScreenshot(src);
+        }
+      });
 
-    socket.on('task_planned', (data: any) => {
-      setTotalSteps(data.totalSteps);
-      setStatus('running');
-    });
+      // Listen for custom task_update containing screenshot or browserId
+      socket.on('task_update', (update: any) => {
+        if (update.message) {
+          appendLog(update.message);
+        }
+        if (update.screenshot) {
+          setLiveView(
+            `data:image/png;base64,${update.screenshot}`
+          );
+        }
+        if (update.status === 'done') {
+          setTaskStatus('complete');
+        }
+        if (update.status === 'failed') {
+          setTaskStatus('error');
+        }
+      });
 
-    socket.on('task_progress', (data: any) => {
-      setStep(data.step);
-      setDescription(data.description || '');
-      setStatus('running');
-      if (data.data?.liveViewUrl) {
-        setLiveViewUrl(data.data.liveViewUrl);
-      }
-      if (data.browserId || data.data?.browserId) {
-        setBrowserId(data.browserId || data.data.browserId);
-      }
-      if (data.screenshot || data.data?.screenshot) {
-        const rawScreenshot = data.screenshot || data.data.screenshot;
-        const src = rawScreenshot.startsWith('data:') 
-          ? rawScreenshot 
-          : `data:image/png;base64,${rawScreenshot}`;
-        setScreenshot(src);
-      }
-    });
+      socket.on('human_needed', (data: any) => {
+        setStatus('intervention');
+        setIntervention(data);
+      });
 
-    // Listen for custom task_update containing screenshot or browserId
-    socket.on('task_update', (update: any) => {
-      if (update.message) {
-        appendLog(update.message);
-      }
-      if (update.screenshot) {
-        setLiveView(
-          `data:image/png;base64,${update.screenshot}`
-        );
-      }
-      if (update.status === 'done') {
-        setTaskStatus('complete');
-      }
-      if (update.status === 'failed') {
-        setTaskStatus('error');
-      }
-    });
+      socket.on('task_complete', (data: any) => {
+        setStatus('completed');
+        if (data?.results?.saved !== undefined) {
+          setLeadsCount(data.results.saved);
+        } else if (data?.results?.leads && Array.isArray(data.results.leads)) {
+          setLeadsCount(data.results.leads.length);
+        } else if (data?.results?.results && Array.isArray(data.results.results)) {
+          setLeadsCount(data.results.results.length);
+        }
+        if (onComplete) onComplete(data);
+      });
 
-    socket.on('human_needed', (data: any) => {
-      setStatus('intervention');
-      setIntervention(data);
-    });
+      socket.on('task_error', (data: any) => {
+        setStatus('failed');
+        setDescription(data.error || 'Unknown error occurred');
+        if (onError) onError(data.error);
+      });
 
-    socket.on('task_complete', (data: any) => {
-      setStatus('completed');
-      if (data?.results?.saved !== undefined) {
-        setLeadsCount(data.results.saved);
-      } else if (data?.results?.leads && Array.isArray(data.results.leads)) {
-        setLeadsCount(data.results.leads.length);
-      } else if (data?.results?.results && Array.isArray(data.results.results)) {
-        setLeadsCount(data.results.results.length);
-      }
-      if (onComplete) onComplete(data);
-    });
-
-    socket.on('task_error', (data: any) => {
-      setStatus('failed');
-      setDescription(data.error || 'Unknown error occurred');
-      if (onError) onError(data.error);
-    });
-
-    return () => {
-      socket.off('task_status');
-      socket.off('task_planned');
-      socket.off('task_progress');
-      socket.off('task_update');
-      socket.off('human_needed');
-      socket.off('task_complete');
-      socket.off('task_error');
-    };
-  }, [taskId, onComplete, onError, serverUrl]);
+      return () => {
+        socket.off('task_status');
+        socket.off('task_planned');
+        socket.off('task_progress');
+        socket.off('task_update');
+        socket.off('human_needed');
+        socket.off('task_complete');
+        socket.off('task_error');
+      };
+    }
+  }, [taskId, onComplete, onError, serverUrl, useFirestore]);
 
   useEffect(() => {
     if ((status === 'complete' || status === 'completed') && taskId) {
@@ -834,7 +886,7 @@ export default function App() {
 
   // Leads manager states
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [leadsFilter, setLeadsFilter] = useState<'all' | 'no-website' | 'has-website' | 'facebook_ads' | 'facebook_groups'>('all');
+  const [leadsFilter, setLeadsFilter] = useState<'all' | 'no-website' | 'has-website'>('all');
   const [leadsSearch, setLeadsSearch] = useState<string>('');
   const [pushingLeadId, setPushingLeadId] = useState<string | null>(null);
   const [batchPushing, setBatchPushing] = useState<boolean>(false);
@@ -1043,31 +1095,54 @@ export default function App() {
 
   // Actions
   const handleStartTask = async () => {
-    if (newTaskType === 'google_maps_scrape' || newTaskType === 'pages_jaunes_scrape') {
+    if (newTaskType === 'google_maps_scrape' || newTaskType === 'pages_jaunes_scrape' || newTaskType === 'leboncoin_scrape') {
       if (!taskConfig.niche || !taskConfig.city) {
         alert('Please indicate niche and city objectives before continuing');
         return;
       }
     }
 
-    if (newTaskType === 'facebook_ads_scrape' || newTaskType === 'facebook_groups_scrape') {
-      if (!taskConfig.niche) {
-        alert('Please indicate niche/keyword objective before continuing');
-        return;
-      }
-    }
-
     try {
-      const res = await fetch(`${serverUrl}/api/task/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          taskType: newTaskType, 
-          config: taskConfig, 
-          label: `${newTaskType.toUpperCase().replace(/_/g, ' ')} [${taskConfig.niche || taskConfig.topic || 'Custom'}]` 
-        })
-      });
-      const { taskId } = await res.json();
+      let taskId = '';
+      if (newTaskType === 'google_maps_scrape') {
+        taskId = 'gmaps-' + Date.now();
+        fetch(`/api/scrape-google-maps`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskId,
+            query: taskConfig.niche,
+            city: taskConfig.city,
+            count: taskConfig.maxLeads || 20,
+            userId
+          })
+        }).catch(err => console.error('Google Maps task error:', err));
+      } else if (newTaskType === 'leboncoin_scrape') {
+        taskId = 'lbc-' + Date.now();
+        fetch(`/api/scrape-leboncoin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskId,
+            category: taskConfig.niche,
+            city: taskConfig.city,
+            count: taskConfig.maxLeads || 20,
+            userId
+          })
+        }).catch(err => console.error('Leboncoin task error:', err));
+      } else {
+        const res = await fetch(`${serverUrl}/api/task/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            taskType: newTaskType, 
+            config: taskConfig, 
+            label: `${newTaskType.toUpperCase().replace(/_/g, ' ')} [${taskConfig.niche || taskConfig.topic || 'Custom'}]` 
+          })
+        });
+        const { taskId: serverTaskId } = await res.json();
+        taskId = serverTaskId;
+      }
       setNewTaskModal(false);
       await fetchTasks();
       // Setup live view stream instantly with direct status detail fallback if list is delayed
@@ -1097,8 +1172,9 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-    } catch (e) {
-      alert('Network launch error on task trigger');
+    } catch (e: any) {
+      console.error('Task launch error:', e);
+      alert(`Task launch error: ${e?.message || String(e)}`);
     }
   };
 
@@ -1565,28 +1641,15 @@ export default function App() {
       const goal = text.replace(/^(do:|run:)/i, '').trim();
       setIsSending(false);
       try {
-        const res = await fetch(`${serverUrl}/api/task/dynamic`, {
+        const taskId = 'dyn-' + Date.now();
+        fetch(`/api/task/dynamic`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ goal, context: '' })
-        });
-        const { taskId } = await res.json();
-        setChat(prev => [...prev, { role: 'agent', msg: `Sequence initiated for objective "${goal}". Monitoring live browser socket session...` }]);
+          body: JSON.stringify({ goal, context: '', taskId })
+        }).catch(err => console.error('Dynamic task error:', err));
+        setChat(prev => [...prev, { role: 'agent', msg: `Sequence initiated for objective "${goal}". Monitoring live browser session...` }]);
         fetchTasks();
-        const updatedTasks = await fetch(`${serverUrl}/api/tasks/all`).then(r => r.json());
-        let selected = updatedTasks.find((t: Task) => t.taskId === taskId);
-        if (!selected) {
-          const detailRes = await fetch(`${serverUrl}/api/task/${taskId}/status`);
-          if (detailRes.ok) {
-            const detailData = await detailRes.json();
-            if (detailData.task) {
-              selected = detailData.task;
-            }
-          }
-        }
-        if (selected) {
-          selectTask(selected);
-        } else {
+        {
           selectTask({
             taskId,
             taskType: 'dynamic',
@@ -1598,8 +1661,9 @@ export default function App() {
             createdAt: new Date().toISOString()
           });
         }
-      } catch (err) {
-        setChat(prev => [...prev, { role: 'agent', msg: `Failed dynamic launcher: Network anomaly detected.` }]);
+      } catch (err: any) {
+        console.error('Dynamic launcher error:', err);
+        setChat(prev => [...prev, { role: 'agent', msg: `Failed dynamic launcher: ${err?.message || String(err)}` }]);
       }
       return;
     }
@@ -2355,11 +2419,9 @@ export default function App() {
       }
     }
 
-    // Leads filter pill ('no-website' or 'has-website' or 'facebook_ads' or 'facebook_groups')
+    // Leads filter pill ('no-website' or 'has-website')
     if (leadsFilter === 'no-website' && l.website) return false;
     if (leadsFilter === 'has-website' && !l.website) return false;
-    if (leadsFilter === 'facebook_ads' && l.source !== 'facebook_ads') return false;
-    if (leadsFilter === 'facebook_groups' && l.source !== 'facebook_groups') return false;
 
     return true;
   }).slice(0, filterCount);
@@ -2886,7 +2948,12 @@ export default function App() {
                     <div className="flex-1 relative bg-[#090909] overflow-hidden flex items-center justify-center">
                       {workspaceBoxTab === 'viewport' ? (
                         activeTask ? (
-                          <LiveViewer taskId={activeTask.taskId} ws={ws.current} serverUrl={serverUrl} />
+                          <LiveViewer 
+                            taskId={activeTask.taskId} 
+                            ws={ws.current} 
+                            serverUrl={serverUrl} 
+                            useFirestore={['dynamic', 'google_maps_scrape', 'leboncoin_scrape'].includes(activeTask.taskType)} 
+                          />
                         ) : true ? (
                           <div className="w-full h-full overflow-y-auto p-6 bg-[#080808] text-[#F5F5F5] flex flex-col items-center justify-center text-center space-y-4 select-none">
                             <div className="w-12 h-12 rounded-full bg-[#7C5335]/10 border border-[#7C5335]/20 flex items-center justify-center text-lg text-[#7C5335] animate-pulse">
@@ -4183,18 +4250,6 @@ export default function App() {
                           className={`px-4 py-1.5 text-[8px] font-bold tracking-wider uppercase rounded-full transition ${leadsFilter === 'has-website' ? 'bg-[#F5F5F5] text-black' : 'text-[#52525B] hover:text-white bg-transparent'}`}
                         >
                           Has Website
-                        </button>
-                        <button 
-                          onClick={() => setLeadsFilter('facebook_ads')} 
-                          className={`px-4 py-1.5 text-[8px] font-bold tracking-wider uppercase rounded-full transition ${leadsFilter === 'facebook_ads' ? 'bg-[#F5F5F5] text-black' : 'text-[#52525B] hover:text-white bg-transparent'}`}
-                        >
-                          Facebook Ads
-                        </button>
-                        <button 
-                          onClick={() => setLeadsFilter('facebook_groups')} 
-                          className={`px-4 py-1.5 text-[8px] font-bold tracking-wider uppercase rounded-full transition ${leadsFilter === 'facebook_groups' ? 'bg-[#F5F5F5] text-black' : 'text-[#52525B] hover:text-white bg-transparent'}`}
-                        >
-                          Facebook Groups
                         </button>
                       </div>
 
@@ -5740,15 +5795,8 @@ export default function App() {
                             <div className="space-y-2">
                               <div className="flex items-start justify-between gap-2.5">
                                 <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="text-[8px] font-bold text-emerald-400 tracking-wider uppercase block">{job.source?.toUpperCase()}</span>
-                                    {job.matchType && (
-                                      <span className="text-[7px] font-mono font-bold text-zinc-400 bg-[#141416] border border-[#222] px-1.5 py-0.5 rounded uppercase tracking-wider">
-                                        {job.matchType.replace('_', ' ')}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <h4 className="text-[11px] font-extrabold text-[#E4E4E7] uppercase leading-snug tracking-wider mt-1">{job.title}</h4>
+                                  <span className="text-[8px] font-bold text-emerald-400 tracking-wider uppercase block">{job.source?.toUpperCase()}</span>
+                                  <h4 className="text-[11px] font-extrabold text-[#E4E4E7] uppercase leading-snug tracking-wider mt-0.5">{job.title}</h4>
                                 </div>
                                 <span className={`px-2.5 py-1 rounded text-[9px] font-mono font-bold uppercase tracking-wider border shrink-0 ${scoreColor}`}>
                                   SCORE: {job.score}/100
@@ -6232,71 +6280,6 @@ export default function App() {
                       type="number" 
                       defaultValue={20}
                       onChange={e => setTaskConfig((c: any) => ({ ...c, maxLeads: parseInt(e.target.value) || 20 }))}
-                      className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
-                    />
-                  </div>
-                </>
-              )}
-
-              {newTaskType === 'facebook_ads_scrape' && (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">INDUSTRY / KEYWORD</label>
-                      <input 
-                        type="text"
-                        placeholder="e.g. real estate"
-                        onChange={e => setTaskConfig((c: any) => ({ ...c, niche: e.target.value }))}
-                        className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">TARGET COUNTRY CODE</label>
-                      <select 
-                        onChange={e => setTaskConfig((c: any) => ({ ...c, country: e.target.value }))}
-                        className="w-full bg-[#080808] border border-[#222225] select-none text-xs rounded px-3 py-2 text-white outline-none focus:border-[#7C5335]"
-                      >
-                        <option value="ALL">All Countries</option>
-                        <option value="US">United States (US)</option>
-                        <option value="CA">Canada (CA)</option>
-                        <option value="GB">United Kingdom (GB)</option>
-                        <option value="FR">France (FR)</option>
-                        <option value="DE">Germany (DE)</option>
-                        <option value="AU">Australia (AU)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">MAX ADS TO EXTRACT</label>
-                    <input 
-                      type="number" 
-                      defaultValue={50}
-                      onChange={e => setTaskConfig((c: any) => ({ ...c, maxLeads: parseInt(e.target.value) || 50 }))}
-                      className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
-                    />
-                  </div>
-                </>
-              )}
-
-              {newTaskType === 'facebook_groups_scrape' && (
-                <>
-                  <div>
-                    <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">KEYWORD / NICHE TO SEARCH</label>
-                    <input 
-                      type="text"
-                      placeholder="e.g. web design recommendations"
-                      onChange={e => setTaskConfig((c: any) => ({ ...c, niche: e.target.value }))}
-                      className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">MAX LEADS TO EXTRACT</label>
-                    <input 
-                      type="number" 
-                      defaultValue={50}
-                      onChange={e => setTaskConfig((c: any) => ({ ...c, maxLeads: parseInt(e.target.value) || 50 }))}
                       className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
                     />
                   </div>
