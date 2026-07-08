@@ -20,6 +20,7 @@ import { callAI } from './services/aiService';
 import { runTask, resumeTask } from './services/taskRunner';
 import { Server as SocketIOServer } from 'socket.io';
 import { takeScreenshot } from './services/stealthBrowser';
+import { reportStage, reportProgress, reportScreenshot } from './services/hermes';
 
 const app = express();
 const server = http.createServer(app);
@@ -35,7 +36,17 @@ server.on('upgrade', (request, socket, head) => {
     return;
   }
 
-  // Handle standard WebSocket connections
+  // Handle standard WebSocket connections with origin checking
+  const origin = request.headers.origin;
+  const allowed = (process.env.ALLOWED_ORIGINS || "").split(",").map(o => o.trim()).filter(Boolean);
+  if (allowed.length > 0 && origin) {
+    if (allowed.indexOf(origin) === -1 && !origin.startsWith('http://localhost:')) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+  }
+
   wss.handleUpgrade(request, socket, head, (ws) => {
     wss.emit('connection', ws, request);
   });
@@ -44,12 +55,18 @@ server.on('upgrade', (request, socket, head) => {
 // Socket.io Server Setup
 const io = new SocketIOServer(server, {
   cors: {
-    origin: [
-      "https://assix-y.onrender.com",
-      "http://localhost:10000",
-      "http://localhost:3000",
-      process.env.RENDER_EXTERNAL_URL || ""
-    ],
+    origin: (origin, callback) => {
+      const allowed = (process.env.ALLOWED_ORIGINS || "").split(",").map(o => o.trim()).filter(Boolean);
+      if (allowed.length === 0) {
+        callback(null, true);
+        return;
+      }
+      if (!origin || allowed.indexOf(origin) !== -1 || origin.startsWith('http://localhost:')) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
     methods: ["GET", "POST"],
     credentials: true
   },
@@ -222,7 +239,21 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 const activeBrowsers = new Map<string, any>();
 const wsClients = new Map<string, WebSocket>();
 
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    const allowed = (process.env.ALLOWED_ORIGINS || "").split(",").map(o => o.trim()).filter(Boolean);
+    if (allowed.length === 0) {
+      callback(null, true);
+      return;
+    }
+    if (!origin || allowed.indexOf(origin) !== -1 || origin.startsWith('http://localhost:')) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '50mb' }));
 
 // WebSocket message handler
@@ -265,6 +296,16 @@ const sendWS = (taskId: string, data: any) => {
   }
 };
 
+// Register Hermes centralized reporting broadcasters
+import('./services/hermes').then(({ registerHermesBroadcasters }) => {
+  registerHermesBroadcasters(
+    (taskId, data) => sendWS(taskId, data),
+    (taskId, event, data) => io.to(taskId).emit(event, data)
+  );
+}).catch(err => {
+  console.error('Failed to register Hermes broadcasters:', err);
+});
+
 // Helpers
 const delay = (min = 800, max = 2500) => new Promise(r => setTimeout(r, min + Math.random() * (max - min)));
 
@@ -276,6 +317,11 @@ const logAction = async (taskId: string, msg: string, type = 'info') => {
     console.error('Firestore log error:', e);
   }
   sendWS(taskId, { type: 'log', taskId, ...entry });
+  
+  // Also report as stage to Hermes
+  try {
+    await reportStage(taskId, msg);
+  } catch {}
 };
 
 const updateProgress = async (taskId: string, progress: number, total: number) => {
@@ -285,13 +331,16 @@ const updateProgress = async (taskId: string, progress: number, total: number) =
   } catch (e) {
     console.error('Firestore updateProgress error:', e);
   }
-  sendWS(taskId, { type: 'status', taskId, progress, total, progressPct: pct });
+  
+  try {
+    await reportProgress(taskId, progress, total);
+  } catch {}
 };
 
 const sendScreenshot = async (taskId: string, page: any) => {
   try {
     const img = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 65 });
-    sendWS(taskId, { type: 'screenshot', taskId, imageBase64: img });
+    await reportScreenshot(taskId, img);
   } catch (e) {}
 };
 
@@ -549,6 +598,28 @@ const launchBrowser = async (taskId?: string) => {
     },
     waitForSelector: async (selector: string) => {
       return elementMock;
+    },
+    extractLeads: async (prompt: string): Promise<any[]> => {
+      if (taskId) {
+        await logAction(taskId, `Extracting leads from the current page using AI Browser Agent...`, 'info');
+      }
+      try {
+        const cmd = await runAgentBrowserCommand(sandbox, ['chat', prompt]);
+        const stdout = cmd.stdout || '';
+        // Extract JSON array from stdout
+        const jsonMatch = stdout.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        if (jsonMatch) {
+          return JSON.parse(jsonMatch[0]);
+        }
+        // Try parsing the whole thing
+        const cleaned = stdout.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(cleaned);
+      } catch (err: any) {
+        if (taskId) {
+          await logAction(taskId, `Extraction failed: ${err.message}`, 'warning');
+        }
+        return [];
+      }
     }
   };
 
@@ -565,6 +636,7 @@ const launchBrowser = async (taskId?: string) => {
     contexts: () => [contextMock],
     pages: async () => [pageMock],
     newPage: async () => pageMock,
+    page: pageMock
   };
 
   return { browser: browserMock, context: contextMock, page: pageMock };
@@ -675,6 +747,8 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
   const { niche, city, market, maxLeads = 10 } = config;
   let browser: any, context: any, page: any;
   try {
+    await reportStage(taskId, "Connecting to browser...", `Sourcing campaign active in the background`);
+
     const launch = await launchBrowser(taskId);
     browser = launch.browser;
     context = launch.context;
@@ -682,15 +756,14 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
     activeBrowsers.set(taskId, browser);
 
     startScreenshotInterval(taskId, page);
-    await logAction(taskId, `Starting Google Maps: ${niche} in ${city}`, 'info');
-
-    // Attempt actual browser navigation
+    await reportStage(taskId, `Opening Google Maps...`);
     await page.goto('https://www.google.com/maps', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await delay(1000, 2000);
     await sendScreenshot(taskId, page);
     await checkCaptcha(taskId, page);
 
     const searchQuery = `${niche} ${city}`;
+    await reportStage(taskId, `Searching for ${niche} in ${city}...`);
     const searchSelector = 'input#searchboxinput';
     const searchButtonSelector = 'button#searchbox-searchbutton';
 
@@ -705,16 +778,43 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
 
     await delay(3000, 5000);
     await sendScreenshot(taskId, page);
+    await checkCaptcha(taskId, page);
 
-    await logAction(taskId, `Scrape active. Collecting high-quality prospects ...`, 'info');
+    await reportStage(taskId, "Reading page results...");
+    
+    const extractionPrompt = `Extract up to ${maxLeads} B2B business profiles listed in the search results. For each business profile, extract:
+    - businessName (exact business name)
+    - phone (phone number, digits only e.g. "4165550192")
+    - website (valid website URL, or empty if not present)
+    - rating (decimal rating, e.g. "4.2", or empty if not rated)
+    - address (full physical address, e.g. "123 Main St, ${city}")
+    
+    Format the output strictly as a JSON array matching this schema:
+    [{ "businessName": "...", "phone": "...", "website": "...", "rating": "...", "address": "..." }]
+    Output ONLY valid JSON. Absolutely no other text or explanation.`;
 
-    // Run custom high-res business data fallback generation to back up actual browser scrape (highly robust/failsafe)
-    const backupLeads = await generateFallbackLeads(niche, city, maxLeads);
+    const realLeads = await page.extractLeads(extractionPrompt);
+
+    // If realLeads is empty and demo mode is enabled, fall back to marked fallback leads
+    let leadsToSave = realLeads || [];
+    if (leadsToSave.length === 0) {
+      if (process.env.DEMO_FALLBACK === 'true' || process.env.NODE_ENV !== 'production') {
+        await logAction(taskId, "No direct results found. Generating fallback sandbox leads for demonstration purposes.", "warning");
+        leadsToSave = await generateFallbackLeads(niche, city, maxLeads);
+      } else {
+        await reportStage(taskId, "Task failed: no results found on page");
+        throw new Error("Task failed: no results found on page");
+      }
+    }
+
+    await reportStage(taskId, "Saving leads to database...");
     let savedCount = 0;
 
-    for (const lead of backupLeads) {
+    for (let i = 0; i < leadsToSave.length; i++) {
       if (!activeBrowsers.has(taskId)) break;
+      const lead = leadsToSave[i];
 
+      await reportStage(taskId, `Extracting business #${i + 1} of ${leadsToSave.length}...`, `Saving ${lead.businessName}`);
       const formattedP = formatPhone(lead.phone);
       const leadType = !lead.website ? 'no_website' : 'has_website';
 
@@ -728,7 +828,8 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
         city,
         sector: niche,
         market: market || 'english_ca',
-        leadType
+        leadType,
+        isFallback: !!lead.isFallback
       });
 
       if (saved) {
@@ -738,9 +839,9 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
         logAction(taskId, `Skip/Duplicate: ${lead.businessName}`, 'info');
       }
 
-      await updateProgress(taskId, savedCount, maxLeads);
+      await updateProgress(taskId, savedCount, leadsToSave.length);
       await checkCaptcha(taskId, page);
-      await delay(1000, 2500);
+      await delay(500, 1500);
 
       if (savedCount >= maxLeads) break;
     }
@@ -753,10 +854,11 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
       completedAt: new Date().toISOString()
     });
 
-    await logAction(taskId, `✓ Scrape complete. ${savedCount} leads saved securely to database !`, 'success');
+    await reportStage(taskId, `Task complete — ${savedCount} leads found`, `Campaign completed with ${savedCount} prospects retrieved`);
     sendWS(taskId, { type: 'complete', taskId, results: { saved: savedCount } });
 
   } catch (err: any) {
+    await reportStage(taskId, `Task failed: ${err.message || 'Unknown automation error'}`);
     await logAction(taskId, `Session failed: ${err.message}`, 'error');
     console.error(err);
     await db.collection('assix_tasks').doc(taskId).update({ status: 'error' });
@@ -772,6 +874,8 @@ const runPagesJaunesScrape = async (taskId: string, config: any) => {
   const { niche, city, maxLeads = 10 } = config;
   let browser: any, context: any, page: any;
   try {
+    await reportStage(taskId, "Connecting to browser...", `Sourcing campaign active in the background`);
+
     const launch = await launchBrowser(taskId);
     browser = launch.browser;
     context = launch.context;
@@ -779,20 +883,60 @@ const runPagesJaunesScrape = async (taskId: string, config: any) => {
     activeBrowsers.set(taskId, browser);
 
     startScreenshotInterval(taskId, page);
-    await logAction(taskId, `Starting Pages Jaunes Scrape: ${niche} in ${city}`, 'info');
-
+    await reportStage(taskId, `Opening Pages Jaunes...`);
     await page.goto('https://www.pagesjaunes.ca', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await delay(1000, 2000);
     await sendScreenshot(taskId, page);
     await checkCaptcha(taskId, page);
 
-    // AI backed safe generation fallback
-    const backupLeads = await generateFallbackLeads(niche, city, maxLeads);
+    const searchQuery = `${niche} ${city}`;
+    await reportStage(taskId, `Searching for ${niche} in ${city}...`);
+    // Interact with search if possible or construct direct search URL
+    try {
+      await page.goto(`https://www.pagesjaunes.ca/search/si/1/${encodeURIComponent(niche)}/${encodeURIComponent(city)}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    } catch {
+      await logAction(taskId, `Could not navigate directly. Performing fallback navigation.`, 'warning');
+    }
+
+    await delay(3000, 5000);
+    await sendScreenshot(taskId, page);
+    await checkCaptcha(taskId, page);
+
+    await reportStage(taskId, "Reading page results...");
+
+    const extractionPrompt = `Extract up to ${maxLeads} Canadian B2B business profiles listed on this PagesJaunes search results page. For each business profile, extract:
+    - businessName (the business name)
+    - phone (phone number, e.g. "4165550192")
+    - website (valid website URL, or empty if not present)
+    - rating (decimal rating, e.g. "4.2", or empty if not rated)
+    - address (full Canadian address, e.g. "123 Main St, ${city}")
+    
+    Format the output strictly as a JSON array matching this schema:
+    [{ "businessName": "...", "phone": "...", "website": "...", "rating": "...", "address": "..." }]
+    Output ONLY valid JSON. Absolutely no other text or explanation.`;
+
+    const realLeads = await page.extractLeads(extractionPrompt);
+
+    // If realLeads is empty and demo mode is enabled, fall back to marked fallback leads
+    let leadsToSave = realLeads || [];
+    if (leadsToSave.length === 0) {
+      if (process.env.DEMO_FALLBACK === 'true' || process.env.NODE_ENV !== 'production') {
+        await logAction(taskId, "No direct results found on PagesJaunes. Generating fallback sandbox leads for demonstration purposes.", "warning");
+        leadsToSave = await generateFallbackLeads(niche, city, maxLeads);
+      } else {
+        await reportStage(taskId, "Task failed: no results found on page");
+        throw new Error("Task failed: no results found on page");
+      }
+    }
+
+    await reportStage(taskId, "Saving leads to database...");
     let savedCount = 0;
 
-    for (const lead of backupLeads) {
+    for (let i = 0; i < leadsToSave.length; i++) {
       if (!activeBrowsers.has(taskId)) break;
+      const lead = leadsToSave[i];
 
+      await reportStage(taskId, `Extracting business #${i + 1} of ${leadsToSave.length}...`, `Saving ${lead.businessName}`);
       const formattedP = formatPhone(lead.phone);
       const leadType = !lead.website ? 'no_website' : 'has_website';
 
@@ -806,7 +950,8 @@ const runPagesJaunesScrape = async (taskId: string, config: any) => {
         city,
         sector: niche,
         market: 'french_ca',
-        leadType
+        leadType,
+        isFallback: !!lead.isFallback
       });
 
       if (saved) {
@@ -816,9 +961,9 @@ const runPagesJaunesScrape = async (taskId: string, config: any) => {
         logAction(taskId, `Skip duplicate: ${lead.businessName}`, 'info');
       }
 
-      await updateProgress(taskId, savedCount, maxLeads);
+      await updateProgress(taskId, savedCount, leadsToSave.length);
       await checkCaptcha(taskId, page);
-      await delay(1000, 2500);
+      await delay(500, 1500);
 
       if (savedCount >= maxLeads) break;
     }
@@ -831,10 +976,356 @@ const runPagesJaunesScrape = async (taskId: string, config: any) => {
       completedAt: new Date().toISOString()
     });
 
-    await logAction(taskId, `✓ Pages Jaunes automation sequence finished! ${savedCount} leads captured.`, 'success');
+    await reportStage(taskId, `Task complete — ${savedCount} leads found`, `Campaign completed with ${savedCount} Canadian prospects retrieved`);
     sendWS(taskId, { type: 'complete', taskId, results: { saved: savedCount } });
 
   } catch (err: any) {
+    await reportStage(taskId, `Task failed: ${err.message || 'Unknown PagesJaunes automation error'}`);
+    await logAction(taskId, `Session failed: ${err.message}`, 'error');
+    await db.collection('assix_tasks').doc(taskId).update({ status: 'error' });
+  } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
+    activeBrowsers.delete(taskId);
+  }
+};
+
+const runAdGapAnalysis = (adData: { daysRunning: number; activeAdsCount: number }): 'high' | 'medium' | 'low' => {
+  const { daysRunning, activeAdsCount } = adData;
+  if (daysRunning < 30 || activeAdsCount === 1) {
+    return 'high';
+  } else if (daysRunning >= 30 && daysRunning <= 90 && activeAdsCount >= 2 && activeAdsCount <= 3) {
+    return 'medium';
+  } else {
+    return 'low';
+  }
+};
+
+const runFacebookAdsScrape = async (taskId: string, config: any, ...args: any[]) => {
+  let niche = '';
+  let country = 'US';
+  let userId = 'system';
+  let maxLeads = 50;
+
+  if (typeof config === 'object' && config !== null) {
+    niche = config.niche || '';
+    country = config.country || 'US';
+    userId = config.userId || 'system';
+    maxLeads = config.maxLeads || 50;
+  } else {
+    // positional arguments
+    niche = config || '';
+    country = args[0] || 'US';
+    userId = args[1] || 'system';
+  }
+
+  const getPageId = (lead: any) => {
+    if (lead.pageLink) {
+      const parts = lead.pageLink.replace(/\/$/, '').split('/');
+      const last = parts[parts.length - 1];
+      if (last && last !== 'facebook.com' && last !== 'www.facebook.com') {
+        return last;
+      }
+    }
+    if (lead.pageName) {
+      return lead.pageName.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    }
+    return lead.adId || uuidv4();
+  };
+
+  let browser: any, context: any, page: any;
+  try {
+    await reportStage(taskId, "Connecting to browser...");
+    await logAction(taskId, "Connecting to browser...");
+
+    const launch = await launchBrowser(taskId);
+    browser = launch.browser;
+    context = launch.context;
+    page = launch.page;
+    activeBrowsers.set(taskId, browser);
+
+    startScreenshotInterval(taskId, page);
+
+    const targetUrl = `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${encodeURIComponent(country)}&q=${encodeURIComponent(niche)}`;
+    await reportStage(taskId, `Searching Facebook Ads Library for ${niche} in ${country}...`);
+    await logAction(taskId, `Searching Facebook Ads Library for ${niche} in ${country}...`);
+
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await delay(3000, 5000);
+    await sendScreenshot(taskId, page);
+    await checkCaptcha(taskId, page);
+
+    // Pagination / Scrolling to load more ads using infinite scroll
+    await logAction(taskId, "Scrolling to load active ad results...");
+    for (let scroll = 0; scroll < 5; scroll++) {
+      if (!activeBrowsers.has(taskId)) break;
+      await page.evaluate(() => window.scrollBy(0, 1000));
+      await delay(1500, 3000);
+      await sendScreenshot(taskId, page);
+      await checkCaptcha(taskId, page);
+    }
+
+    const extractionPrompt = `We are on the Facebook Ads Library page for niche "${niche}" in country "${country}".
+Extract up to ${maxLeads} active ads. For each ad result, extract:
+- pageName (the exact name of the Facebook page running the ad)
+- pageLink (the URL to their Facebook page or profile, usually starting with facebook.com)
+- adBody (the main body/copy text of the ad)
+- ctaText (the CTA button label, e.g. "Learn More", "Shop Now", or empty if none)
+- adStartDate (the start date text, e.g. "Started running on Jul 8, 2026")
+- adId (the Facebook Ad Library ID, e.g. "1234567890")
+
+Format the output strictly as a JSON array matching this schema:
+[{ "pageName": "...", "pageLink": "...", "adBody": "...", "ctaText": "...", "adStartDate": "...", "adId": "..." }]
+Output ONLY valid JSON. Absolutely no other text or explanation.`;
+
+    const rawLeads = await page.extractLeads(extractionPrompt);
+    const leadsList = rawLeads || [];
+
+    if (leadsList.length === 0) {
+      throw new Error(`No active ads found on Facebook Ads Library for "${niche}" in "${country}".`);
+    }
+
+    // Group ads by advertiser Page Name/Link
+    const groupedLeads = new Map<string, any[]>();
+    for (const lead of leadsList) {
+      const key = lead.pageLink || lead.pageName || 'unknown';
+      if (!groupedLeads.has(key)) {
+        groupedLeads.set(key, []);
+      }
+      groupedLeads.get(key)!.push(lead);
+    }
+
+    const uniqueCount = groupedLeads.size;
+    await reportStage(taskId, `Found ${uniqueCount} active advertisers...`);
+    await logAction(taskId, `Found ${uniqueCount} active advertisers...`);
+
+    await reportStage(taskId, "Saving leads to database...");
+    await logAction(taskId, "Saving leads to database...");
+
+    let idx = 0;
+    let savedCount = 0;
+    for (const [key, ads] of groupedLeads.entries()) {
+      if (!activeBrowsers.has(taskId)) break;
+      idx++;
+
+      const firstLead = ads[0];
+      const pageName = firstLead.pageName || 'Unknown Page';
+      const pageLink = firstLead.pageLink || '';
+      const pageId = getPageId(firstLead);
+
+      await reportStage(taskId, `Extracting ad #${idx} of ${uniqueCount}...`, `Processing ${pageName}`);
+      await logAction(taskId, `Processing advertiser: ${pageName} with ${ads.length} active ads`);
+
+      let maxDaysRunning = 0;
+      for (const ad of ads) {
+        let daysRunning = 0;
+        if (ad.adStartDate) {
+          try {
+            const cleanedDateStr = ad.adStartDate.replace(/Started running on/i, '').trim();
+            const startDate = new Date(cleanedDateStr);
+            if (!isNaN(startDate.getTime())) {
+              const diffTime = Math.abs(Date.now() - startDate.getTime());
+              daysRunning = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            }
+          } catch (e) {
+            console.error("Failed to parse adStartDate:", e);
+          }
+        }
+        ad.daysRunning = daysRunning;
+        if (daysRunning > maxDaysRunning) {
+          maxDaysRunning = daysRunning;
+        }
+      }
+
+      const activeAdsCount = ads.length;
+      const opportunityScore = runAdGapAnalysis({ daysRunning: maxDaysRunning, activeAdsCount });
+
+      try {
+        const leadRef = db.collection('leads').doc(pageId);
+        await leadRef.set({
+          taskId,
+          company: pageName,
+          businessName: pageName,
+          sector: niche,
+          city: firstLead.city || country || '',
+          website: firstLead.pageLink || '',
+          phone: null,
+          gapScore: opportunityScore === 'high' ? 95 : opportunityScore === 'medium' ? 65 : 35,
+          gapFound: [`Running Facebook ads for only ${maxDaysRunning} days`],
+          source: 'facebook_ads',
+          sourceUrl: firstLead.pageLink || '',
+          createdAt: new Date().toISOString(),
+          sentToClose: false,
+          status: 'new',
+          leadType: firstLead.pageLink ? 'has_website' : 'no_website',
+          opportunity: opportunityScore,
+          daysRunning: maxDaysRunning,
+          activeAdsCount,
+          ads: ads.map(a => ({
+            adId: a.adId || '',
+            adBody: a.adBody || '',
+            ctaText: a.ctaText || '',
+            adStartDate: a.adStartDate || '',
+            daysRunning: a.daysRunning || 0
+          }))
+        });
+        savedCount++;
+      } catch (fsErr: any) {
+        console.error(`Failed to save Facebook ad lead to Firestore:`, fsErr);
+      }
+
+      await updateProgress(taskId, savedCount, uniqueCount);
+      await checkCaptcha(taskId, page);
+      await delay(500, 1500);
+    }
+
+    await db.collection('assix_tasks').doc(taskId).update({
+      status: 'complete',
+      totalFound: savedCount,
+      completedAt: new Date().toISOString()
+    });
+
+    await reportStage(taskId, `Task complete — ${savedCount} advertisers found`);
+    sendWS(taskId, { type: 'complete', taskId, results: { saved: savedCount } });
+
+  } catch (err: any) {
+    await reportStage(taskId, `Task failed: ${err.message || 'Unknown Facebook Ads automation error'}`);
+    await logAction(taskId, `Session failed: ${err.message}`, 'error');
+    await db.collection('assix_tasks').doc(taskId).update({ status: 'error' });
+  } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
+    activeBrowsers.delete(taskId);
+  }
+};
+
+const runFacebookGroupsScrape = async (taskId: string, config: any, ...args: any[]) => {
+  let niche = '';
+  let userId = 'system';
+  let maxLeads = 50;
+
+  if (typeof config === 'object' && config !== null) {
+    niche = config.niche || '';
+    userId = config.userId || 'system';
+    maxLeads = config.maxLeads || 50;
+  } else {
+    niche = config || '';
+    userId = args[1] || 'system';
+  }
+
+  let browser: any, context: any, page: any;
+  try {
+    await reportStage(taskId, "Connecting to browser...");
+    await logAction(taskId, "Connecting to browser...");
+
+    const launch = await launchBrowser(taskId);
+    browser = launch.browser;
+    context = launch.context;
+    page = launch.page;
+    activeBrowsers.set(taskId, browser);
+
+    startScreenshotInterval(taskId, page);
+
+    const targetUrl = `https://www.facebook.com/search/posts/?q=${encodeURIComponent(niche)}`;
+    await reportStage(taskId, `Searching Facebook Groups posts for "${niche}"...`);
+    await logAction(taskId, `Searching Facebook Groups posts for "${niche}"...`);
+
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await delay(3000, 5000);
+    await sendScreenshot(taskId, page);
+    await checkCaptcha(taskId, page);
+
+    await logAction(taskId, "Scrolling to load posts...");
+    for (let scroll = 0; scroll < 5; scroll++) {
+      if (!activeBrowsers.has(taskId)) break;
+      await page.evaluate(() => window.scrollBy(0, 1000));
+      await delay(1500, 3000);
+      await sendScreenshot(taskId, page);
+      await checkCaptcha(taskId, page);
+    }
+
+    const extractionPrompt = `We are on the Facebook search page for posts matching "${niche}".
+Extract up to ${maxLeads} posts where people or businesses are asking for recommendations, help, or service providers.
+For each post, extract:
+- authorName (the name of the person or company who posted)
+- profileLink (link to their Facebook profile/page)
+- postText (the content/copy of their post)
+- groupName (the name of the Facebook group they posted in, or blank if it's a public timeline post)
+- postLink (direct link to the post if available)
+- city (location mentioned in the post, or blank if none)
+- website (website URL mentioned, or blank if none)
+- confidenceScore (a number between 40 and 100 reflecting how relevant their post is to someone selling digital/marketing/agency services, e.g. asking for "web design" is 95, asking for general help is 60)
+
+Format the output strictly as a JSON array matching this schema:
+[{ "authorName": "...", "profileLink": "...", "postText": "...", "groupName": "...", "postLink": "...", "city": "...", "website": "...", "confidenceScore": 85 }]
+Output ONLY valid JSON. Absolutely no other text or explanation.`;
+
+    const rawLeads = await page.extractLeads(extractionPrompt);
+    const leadsList = rawLeads || [];
+
+    if (leadsList.length === 0) {
+      throw new Error(`No posts found on Facebook search for "${niche}".`);
+    }
+
+    await reportStage(taskId, `Found ${leadsList.length} relevant posts...`);
+    await logAction(taskId, `Found ${leadsList.length} relevant posts...`);
+
+    await reportStage(taskId, "Saving leads to database...");
+    await logAction(taskId, "Saving leads to database...");
+
+    let savedCount = 0;
+    for (let i = 0; i < leadsList.length; i++) {
+      if (!activeBrowsers.has(taskId)) break;
+      const lead = leadsList[i];
+      const authorName = lead.authorName || 'Facebook User';
+      const score = lead.confidenceScore || 85;
+      const groupName = lead.groupName || 'Facebook Group';
+
+      await reportStage(taskId, `Saving post #${i + 1} of ${leadsList.length}...`, `Processing ${authorName}`);
+
+      try {
+        const leadRef = db.collection('leads').doc();
+        await leadRef.set({
+          taskId,
+          company: authorName,
+          businessName: authorName,
+          sector: niche,
+          city: lead.city || '',
+          website: lead.website || lead.profileLink || '',
+          phone: null,
+          gapScore: score,
+          gapFound: [`Posted asking for marketing help in ${groupName}`],
+          source: 'facebook_groups',
+          sourceUrl: lead.postLink || lead.profileLink || '',
+          createdAt: new Date().toISOString(),
+          sentToClose: false,
+          status: 'new',
+          leadType: lead.website ? 'has_website' : 'no_website'
+        });
+        savedCount++;
+        await logAction(taskId, `✓ Saved lead: ${authorName}`, 'success');
+      } catch (fsErr: any) {
+        console.error(`Failed to save Facebook group lead to Firestore:`, fsErr);
+      }
+
+      await updateProgress(taskId, savedCount, leadsList.length);
+      await checkCaptcha(taskId, page);
+      await delay(500, 1500);
+    }
+
+    await db.collection('assix_tasks').doc(taskId).update({
+      status: 'complete',
+      totalFound: savedCount,
+      completedAt: new Date().toISOString()
+    });
+
+    await reportStage(taskId, `Task complete — ${savedCount} Facebook Group leads found`);
+    sendWS(taskId, { type: 'complete', taskId, results: { saved: savedCount } });
+
+  } catch (err: any) {
+    await reportStage(taskId, `Task failed: ${err.message || 'Unknown Facebook Groups automation error'}`);
     await logAction(taskId, `Session failed: ${err.message}`, 'error');
     await db.collection('assix_tasks').doc(taskId).update({ status: 'error' });
   } finally {
@@ -1452,6 +1943,10 @@ app.post('/api/task/start', async (req, res) => {
       intent = `Search for "${config.niche || ''}" in "${config.city || ''}" on Google Maps, find matching businesses, and extract their details (name, phone, website, rating, address).`;
     } else if (taskType === 'pages_jaunes_scrape') {
       intent = `Search for "${config.niche || ''}" in "${config.city || ''}" on Pages Jaunes, find matching businesses, and extract their details.`;
+    } else if (taskType === 'facebook_ads_scrape') {
+      intent = `Search Facebook Ads Library for "${config.niche || ''}" in "${config.country || 'US'}" and extract active ads.`;
+    } else if (taskType === 'facebook_groups_scrape') {
+      intent = `Search Facebook Groups for posts about "${config.niche || ''}" and extract lead details.`;
     } else if (taskType === 'instagram_dm') {
       intent = `Go to Instagram, send direct message to targets: ${(config.targets || []).join(', ')} with the text: "${config.message || ''}".`;
     } else if (taskType === 'whatsapp_outreach') {
@@ -1466,7 +1961,17 @@ app.post('/api/task/start', async (req, res) => {
       intent = label || config.goal || 'Execute web browser task';
     }
 
-    runTask(taskId, intent, config.userId || 'system', io);
+    if (taskType === 'google_maps_scrape') {
+      runGoogleMapsScrape(taskId, config);
+    } else if (taskType === 'pages_jaunes_scrape') {
+      runPagesJaunesScrape(taskId, config);
+    } else if (taskType === 'facebook_ads_scrape') {
+      runFacebookAdsScrape(taskId, config);
+    } else if (taskType === 'facebook_groups_scrape') {
+      runFacebookGroupsScrape(taskId, config);
+    } else {
+      runTask(taskId, intent, config.userId || 'system', io);
+    }
 
     res.json({ taskId });
   } catch (err: any) {
@@ -1712,8 +2217,15 @@ Respond only with a JSON object in the following format:
 
 app.post('/api/screenshot', async (req, res) => {
   try {
-    const { browserId } = req.body;
-    const screenshot = await takeScreenshot(browserId);
+    const { browserId, taskId } = req.body;
+    const targetId = taskId || browserId;
+    const activeBrowser = activeBrowsers.get(targetId);
+    if (activeBrowser && activeBrowser.page) {
+      const screenshot = await activeBrowser.page.screenshot({ encoding: 'base64' });
+      return res.json({ screenshot });
+    }
+    // Fallback to stealth browser screenshot if exists
+    const screenshot = await takeScreenshot(browserId || taskId);
     res.json({ screenshot });
   } catch (err: any) {
     console.error("API screenshot failed:", err.message);
@@ -1885,16 +2397,6 @@ app.post('/api/task/:taskId/submit-input', async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/screenshot', async (req, res) => {
-  const { browserId } = req.body;
-  try {
-    const screenshot = await takeScreenshot(browserId);
-    res.json({ screenshot });
-  } catch (err: any) {
-    res.json({ error: err.message });
   }
 });
 

@@ -9,7 +9,8 @@ import {
   Linkedin, 
   MessageSquare, 
   X, 
-  Sparkles 
+  Sparkles,
+  Facebook
 } from 'lucide-react';
 
 interface LeadCardProps {
@@ -80,14 +81,24 @@ export const LeadCard: React.FC<LeadCardProps> = ({
               🏢
             </div>
           )}
+          {lead.source?.startsWith('facebook') && (
+            <Facebook className="w-3.5 h-3.5 text-[#1877F2] shrink-0" />
+          )}
           <h4 className="text-xs font-bold text-[#F5F5F5] group-hover:text-white transition truncate" title={displayName}>
             {displayName}
           </h4>
         </div>
 
-        {/* Gap Score Badge */}
-        <div className={`px-2 py-0.5 rounded border text-[8px] font-extrabold tracking-wider shrink-0 select-none ${getScoreColor(score)}`}>
-          GAP SCORE: {score}
+        {/* Gap Score and Fallback Badge */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {lead.isFallback && (
+            <div className="px-2 py-0.5 rounded border border-red-500/20 bg-red-500/10 text-red-400 text-[8px] font-extrabold tracking-wider select-none">
+              DEMO DATA
+            </div>
+          )}
+          <div className={`px-2 py-0.5 rounded border text-[8px] font-extrabold tracking-wider shrink-0 select-none ${getScoreColor(score)}`}>
+            GAP SCORE: {score}
+          </div>
         </div>
       </div>
 

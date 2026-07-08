@@ -25,10 +25,31 @@ async function fetchRedditJobs(
       description: p.selftext?.substring(0, 400),
       platform: 'reddit',
       subreddit: p.subreddit,
-      url: `https://reddit.com\${p.permalink}`,
+      url: `https://reddit.com${p.permalink}`,
       author: p.author,
       postedAt: new Date(p.created_utc * 1000)
         .toISOString()
+    }));
+}
+
+async function searchRedditByKeyword(keyword: string): Promise<any[]> {
+  const targetUrl = `https://www.reddit.com/search.json?q=${encodeURIComponent(keyword)}&sort=new&limit=25&t=day`;
+  const res = await fetch(targetUrl, {
+    headers: { 'User-Agent': 'AssixAgent/1.0' }
+  });
+  const data = await res.json();
+  const posts = data?.data?.children || [];
+  return posts
+    .map((p: any) => p.data)
+    .map((p: any) => ({
+      id: p.id,
+      title: p.title,
+      description: p.selftext?.substring(0, 400),
+      platform: 'reddit',
+      subreddit: p.subreddit,
+      url: `https://reddit.com${p.permalink}`,
+      author: p.author,
+      postedAt: new Date(p.created_utc * 1000).toISOString()
     }));
 }
 
@@ -43,7 +64,7 @@ async function fetchHNJobs(): Promise<any[]> {
     title: h.title,
     description: h.story_text || h.title,
     platform: 'hackernews',
-    url: h.url || `https://news.ycombinator.com/item?id=\${h.objectID}`,
+    url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
     postedAt: h.created_at
   }));
 }
@@ -55,7 +76,7 @@ async function scoreJob(
   const response = await callAI('job_scorer', [{
     role: 'system',
     content: `Score this freelance job 0-100 for 
-    someone with these skills: \${userSkills.join(', ')}
+    someone with these skills: ${userSkills.join(', ')}
     
     Return ONLY valid JSON:
     {
@@ -68,7 +89,7 @@ async function scoreJob(
     }`
   }, {
     role: 'user',
-    content: `Job: \${job.title}\n\${job.description}`
+    content: `Job: ${job.title}\n${job.description}`
   }]);
   
   try {
@@ -88,6 +109,33 @@ export async function runFreelanceMonitor(
     'automation', 'scraping', 'lead generation',
     'research', 'content writing', 'outreach',
     'need someone', 'ISO', 'seeking'
+  ];
+
+  const searchKeywords = [
+    // English keywords covering scraping, outreach, lead gen, marketing, automation, tech hiring
+    'need web scraper',
+    'hire web scraper',
+    'web scraping help',
+    'lead generation help',
+    'need automation',
+    'hire automation developer',
+    'zapier integration help',
+    'make.com automation',
+    'cold outreach campaign',
+    'LinkedIn outreach setup',
+    'outreach specialist',
+    'prospecting script',
+    'hiring browser automation',
+    'scraping expert',
+    'zapier developer',
+    'make expert automation',
+    // French keywords
+    'automatisations marketing',
+    'génération de leads',
+    'web scraping français',
+    'recrutement scraping',
+    'recherche freelance automation',
+    'expert zapier'
   ];
 
   const userSkills = [
@@ -116,29 +164,73 @@ export async function runFreelanceMonitor(
     }
   ];
 
-  const allJobs: any[] = [];
+  const monitorJobs: any[] = [];
 
+  // 1. Monitor subreddits as-is
   for (const platform of platforms) {
     try {
       const jobs = await fetchRedditJobs(
         platform.url, keywords
       );
-      allJobs.push(...jobs.map(j => ({
-        ...j, platform: platform.name
+      monitorJobs.push(...jobs.map(j => ({
+        ...j,
+        platform: platform.name,
+        source: platform.name,
+        matchType: 'subreddit_monitor' as const
       })));
     } catch (err) {
-      console.error(`Failed to fetch jobs for \${platform.name}:`, err);
+      console.error(`Failed to fetch jobs for ${platform.name}:`, err);
     }
     await new Promise(r => setTimeout(r, 1000));
   }
 
+  // 2. Fetch Hacker News jobs as-is
   try {
     const hnJobs = await fetchHNJobs();
-    allJobs.push(...hnJobs);
+    monitorJobs.push(...hnJobs.map(j => ({
+      ...j,
+      source: 'hackernews',
+      matchType: 'subreddit_monitor' as const
+    })));
   } catch (err) {
     console.error(`Failed to fetch HN jobs:`, err);
   }
 
+  // 3. New site-wide keyword search with at least 1.5s delay
+  const keywordJobs: any[] = [];
+  for (const kw of searchKeywords) {
+    try {
+      const jobs = await searchRedditByKeyword(kw);
+      keywordJobs.push(...jobs.map(j => ({
+        ...j,
+        source: `reddit_search_${kw.toLowerCase().replace(/\s+/g, '_')}`,
+        matchType: 'keyword_search' as const
+      })));
+    } catch (err) {
+      console.error(`Failed keyword search for "${kw}":`, err);
+    }
+    await new Promise(r => setTimeout(r, 1600));
+  }
+
+  // 4. Combine and deduplicate by id
+  const seenIds = new Set<string>();
+  const allJobs: any[] = [];
+
+  for (const job of monitorJobs) {
+    if (!seenIds.has(job.id)) {
+      seenIds.add(job.id);
+      allJobs.push(job);
+    }
+  }
+
+  for (const job of keywordJobs) {
+    if (!seenIds.has(job.id)) {
+      seenIds.add(job.id);
+      allJobs.push(job);
+    }
+  }
+
+  // 5. Score and save to Firestore under the exact existing path
   for (const job of allJobs) {
     try {
       const existing = await db
@@ -162,7 +254,7 @@ export async function runFreelanceMonitor(
       onJobFound(fullJob);
       await new Promise(r => setTimeout(r, 500));
     } catch (err) {
-      console.error(`Failed to process job \${job.id}:`, err);
+      console.error(`Failed to process job ${job.id}:`, err);
     }
   }
 }

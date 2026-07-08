@@ -84,6 +84,8 @@ const WS_URL = getWsUrlFromUrl(SERVER);
 const TASK_TYPES = [
   { id: 'google_maps_scrape', label: 'Google Maps Scrape', desc: 'Scan local listings for website, phone, and coordinates' },
   { id: 'pages_jaunes_scrape', label: 'Pages Jaunes Scrape', desc: 'Extract Canadian/French B2B directory prospects' },
+  { id: 'facebook_ads_scrape', label: 'Facebook Ads Scrape', desc: 'Scrape and analyze Facebook Ads Library for active ads' },
+  { id: 'facebook_groups_scrape', label: 'Facebook Groups Scrape', desc: 'Search and extract prospect leads from Facebook Group posts' },
   { id: 'instagram_dm', label: 'Instagram DM Campaign', desc: 'Auto-pilot outreach to targeted IG influencers/brands' },
   { id: 'whatsapp_outreach', label: 'WhatsApp Outreach', desc: 'Bulk delivery of personalized WhatsApp followups' },
   { id: 'market_research', label: 'Market Research', desc: 'Scrape Reddit/Google/Yelp for customer feedback analysis' },
@@ -152,7 +154,7 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
 
   // Polling screenshot every 3 seconds during active task
   useEffect(() => {
-    if (!browserId || (status !== 'running' && status !== 'intervention')) return;
+    if ((!browserId && !taskId) || (status !== 'running' && status !== 'intervention')) return;
 
     const interval = setInterval(async () => {
       try {
@@ -161,7 +163,7 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ browserId })
+          body: JSON.stringify({ browserId, taskId })
         });
         if (res.ok) {
           const data = await res.json();
@@ -178,7 +180,7 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [browserId, status, serverUrl]);
+  }, [browserId, taskId, status, serverUrl]);
 
   useEffect(() => {
     if (!taskId) return;
@@ -832,7 +834,7 @@ export default function App() {
 
   // Leads manager states
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [leadsFilter, setLeadsFilter] = useState<'all' | 'no-website' | 'has-website'>('all');
+  const [leadsFilter, setLeadsFilter] = useState<'all' | 'no-website' | 'has-website' | 'facebook_ads' | 'facebook_groups'>('all');
   const [leadsSearch, setLeadsSearch] = useState<string>('');
   const [pushingLeadId, setPushingLeadId] = useState<string | null>(null);
   const [batchPushing, setBatchPushing] = useState<boolean>(false);
@@ -1044,6 +1046,13 @@ export default function App() {
     if (newTaskType === 'google_maps_scrape' || newTaskType === 'pages_jaunes_scrape') {
       if (!taskConfig.niche || !taskConfig.city) {
         alert('Please indicate niche and city objectives before continuing');
+        return;
+      }
+    }
+
+    if (newTaskType === 'facebook_ads_scrape' || newTaskType === 'facebook_groups_scrape') {
+      if (!taskConfig.niche) {
+        alert('Please indicate niche/keyword objective before continuing');
         return;
       }
     }
@@ -2346,9 +2355,11 @@ export default function App() {
       }
     }
 
-    // Leads filter pill ('no-website' or 'has-website')
+    // Leads filter pill ('no-website' or 'has-website' or 'facebook_ads' or 'facebook_groups')
     if (leadsFilter === 'no-website' && l.website) return false;
     if (leadsFilter === 'has-website' && !l.website) return false;
+    if (leadsFilter === 'facebook_ads' && l.source !== 'facebook_ads') return false;
+    if (leadsFilter === 'facebook_groups' && l.source !== 'facebook_groups') return false;
 
     return true;
   }).slice(0, filterCount);
@@ -4173,6 +4184,18 @@ export default function App() {
                         >
                           Has Website
                         </button>
+                        <button 
+                          onClick={() => setLeadsFilter('facebook_ads')} 
+                          className={`px-4 py-1.5 text-[8px] font-bold tracking-wider uppercase rounded-full transition ${leadsFilter === 'facebook_ads' ? 'bg-[#F5F5F5] text-black' : 'text-[#52525B] hover:text-white bg-transparent'}`}
+                        >
+                          Facebook Ads
+                        </button>
+                        <button 
+                          onClick={() => setLeadsFilter('facebook_groups')} 
+                          className={`px-4 py-1.5 text-[8px] font-bold tracking-wider uppercase rounded-full transition ${leadsFilter === 'facebook_groups' ? 'bg-[#F5F5F5] text-black' : 'text-[#52525B] hover:text-white bg-transparent'}`}
+                        >
+                          Facebook Groups
+                        </button>
                       </div>
 
                       {/* Layout Toggle */}
@@ -5717,8 +5740,15 @@ export default function App() {
                             <div className="space-y-2">
                               <div className="flex items-start justify-between gap-2.5">
                                 <div className="min-w-0">
-                                  <span className="text-[8px] font-bold text-emerald-400 tracking-wider uppercase block">{job.source?.toUpperCase()}</span>
-                                  <h4 className="text-[11px] font-extrabold text-[#E4E4E7] uppercase leading-snug tracking-wider mt-0.5">{job.title}</h4>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[8px] font-bold text-emerald-400 tracking-wider uppercase block">{job.source?.toUpperCase()}</span>
+                                    {job.matchType && (
+                                      <span className="text-[7px] font-mono font-bold text-zinc-400 bg-[#141416] border border-[#222] px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                        {job.matchType.replace('_', ' ')}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <h4 className="text-[11px] font-extrabold text-[#E4E4E7] uppercase leading-snug tracking-wider mt-1">{job.title}</h4>
                                 </div>
                                 <span className={`px-2.5 py-1 rounded text-[9px] font-mono font-bold uppercase tracking-wider border shrink-0 ${scoreColor}`}>
                                   SCORE: {job.score}/100
@@ -6202,6 +6232,71 @@ export default function App() {
                       type="number" 
                       defaultValue={20}
                       onChange={e => setTaskConfig((c: any) => ({ ...c, maxLeads: parseInt(e.target.value) || 20 }))}
+                      className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
+                    />
+                  </div>
+                </>
+              )}
+
+              {newTaskType === 'facebook_ads_scrape' && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">INDUSTRY / KEYWORD</label>
+                      <input 
+                        type="text"
+                        placeholder="e.g. real estate"
+                        onChange={e => setTaskConfig((c: any) => ({ ...c, niche: e.target.value }))}
+                        className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">TARGET COUNTRY CODE</label>
+                      <select 
+                        onChange={e => setTaskConfig((c: any) => ({ ...c, country: e.target.value }))}
+                        className="w-full bg-[#080808] border border-[#222225] select-none text-xs rounded px-3 py-2 text-white outline-none focus:border-[#7C5335]"
+                      >
+                        <option value="ALL">All Countries</option>
+                        <option value="US">United States (US)</option>
+                        <option value="CA">Canada (CA)</option>
+                        <option value="GB">United Kingdom (GB)</option>
+                        <option value="FR">France (FR)</option>
+                        <option value="DE">Germany (DE)</option>
+                        <option value="AU">Australia (AU)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">MAX ADS TO EXTRACT</label>
+                    <input 
+                      type="number" 
+                      defaultValue={50}
+                      onChange={e => setTaskConfig((c: any) => ({ ...c, maxLeads: parseInt(e.target.value) || 50 }))}
+                      className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
+                    />
+                  </div>
+                </>
+              )}
+
+              {newTaskType === 'facebook_groups_scrape' && (
+                <>
+                  <div>
+                    <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">KEYWORD / NICHE TO SEARCH</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. web design recommendations"
+                      onChange={e => setTaskConfig((c: any) => ({ ...c, niche: e.target.value }))}
+                      className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">MAX LEADS TO EXTRACT</label>
+                    <input 
+                      type="number" 
+                      defaultValue={50}
+                      onChange={e => setTaskConfig((c: any) => ({ ...c, maxLeads: parseInt(e.target.value) || 50 }))}
                       className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
                     />
                   </div>
