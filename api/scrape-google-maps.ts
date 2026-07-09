@@ -1,20 +1,30 @@
+import { z } from 'zod';
 import { db } from '../firebase-client-wrapper';
-import { launchBrowserbaseSession } from './_lib/browserbaseSession';
+import { launchStagehandSession } from './_lib/stagehandSession';
 
 export const config = { maxDuration: 300 };
+
+const GoogleMapsLeadSchema = z.object({
+  leads: z.array(z.object({
+    name: z.string().describe("The name of the business"),
+    phone: z.string().optional().describe("The phone number of the business if listed"),
+    website: z.string().optional().describe("The website URL of the business if listed"),
+    address: z.string().optional().describe("The physical address or location of the business"),
+    rating: z.string().optional().describe("The user rating, e.g., '4.5'")
+  })).describe("List of business listings found on Google Maps")
+});
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { query, city, count, taskId, userId } = req.body;
+  const { query, city, count, taskId } = req.body;
   if (!taskId) {
     return res.status(400).json({ error: 'Missing taskId' });
   }
 
-  let session: any;
-  let browser: any;
+  let stagehandInstance: any = null;
 
   const updateFirestore = async (fields: any) => {
     try {
@@ -26,11 +36,6 @@ export default async function handler(req: any, res: any) {
   };
 
   try {
-    const conn = await launchBrowserbaseSession();
-    session = conn.session;
-    browser = conn.browser;
-    const page = conn.page;
-
     const initialTask = {
       taskId,
       taskType: 'google_maps_scrape',
@@ -38,8 +43,7 @@ export default async function handler(req: any, res: any) {
       config: { query, city, count },
       status: 'running',
       step: 'starting',
-      description: 'Browser starting...',
-      steelDebugUrl: conn.debugUrl, // reuse existing field name LiveViewer already checks
+      description: 'Launching Stagehand Browser Session...',
       leadsCount: 0,
       progress: 0,
       total: count || 20,
@@ -49,92 +53,46 @@ export default async function handler(req: any, res: any) {
     await db.collection('tasks').doc(taskId).set(initialTask);
     await db.collection('assix_tasks').doc(taskId).set(initialTask);
 
+    const { stagehand, liveViewUrl } = await launchStagehandSession();
+    stagehandInstance = stagehand;
+
+    await updateFirestore({
+      steelDebugUrl: liveViewUrl,
+      description: 'Browser session connected.'
+    });
+
     const searchUrl = `https://www.google.com/maps/search/${encodeURIComponent(query + ' ' + city)}`;
     
     await updateFirestore({
       step: 'navigating',
-      description: `Navigating to search page...`
+      description: `Navigating to: ${searchUrl}`
     });
 
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(4000); // Wait for results to stabilize
-
-    let screenshot = '';
-    try {
-      screenshot = (await page.screenshot({ type: 'jpeg', quality: 50 })).toString('base64');
-    } catch (e) {
-      screenshot = '';
+    const page = stagehand.context.activePage();
+    if (!page) {
+      throw new Error("No active page found in Stagehand session");
     }
+    await page.goto(searchUrl, { waitUntil: 'load' });
 
-    await updateFirestore({
-      step: 'scrolling',
-      description: 'Scrolling results pane...',
-      ...(screenshot ? { screenshot } : {})
-    });
-
-    // Try to scroll the feed list
-    try {
-      await page.evaluate(async () => {
-        const feed = document.querySelector('div[role="feed"]');
-        if (feed) {
-          for (let i = 0; i < 5; i++) {
-            feed.scrollBy(0, 1000);
-            await new Promise(r => setTimeout(r, 1000));
-          }
-        } else {
-          window.scrollBy(0, 1000);
-          await new Promise(r => setTimeout(r, 1000));
-        }
-      });
-    } catch (scrollErr) {
-      console.warn('Scrolling failed:', scrollErr);
-    }
-
-    try {
-      screenshot = (await page.screenshot({ type: 'jpeg', quality: 50 })).toString('base64');
-    } catch (e) {
-      screenshot = '';
-    }
-
+    // Inform user of progress
     await updateFirestore({
       step: 'extracting',
-      description: 'Extracting business leads...',
-      ...(screenshot ? { screenshot } : {})
+      description: 'Extracting Google Maps business listings...'
     });
 
-    // Direct evaluation extraction
-    const results = await page.evaluate(() => {
-      const links = Array.from(document.querySelectorAll('a[href*="/maps/place/"]'));
-      return links.map(link => {
-        const container = link.closest('div[role="article"]') || link.parentElement?.parentElement?.parentElement;
-        const name = container?.querySelector('div.fontHeadlineLarge, h1, .qBF1Pd')?.textContent?.trim() || link.getAttribute('aria-label') || '';
-        const textContent = container?.textContent || '';
-        const phoneMatch = textContent.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-        const phone = phoneMatch ? phoneMatch[0] : '';
-        const ratingElement = container?.querySelector('span.MW4etd');
-        const rating = ratingElement ? ratingElement.textContent?.trim() : '';
-        const websiteElement = container?.querySelector('a[data-value="Site Web"], a[data-item-id="authority"]');
-        const website = websiteElement ? websiteElement.getAttribute('href') || '' : '';
-        const addressElement = container?.querySelector('button[data-item-id*="address"]')?.textContent?.trim() || '';
+    const extraction: any = await stagehand.extract(
+      `Extract a list of business listings matching "${query}" in "${city}" from the search results pane, up to ${count || 20} items. Find company/business name, phone, website, rating, and address.`,
+      GoogleMapsLeadSchema
+    );
 
-        return {
-          businessName: name,
-          phone: phone,
-          website: website,
-          rating: rating,
-          address: addressElement || textContent.replace(/\s+/g, ' ').trim().slice(0, 150)
-        };
-      }).filter(item => item.businessName);
-    });
-
-    // Limit to requested count
-    const finalResults = results.slice(0, count || 20);
+    const finalResults = extraction?.leads || [];
 
     let savedCount = 0;
     const leadsCollection = db.collection('leads');
 
     for (const lead of finalResults) {
-      const businessName = lead.businessName || 'Google Maps Lead';
+      if (!lead.name) continue;
+      const businessName = lead.name;
       const phone = lead.phone || '';
       const website = lead.website || '';
       const rating = lead.rating || '';
@@ -169,34 +127,24 @@ export default async function handler(req: any, res: any) {
         await updateFirestore({ leadsCount: savedCount });
       } catch (addErr: any) {
         console.error('Failed to add Google Maps lead:', addErr);
-        const errMsg = `Failed to add Google Maps lead: ${addErr?.message || String(addErr)}`;
-        await updateFirestore({ description: errMsg });
       }
     }
 
-    try {
-      screenshot = (await page.screenshot({ type: 'jpeg', quality: 50 })).toString('base64');
-    } catch (e) {
-      screenshot = '';
-    }
-
-    const finalUpdate = {
+    await updateFirestore({
       status: 'complete',
       step: 'complete',
       description: `Task complete — ${savedCount} leads found`,
       leadsCount: savedCount,
-      results: { saved: savedCount, leads: finalResults },
-      ...(screenshot ? { screenshot } : {})
-    };
+      results: { saved: savedCount, leads: finalResults }
+    });
 
-    await updateFirestore(finalUpdate);
     return res.status(200).json({ success: true, taskId, savedCount });
 
   } catch (err: any) {
     console.error('Google Maps task error:', err);
     let errMsg = err?.message || String(err);
-    if (errMsg.includes('limit') || errMsg.includes('quota')) {
-      errMsg = 'Browserbase free tier limit reached this month.';
+    if (errMsg.includes('limit') || errMsg.includes('quota') || errMsg.includes('credits')) {
+      errMsg = 'Browserbase free tier limit or quota reached this month.';
     } else if (errMsg.includes('timeout') || errMsg.includes('disconnected')) {
       errMsg = `Browserbase session expired or disconnected: ${errMsg}`;
     }
@@ -207,8 +155,10 @@ export default async function handler(req: any, res: any) {
     });
     return res.status(500).json({ error: errMsg });
   } finally {
-    try {
-      if (browser) await browser.close();
-    } catch (e) {}
+    if (stagehandInstance) {
+      try {
+        await stagehandInstance.close();
+      } catch (e) {}
+    }
   }
 }

@@ -1,18 +1,26 @@
 import { db } from '../../firebase-client-wrapper';
-import { callAI } from '../../services/aiService';
-import { launchBrowserbaseSession } from '../_lib/browserbaseSession';
+import { launchStagehandSession } from '../_lib/stagehandSession';
+import { z } from 'zod';
 
 export const config = { maxDuration: 300 };
+
+const leadShape = z.object({
+  leads: z.array(z.object({
+    name: z.string().describe("The name of the business/company/lead"),
+    phone: z.string().describe("The phone number of the business/lead"),
+    address: z.string().describe("The address of the business/lead"),
+    website: z.string().describe("The website URL of the business/lead")
+  })).describe("A list of leads/businesses found on the page matching the query/goal")
+});
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { goal, taskId: providedTaskId } = req.body;
+  const { goal, taskId: providedTaskId, context } = req.body;
   const taskId = providedTaskId || `dyn-${Date.now()}`;
-  let session: any;
-  let browser: any;
+  let stagehandInstance: any = null;
 
   const updateFirestore = async (fields: any) => {
     try {
@@ -24,18 +32,13 @@ export default async function handler(req: any, res: any) {
   };
 
   try {
-    const conn = await launchBrowserbaseSession();
-    session = conn.session; 
-    browser = conn.browser;
-    const page = conn.page;
-
     const initialTask = {
       taskId, 
       taskType: 'dynamic', 
       status: 'running',
       step: 'starting', 
-      description: 'Browser starting...',
-      steelDebugUrl: conn.debugUrl, // reuse existing field name LiveViewer already checks
+      description: 'Launching remote browser session with Stagehand...',
+      steelDebugUrl: '', 
       leadsCount: 0, 
       createdAt: new Date().toISOString()
     };
@@ -43,78 +46,53 @@ export default async function handler(req: any, res: any) {
     await db.collection('tasks').doc(taskId).set(initialTask);
     await db.collection('assix_tasks').doc(taskId).set(initialTask);
 
-    let done = false, attempts = 0;
-    const maxAttempts = 20;
-    const allResults: any[] = [];
+    // Launch Stagehand Session
+    const { stagehand, liveViewUrl } = await launchStagehandSession();
+    stagehandInstance = stagehand;
 
-    while (!done && attempts < maxAttempts) {
-      attempts++;
-      const currentUrl = page.url();
-      let screenshot = '';
-      try {
-        screenshot = (await page.screenshot({ type: 'jpeg', quality: 50 })).toString('base64');
-      } catch (e) { 
-        screenshot = ''; 
-      }
+    // Update with live view url so client can view in real-time
+    await updateFirestore({
+      steelDebugUrl: liveViewUrl,
+      description: 'Stagehand session connected. Navigating to start page...'
+    });
 
-      await updateFirestore({ 
-        step: `Analyzing page (step ${attempts}/${maxAttempts})...`, 
-        description: `Looking at ${currentUrl}`,
-        ...(screenshot ? { screenshot } : {})
-      });
-
-      // Exact same natural-language instruction structure as callGeminiVision in server.ts
-      const instruction = await callAI("browser_agent", [{
-        role: "user",
-        content: `You are a browser automation agent. You MUST extract data before saying done. Current URL: ${currentUrl}. Goal: ${goal}. Rules: NEVER say done until you have extracted at least 5 items if the goal involves finding multiple things. If you see relevant items, extract them immediately. Return ONLY valid JSON: {"action":"click|type|scroll|extract|done","description":"what you are doing","selector":"CSS selector","text":"text to type","url":"URL if goto","data":[{"name":"","phone":"","address":"","website":""}],"done":false,"reason":"why done"}`
-      }], screenshot);
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(instruction.replace(/```json/g, '').replace(/```/g, '').trim());
-      } catch (e) {
-        parsed = { action: 'scroll', description: 'Could not parse AI response, scrolling' };
-      }
-
-      await updateFirestore({ 
-        description: parsed.description || parsed.action, 
-        step: `Step ${attempts}: ${parsed.action}` 
-      });
-
-      try {
-        if (parsed.action === 'click' && parsed.selector) {
-          await page.click(parsed.selector, { timeout: 5000 });
-        } else if (parsed.action === 'type' && parsed.selector) {
-          await page.fill(parsed.selector, parsed.text || '');
-        } else if (parsed.action === 'scroll') {
-          await page.mouse.wheel(0, 800);
-        } else if (parsed.action === 'goto' && parsed.url) {
-          await page.goto(parsed.url, { waitUntil: 'domcontentloaded' });
-        }
-      } catch (actionErr: any) {
-        await updateFirestore({ 
-          description: `Action failed: ${actionErr.message || String(actionErr)}, retrying...` 
-        });
-      }
-
-      if (parsed.data && Array.isArray(parsed.data)) {
-        for (const item of parsed.data) {
-          if (item.name || item.phone) {
-            allResults.push(item);
-          }
-        }
-      }
-
-      // Live update leadsCount in DB
-      if (allResults.length > 0) {
-        await updateFirestore({ leadsCount: allResults.length });
-      }
-
-      if (parsed.action === 'done' || parsed.done) {
-        done = true;
-      }
-      await new Promise(r => setTimeout(r, 800));
+    const page = stagehand.context.activePage();
+    if (!page) {
+      throw new Error("No active page found in Stagehand session");
     }
+
+    // Determine initial page
+    if (context?.startingUrl) {
+      await page.goto(context.startingUrl, { waitUntil: 'load' });
+    } else {
+      await page.goto('https://www.google.com', { waitUntil: 'load' });
+    }
+
+    await updateFirestore({
+      step: 'acting',
+      description: `Executing action goal: "${goal}"`
+    });
+
+    // Execute the goal
+    await stagehand.act(goal);
+
+    await updateFirestore({
+      step: 'extracting',
+      description: `Extracting leads matching goal from browser...`
+    });
+
+    // Extract leads using LLM with structured output schema
+    const extraction: any = await stagehand.extract(
+      `Extract all companies or leads matching: ${goal}. For each lead, find name, phone, address, and website.`,
+      leadShape
+    );
+
+    const allResults = extraction?.leads || [];
+
+    await updateFirestore({
+      description: `Extraction completed. Storing ${allResults.length} leads...`,
+      leadsCount: allResults.length
+    });
 
     let savedCount = 0;
     const leadsCollection = db.collection('leads');
@@ -137,25 +115,24 @@ export default async function handler(req: any, res: any) {
         savedCount++;
       } catch (leadErr: any) {
         console.error('Failed to add dynamic lead to database:', leadErr);
-        const errMsg = `Failed to add dynamic lead: ${leadErr?.message || String(leadErr)}`;
-        await updateFirestore({ description: errMsg });
       }
     }
 
     await updateFirestore({
       status: 'complete', 
       step: 'complete',
-      description: `Task complete — ${savedCount} leads found`,
+      description: `Task complete — ${savedCount} leads saved`,
       leadsCount: savedCount, 
       results: { saved: savedCount, leads: allResults }
     });
+
     return res.status(200).json({ success: true, taskId, savedCount });
 
   } catch (err: any) {
     console.error('Dynamic task error:', err);
     let errMsg = err?.message || String(err);
-    if (errMsg.includes('limit') || errMsg.includes('quota')) {
-      errMsg = 'Browserbase free tier limit reached this month.';
+    if (errMsg.includes('limit') || errMsg.includes('quota') || errMsg.includes('credits')) {
+      errMsg = 'Browserbase free tier limit or quota reached this month.';
     } else if (errMsg.includes('timeout') || errMsg.includes('disconnected')) {
       errMsg = `Browserbase session expired or disconnected: ${errMsg}`;
     }
@@ -167,7 +144,9 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: errMsg });
   } finally {
     try { 
-      if (browser) await browser.close(); 
+      if (stagehandInstance) {
+        await stagehandInstance.close();
+      }
     } catch (e) {}
   }
 }

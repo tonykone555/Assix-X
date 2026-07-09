@@ -25,6 +25,7 @@
   },
   "exclude": [
     "packages",
+    "page-agent-clone",
     "node_modules",
     "dist"
   ]

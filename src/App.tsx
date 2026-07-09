@@ -59,8 +59,8 @@ import { runGapAnalysis, generatePitch } from './services/gapAnalysisAgent';
 
 // Dynamic server paths for development context
 const getBackendUrl = (): string => {
-  if (import.meta.env.VITE_SERVER_URL) {
-    return import.meta.env.VITE_SERVER_URL;
+  if ((import.meta as any).env.VITE_SERVER_URL) {
+    return (import.meta as any).env.VITE_SERVER_URL;
   }
   const saved = localStorage.getItem('assix_server_url');
   if (saved && (saved.startsWith('http://') || saved.startsWith('https://'))) {
@@ -114,9 +114,10 @@ interface LiveViewerProps {
   onError?: (error: string) => void;
   serverUrl?: string;
   useFirestore?: boolean;
+  steelDebugUrl?: string;
 }
 
-const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, serverUrl = window.location.origin, useFirestore }) => {
+const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, serverUrl = window.location.origin, useFirestore, steelDebugUrl }) => {
   const [status, setStatus] = useState<
     'idle' | 'planning' | 'running' | 'intervention' | 'complete' | 'completed' | 'error' | 'failed' | 'reconnecting'
   >('idle');
@@ -126,6 +127,7 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
   const [intervention, setIntervention] = useState<any>(null);
   const [code, setCode] = useState<string>('');
   const [liveViewUrl, setLiveViewUrl] = useState<string>('');
+  const [firestoreSteelDebugUrl, setFirestoreSteelDebugUrl] = useState<string>('');
   const [leadsCount, setLeadsCount] = useState<number>(0);
   const [screenshot, setScreenshot] = useState<string>('');
   const [browserId, setBrowserId] = useState<string>('');
@@ -229,6 +231,7 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
                 setLiveView(src);
               }
               if (data.steelDebugUrl) {
+                setFirestoreSteelDebugUrl(data.steelDebugUrl);
                 setLiveViewUrl(data.steelDebugUrl);
               } else if (data.liveViewUrl) {
                 setLiveViewUrl(data.liveViewUrl);
@@ -388,6 +391,12 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
     setIntervention(null);
     setStatus('running');
   };
+
+  useEffect(() => {
+    if (steelDebugUrl) {
+      setLiveViewUrl(steelDebugUrl);
+    }
+  }, [steelDebugUrl]);
 
   return (
     <div style={{
@@ -738,7 +747,7 @@ export default function App() {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 
   const [serverUrl, setServerUrl] = useState<string>(() => {
-    let url = import.meta.env.VITE_SERVER_URL || localStorage.getItem('assix_server_url') || window.location.origin;
+    let url = (import.meta as any).env.VITE_SERVER_URL || localStorage.getItem('assix_server_url') || window.location.origin;
     if (url.startsWith('ws://')) {
       url = url.replace('ws://', 'http://');
     } else if (url.startsWith('wss://')) {

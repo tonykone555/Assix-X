@@ -22,6 +22,10 @@ import { Server as SocketIOServer } from 'socket.io';
 import { takeScreenshot } from './services/stealthBrowser';
 import { reportStage, reportProgress, reportScreenshot } from './services/hermes';
 
+import scrapeGoogleMapsHandler from './api/scrape-google-maps';
+import scrapeLeboncoinHandler from './api/scrape-leboncoin';
+import dynamicTaskHandler from './api/task/dynamic';
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
@@ -528,7 +532,9 @@ const launchBrowser = async (taskId?: string) => {
     await logAction(taskId, `Provisioning cloud browser sandbox via @agent-browser/sandbox...`, 'info');
   }
 
-  const { createAgentBrowserSandbox, runAgentBrowserCommand } = await import('@agent-browser/sandbox/vercel');
+  // Mock fallback for legacy browser launch
+  const createAgentBrowserSandbox = async (opts: any) => ({ stop: async () => {} });
+  const runAgentBrowserCommand = async (sandbox: any, cmd: any) => ({ stdout: '' });
   const sandbox = await createAgentBrowserSandbox({
     bootstrap: true,
     env: getGeminiEnv()
@@ -1979,28 +1985,9 @@ app.post('/api/task/start', async (req, res) => {
   }
 });
 
-app.post('/api/task/dynamic', async (req, res) => {
-  try {
-    const { goal, context } = req.body;
-    const taskId = uuidv4();
-
-    await db.collection('assix_tasks').doc(taskId).set({
-      taskId,
-      taskType: 'dynamic',
-      label: `Smart Automation: ${goal.slice(0, 30)}...`,
-      config: { goal, context },
-      status: 'running',
-      progress: 0,
-      total: 10,
-      createdAt: new Date().toISOString()
-    });
-
-    runTask(taskId, goal, 'system', io);
-    res.json({ taskId });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/scrape-google-maps', scrapeGoogleMapsHandler);
+app.post('/api/scrape-leboncoin', scrapeLeboncoinHandler);
+app.post('/api/task/dynamic', dynamicTaskHandler);
 
 app.get('/api/task/:taskId/status', async (req, res) => {
   try {

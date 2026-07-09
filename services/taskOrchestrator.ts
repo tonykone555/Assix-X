@@ -1,4 +1,10 @@
-import { runBrowserTask } from './agentBrowser';
+import { launchStagehandSession } from '../api/_lib/stagehandSession';
+import { z } from 'zod';
+
+const GenericResponseSchema = z.object({
+  answer: z.string().describe("A summarized text response answering or detailing the result of the instruction"),
+  data: z.any().optional().describe("Any structured data extracted during the task, such as lists, links, or contact info")
+});
 
 export async function runTask(
   taskId: string,
@@ -17,41 +23,61 @@ export async function runTask(
     }
   };
 
-  try {
-    const result = await runBrowserTask(userInstruction, (update) => {
-      // Map agent-browser updates to compatible taskRunner updates
-      let mappedStep = update.step;
-      let mappedData = update.data || {};
-      
-      if (update.step === 'starting') {
-        mappedStep = 'session_started';
-        mappedData = { liveViewUrl: '', currentUrl: '', browserId: taskId };
-      } else if (update.step === 'executing') {
-        mappedStep = 'navigated';
-        mappedData = { currentUrl: '', screenshot: update.screenshot || '' };
-      } else if (update.step === 'screenshot') {
-        mappedStep = 'action_complete';
-        mappedData = { currentUrl: '', screenshot: update.screenshot || '' };
-      } else if (update.step === 'complete') {
-        mappedStep = 'complete';
-        mappedData = { extraction: update.data };
-      }
+  let stagehandInstance: any = null;
 
-      notifyProgress({
-        ...update,
-        step: mappedStep,
-        data: mappedData,
-        browserId: taskId
-      });
+  try {
+    const { stagehand, liveViewUrl } = await launchStagehandSession();
+    stagehandInstance = stagehand;
+
+    notifyProgress({
+      step: 'session_started',
+      browserId: taskId,
+      data: { liveViewUrl, currentUrl: '', browserId: taskId }
+    });
+
+    // Run action
+    notifyProgress({
+      step: 'navigated',
+      browserId: taskId,
+      data: { currentUrl: '' }
+    });
+
+    await stagehand.act(userInstruction);
+
+    // Extract results
+    notifyProgress({
+      step: 'action_complete',
+      browserId: taskId,
+      data: { currentUrl: '' }
+    });
+
+    const result = await stagehand.extract(
+      `Extract the results answering the user's instruction: "${userInstruction}"`,
+      GenericResponseSchema
+    );
+
+    notifyProgress({
+      step: 'complete',
+      browserId: taskId,
+      data: { extraction: result.answer || result }
     });
 
     return result;
+
   } catch (err: any) {
     notifyProgress({
       step: 'error',
       status: 'failed',
-      data: { message: err.message }
+      data: { message: err.message || String(err) }
     });
     throw err;
+  } finally {
+    if (stagehandInstance) {
+      try {
+        await stagehandInstance.close();
+      } catch (e) {
+        console.warn('Failed to close Stagehand session in taskOrchestrator:', e);
+      }
+    }
   }
 }
