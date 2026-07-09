@@ -1,5 +1,5 @@
-import { scrapeLeboncoin } from '../services/agentBrowser';
 import { db } from '../firebase-client-wrapper';
+import { launchBrowserbaseSession } from './_lib/browserbaseSession';
 
 export const config = { maxDuration: 300 };
 
@@ -13,100 +13,161 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Missing taskId' });
   }
 
-  const initialTask = {
-    taskId,
-    taskType: 'leboncoin_scrape',
-    label: `Leboncoin Scrape [${category} in ${city}]`,
-    config: { category, city, count },
-    status: 'running',
-    step: 'starting',
-    description: 'Browser starting...',
-    leadsCount: 0,
-    progress: 0,
-    total: count || 20,
-    createdAt: new Date().toISOString()
-  };
+  let session: any;
+  let browser: any;
 
-  try {
-    await db.collection('tasks').doc(taskId).set(initialTask);
-    await db.collection('assix_tasks').doc(taskId).set(initialTask);
-  } catch (err: any) {
-    console.warn('Initial Firestore write failed:', err);
+  const updateFirestore = async (fields: any) => {
     try {
-      const errMsg = `Initial Firestore write failed: ${err?.message || String(err)}`;
-      await db.collection('tasks').doc(taskId).update({ description: errMsg });
-      await db.collection('assix_tasks').doc(taskId).update({ description: errMsg });
-    } catch {}
-  }
-
-  const onProgress = async (update: any) => {
-    const updateData: any = {};
-    if (update.status) updateData.status = update.status === 'done' ? 'complete' : (update.status === 'failed' ? 'failed' : update.status);
-    if (update.step) updateData.step = update.step;
-    if (update.message) updateData.description = update.message;
-    if (update.screenshot) updateData.screenshot = update.screenshot;
-    
-    try {
-      await db.collection('tasks').doc(taskId).update(updateData);
-      await db.collection('assix_tasks').doc(taskId).update(updateData);
-    } catch (err: any) {
-      console.warn('Firestore progress write failed:', err);
-      try {
-        const errMsg = `Firestore progress write failed: ${err?.message || String(err)}`;
-        await db.collection('tasks').doc(taskId).update({ description: errMsg });
-        await db.collection('assix_tasks').doc(taskId).update({ description: errMsg });
-      } catch {}
+      await db.collection('tasks').doc(taskId).update(fields);
+      await db.collection('assix_tasks').doc(taskId).update(fields);
+    } catch (e) {
+      console.warn('Firestore write failed:', e);
     }
   };
 
   try {
-    const results = await scrapeLeboncoin(category, city, count || 20, onProgress);
+    const conn = await launchBrowserbaseSession();
+    session = conn.session;
+    browser = conn.browser;
+    const page = conn.page;
+
+    const initialTask = {
+      taskId,
+      taskType: 'leboncoin_scrape',
+      label: `Leboncoin Scrape [${category} in ${city}]`,
+      config: { category, city, count },
+      status: 'running',
+      step: 'starting',
+      description: 'Browser starting...',
+      steelDebugUrl: conn.debugUrl, // reuse existing field name LiveViewer already checks
+      leadsCount: 0,
+      progress: 0,
+      total: count || 20,
+      createdAt: new Date().toISOString()
+    };
+
+    await db.collection('tasks').doc(taskId).set(initialTask);
+    await db.collection('assix_tasks').doc(taskId).set(initialTask);
+
+    const searchUrl = `https://www.leboncoin.fr/recherche?category=${encodeURIComponent(category)}&locations=${encodeURIComponent(city)}`;
     
+    await updateFirestore({
+      step: 'navigating',
+      description: `Navigating to Leboncoin search page...`
+    });
+
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(4000); // Wait for page elements to load
+
+    let screenshot = '';
+    try {
+      screenshot = (await page.screenshot({ type: 'jpeg', quality: 50 })).toString('base64');
+    } catch (e) {
+      screenshot = '';
+    }
+
+    await updateFirestore({
+      step: 'scrolling',
+      description: 'Scrolling to load more listings...',
+      ...(screenshot ? { screenshot } : {})
+    });
+
+    // Try scrolling a few times
+    try {
+      await page.evaluate(async () => {
+        for (let i = 0; i < 4; i++) {
+          window.scrollBy(0, 1000);
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      });
+    } catch (scrollErr) {
+      console.warn('Scrolling Leboncoin failed:', scrollErr);
+    }
+
+    try {
+      screenshot = (await page.screenshot({ type: 'jpeg', quality: 50 })).toString('base64');
+    } catch (e) {
+      screenshot = '';
+    }
+
+    await updateFirestore({
+      step: 'extracting',
+      description: 'Extracting listings details...',
+      ...(screenshot ? { screenshot } : {})
+    });
+
+    // Direct evaluation extraction
+    const results = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('a')).filter(a => {
+        const href = a.getAttribute('href') || '';
+        return href.includes('/recherche/') || href.includes('/ad/') || href.includes('/locations/') || href.includes('/ventes_immobilieres/');
+      });
+      
+      return links.map(link => {
+        const title = link.querySelector('h2, h3, [class*="title"], [class*="Title"]')?.textContent?.trim() || link.getAttribute('aria-label') || '';
+        const price = link.querySelector('[class*="price"], [class*="Price"], [data-qa-id*="price"]')?.textContent?.trim() || '';
+        const location = link.querySelector('[class*="location"], [class*="Location"]')?.textContent?.trim() || '';
+        const url = link.href || '';
+        
+        return {
+          title,
+          price,
+          location,
+          url
+        };
+      }).filter(item => item.title && item.url);
+    });
+
+    // Limit to requested count
+    const finalResults = results.slice(0, count || 20);
+
     let savedCount = 0;
     const leadsCollection = db.collection('leads');
 
-    if (Array.isArray(results)) {
-      for (const lead of results) {
-        const businessName = lead.title || lead.Title || lead.owner || lead['Owner name if visible'] || 'Leboncoin Listing';
-        const website = lead.url || lead['Listing URL'] || lead.listingUrl || '';
-        const address = lead.location || lead.Location || '';
-        const price = lead.price || lead.Price || '';
+    for (const lead of finalResults) {
+      const businessName = lead.title || 'Leboncoin Listing';
+      const website = lead.url || '';
+      const address = lead.location || '';
+      const price = lead.price || '';
 
-        if (website) {
-          try {
-            const exists = await leadsCollection.where('website', '==', website).limit(1).get();
-            if (!exists.empty) continue;
-          } catch {}
-        }
-
+      if (website) {
         try {
-          await leadsCollection.add({
-            taskId,
-            businessName,
-            company: businessName,
-            phone: '',
-            website,
-            address,
-            city,
-            sector: category,
-            source: 'leboncoin',
-            leadType: website ? 'has_website' : 'no_website',
-            createdAt: new Date().toISOString(),
-            sentToClose: false,
-            status: 'new',
-            isFallback: false,
-            price
-          });
-          savedCount++;
-        } catch (addErr: any) {
-          console.error('Failed to add Leboncoin lead:', addErr);
-          try {
-            const errMsg = `Failed to add Leboncoin lead: ${addErr?.message || String(addErr)}`;
-            await db.collection('tasks').doc(taskId).update({ description: errMsg });
-            await db.collection('assix_tasks').doc(taskId).update({ description: errMsg });
-          } catch {}
-        }
+          const exists = await leadsCollection.where('website', '==', website).limit(1).get();
+          if (!exists.empty) continue;
+        } catch {}
       }
+
+      try {
+        await leadsCollection.add({
+          taskId,
+          businessName,
+          company: businessName,
+          phone: '',
+          website,
+          address,
+          city,
+          sector: category,
+          source: 'leboncoin',
+          leadType: website ? 'has_website' : 'no_website',
+          createdAt: new Date().toISOString(),
+          sentToClose: false,
+          status: 'new',
+          isFallback: false,
+          price
+        });
+        savedCount++;
+        await updateFirestore({ leadsCount: savedCount });
+      } catch (addErr: any) {
+        console.error('Failed to add Leboncoin lead:', addErr);
+        const errMsg = `Failed to add Leboncoin lead: ${addErr?.message || String(addErr)}`;
+        await updateFirestore({ description: errMsg });
+      }
+    }
+
+    try {
+      screenshot = (await page.screenshot({ type: 'jpeg', quality: 50 })).toString('base64');
+    } catch (e) {
+      screenshot = '';
     }
 
     const finalUpdate = {
@@ -114,35 +175,30 @@ export default async function handler(req: any, res: any) {
       step: 'complete',
       description: `Task complete — ${savedCount} leboncoin listings found`,
       leadsCount: savedCount,
-      results: { saved: savedCount, leads: results }
+      results: { saved: savedCount, leads: finalResults },
+      ...(screenshot ? { screenshot } : {})
     };
 
-    try {
-      await db.collection('tasks').doc(taskId).update(finalUpdate);
-      await db.collection('assix_tasks').doc(taskId).update(finalUpdate);
-    } catch (err: any) {
-      console.warn('Final Firestore write failed:', err);
-      try {
-        const errMsg = `Final Firestore write failed: ${err?.message || String(err)}`;
-        await db.collection('tasks').doc(taskId).update({ description: errMsg });
-        await db.collection('assix_tasks').doc(taskId).update({ description: errMsg });
-      } catch {}
-    }
-
+    await updateFirestore(finalUpdate);
     return res.status(200).json({ success: true, taskId, savedCount });
+
   } catch (err: any) {
-    const failedUpdate = {
+    console.error('Leboncoin task error:', err);
+    let errMsg = err?.message || String(err);
+    if (errMsg.includes('limit') || errMsg.includes('quota')) {
+      errMsg = 'Browserbase free tier limit reached this month.';
+    } else if (errMsg.includes('timeout') || errMsg.includes('disconnected')) {
+      errMsg = `Browserbase session expired or disconnected: ${errMsg}`;
+    }
+    await updateFirestore({
       status: 'failed',
       step: 'error',
-      description: err.message || String(err)
-    };
+      description: errMsg
+    });
+    return res.status(500).json({ error: errMsg });
+  } finally {
     try {
-      await db.collection('tasks').doc(taskId).update(failedUpdate);
-      await db.collection('assix_tasks').doc(taskId).update(failedUpdate);
-    } catch (firestoreErr: any) {
-      console.warn('Failed Firestore write on error:', firestoreErr);
-    }
-
-    return res.status(500).json({ error: err.message || String(err) });
+      if (browser) await browser.close();
+    } catch (e) {}
   }
 }

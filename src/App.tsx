@@ -226,6 +226,12 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
                   ? data.screenshot 
                   : `data:image/png;base64,${data.screenshot}`;
                 setScreenshot(src);
+                setLiveView(src);
+              }
+              if (data.steelDebugUrl) {
+                setLiveViewUrl(data.steelDebugUrl);
+              } else if (data.liveViewUrl) {
+                setLiveViewUrl(data.liveViewUrl);
               }
               if (data.leadsCount !== undefined) {
                 setLeadsCount(data.leadsCount);
@@ -438,9 +444,16 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
       </div>
 
       {/* Live Frame */}
-      <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
+      <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px', width: '100%', height: '100%' }}>
         {(status !== 'complete' && status !== 'completed' && status !== 'failed' && status !== 'error' && status !== 'idle') ? (
-          liveView ? (
+          liveViewUrl ? (
+            <iframe 
+              src={liveViewUrl} 
+              style={{ width: '100%', height: '100%', minHeight: '400px', border: 'none', borderRadius: '8px', background: '#000' }}
+              title="Live Browser"
+              allow="clipboard-read; clipboard-write"
+            />
+          ) : liveView ? (
             <img 
               src={liveView} 
               style={{width:'100%', borderRadius:'8px'}}
