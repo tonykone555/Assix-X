@@ -23,6 +23,21 @@ export async function createStagehandSession(taskId: string) {
   if (browserServiceUrl) {
     console.log(`[browserEngine] BROWSER_SERVICE_URL is set to ${browserServiceUrl}. Using remote Browser Service microservice.`);
     
+    // Call remote start session
+    try {
+      console.log(`[browserEngine] Initializing remote session for task ${taskId}...`);
+      const startRes = await fetch(`${browserServiceUrl}/session/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId })
+      });
+      if (!startRes.ok) {
+        console.error(`[browserEngine] Remote session start returned HTTP status ${startRes.status}`);
+      }
+    } catch (err: any) {
+      console.error(`[browserEngine] Failed to connect to remote session start: ${err.message}`);
+    }
+
     const mockPage: any = {
       _url: '',
       _markdown: '',
@@ -35,7 +50,7 @@ export async function createStagehandSession(taskId: string) {
           const response = await fetch(`${browserServiceUrl}/scrape`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url })
+            body: JSON.stringify({ taskId, url })
           });
           if (response.ok) {
             const resData = await response.json();
@@ -60,11 +75,26 @@ export async function createStagehandSession(taskId: string) {
       },
       
       screenshot: async (options?: any) => {
-        const dummyBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
-        if (options?.type === 'base64' || options?.encoding === 'base64') {
-          return dummyBase64;
+        try {
+          const response = await fetch(`${browserServiceUrl}/screenshot`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId })
+          });
+          if (response.ok) {
+            const resData = await response.json();
+            if (resData.success && resData.screenshot) {
+              const base64Str = resData.screenshot;
+              if (options?.type === 'base64' || options?.encoding === 'base64') {
+                return base64Str;
+              }
+              return Buffer.from(base64Str, 'base64');
+            }
+          }
+        } catch (err: any) {
+          console.error(`[Remote Page] Remote screenshot failed: ${err.message}`);
         }
-        return Buffer.from(dummyBase64, 'base64');
+        return null;
       },
 
       extractLeads: async (prompt: string): Promise<any[]> => {
@@ -73,7 +103,7 @@ export async function createStagehandSession(taskId: string) {
           const response = await fetch(`${browserServiceUrl}/scrape`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: mockPage._url, instruction: prompt })
+            body: JSON.stringify({ taskId, url: mockPage._url, instruction: prompt })
           });
           if (response.ok) {
             const resData = await response.json();
@@ -150,6 +180,20 @@ export function getSession(taskId: string): any {
 }
 
 export async function closeSession(taskId: string) {
+  const browserServiceUrl = process.env.BROWSER_SERVICE_URL;
+  if (browserServiceUrl) {
+    try {
+      console.log(`[browserEngine] Closing session ${taskId} on remote browser-service...`);
+      await fetch(`${browserServiceUrl}/session/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId })
+      });
+    } catch (e: any) {
+      console.warn(`Failed to close remote browser session for task ${taskId}:`, e.message);
+    }
+  }
+
   const session = activeSessions.get(taskId);
   if (session) {
     try {

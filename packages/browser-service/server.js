@@ -7,21 +7,39 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const CRAWL4AI_URL = process.env.CRAWL4AI_URL || 'https://crawl4ai-production-8e63.up.railway.app';
 
+// In-memory sessions map
+const sessions = new Map();
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+function closeSessionInternal(taskId) {
+  const session = sessions.get(taskId);
+  if (session) {
+    console.log(`[Browser Service] Cleaning up session for task ${taskId}`);
+    session.browser.close().catch(err => console.error(`Error closing session browser for task ${taskId}:`, err.message));
+    sessions.delete(taskId);
+  }
+}
+
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'assix-browser-service' });
+  res.json({ status: 'ok', service: 'assix-browser-service', activeSessions: sessions.size });
 });
 
-app.post('/scrape', async (req, res) => {
-  const { url, instruction } = req.body;
-  if (!url) {
-    return res.status(400).json({ success: false, error: 'URL is required' });
+// Start persistent session
+app.post('/session/start', async (req, res) => {
+  const { taskId } = req.body;
+  if (!taskId) {
+    return res.status(400).json({ success: false, error: 'taskId is required' });
   }
 
-  let browser;
+  if (sessions.has(taskId)) {
+    console.log(`[Browser Service] Session for task ${taskId} already exists, reusing.`);
+    return res.json({ success: true, message: 'Session already exists' });
+  }
+
   try {
-    console.log(`[Browser Service] Launching browser for: ${url}`);
-    browser = await chromium.launch({
+    console.log(`[Browser Service] Starting persistent browser session for task ${taskId}`);
+    const browser = await chromium.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
@@ -32,13 +50,100 @@ app.post('/scrape', async (req, res) => {
     });
 
     const page = await context.newPage();
-    console.log(`[Browser Service] Navigating to: ${url}`);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    
+    sessions.set(taskId, {
+      browser,
+      context,
+      page,
+      createdAt: Date.now()
+    });
 
-    let finalUrl = page.url();
+    // Auto-cleanup after timeout (30 minutes)
+    setTimeout(() => {
+      closeSessionInternal(taskId);
+    }, SESSION_TIMEOUT_MS);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(`[Browser Service] Failed to start session for task ${taskId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Close session
+app.post('/session/close', async (req, res) => {
+  const { taskId } = req.body;
+  if (!taskId) {
+    return res.status(400).json({ success: false, error: 'taskId is required' });
+  }
+  
+  closeSessionInternal(taskId);
+  res.json({ success: true });
+});
+
+// Take page screenshot
+app.post('/screenshot', async (req, res) => {
+  const { taskId } = req.body;
+  if (!taskId) {
+    return res.status(400).json({ success: false, error: 'taskId is required' });
+  }
+
+  const session = sessions.get(taskId);
+  if (!session) {
+    return res.status(404).json({ success: false, error: `No session found for task ${taskId}` });
+  }
+
+  try {
+    const buffer = await session.page.screenshot({ type: 'jpeg', quality: 50 });
+    const base64 = buffer.toString('base64');
+    const currentUrl = session.page.url();
+    res.json({ success: true, screenshot: base64, currentUrl });
+  } catch (err) {
+    console.error(`[Browser Service] Screenshot failed for task ${taskId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Scrape page content and perform optional AI extraction
+app.post('/scrape', async (req, res) => {
+  const { url, instruction, taskId } = req.body;
+
+  let page;
+  let browserToClose = null;
+  let session = null;
+
+  if (taskId) {
+    session = sessions.get(taskId);
+  }
+
+  try {
+    if (session) {
+      console.log(`[Browser Service] Using persistent page for task ${taskId}`);
+      page = session.page;
+    } else {
+      console.log(`[Browser Service] No persistent session found for task ${taskId || 'none'}. Launching ad-hoc browser.`);
+      browserToClose = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+
+      const context = await browserToClose.newContext({
+        viewport: { width: 1920, height: 1080 },
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      });
+
+      page = await context.newPage();
+    }
+
+    if (url) {
+      console.log(`[Browser Service] Navigating to: ${url}`);
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    }
+
+    let finalUrl = page.url() || url || '';
     console.log(`[Browser Service] Reached page: ${finalUrl}`);
 
-    if (finalUrl.includes('consent.google.com')) {
+    if (finalUrl && finalUrl.includes('consent.google.com')) {
       console.log(`[Browser Service] Google consent page detected. Attempting to bypass.`);
       const selectors = [
         'button[aria-label*="Accept all"]',
@@ -79,30 +184,32 @@ app.post('/scrape', async (req, res) => {
     let html = '';
     let crawlSuccess = false;
 
-    try {
-      console.log(`[Browser Service] Calling Crawl4AI at: ${CRAWL4AI_URL}/crawl`);
-      const crawlResponse = await fetch(`${CRAWL4AI_URL}/crawl`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          urls: [finalUrl],
-          word_count_threshold: 10,
-        }),
-      });
+    if (finalUrl && finalUrl !== 'about:blank') {
+      try {
+        console.log(`[Browser Service] Calling Crawl4AI at: ${CRAWL4AI_URL}/crawl`);
+        const crawlResponse = await fetch(`${CRAWL4AI_URL}/crawl`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            urls: [finalUrl],
+            word_count_threshold: 10,
+          }),
+        });
 
-      if (crawlResponse.ok) {
-        const crawlData = await crawlResponse.json();
-        const result = Array.isArray(crawlData.results) ? crawlData.results[0] : crawlData;
-        markdown = result?.markdown?.raw_markdown || result?.markdown || '';
-        html = result?.cleaned_html || result?.html || '';
-        crawlSuccess = !!markdown;
+        if (crawlResponse.ok) {
+          const crawlData = await crawlResponse.json();
+          const result = Array.isArray(crawlData.results) ? crawlData.results[0] : crawlData;
+          markdown = result?.markdown?.raw_markdown || result?.markdown || '';
+          html = result?.cleaned_html || result?.html || '';
+          crawlSuccess = !!markdown;
+        }
+      } catch (crawlErr) {
+        console.error('[Browser Service] Crawl4AI failed:', crawlErr.message);
       }
-    } catch (crawlErr) {
-      console.error('[Browser Service] Crawl4AI failed:', crawlErr.message);
     }
 
     // Fallback if Crawl4AI failed or returned empty
-    if (!markdown) {
+    if (!markdown && page) {
       console.log('[Browser Service] Crawl4AI failed, falling back to local extraction');
       markdown = await page.evaluate(() => document.body.innerText.slice(0, 25000));
       html = await page.content();
@@ -154,7 +261,6 @@ Return ONLY the valid raw JSON object. Do not wrap in markdown blocks, do not ad
           data = parsed.results || parsed || [];
         } catch (geminiErr) {
           console.error('[Browser Service] Gemini SDK extraction failed:', geminiErr.message);
-          // Fallback simple parse from rawText if malformed or return empty array
         }
       } else {
         console.warn('[Browser Service] GEMINI_API_KEY is missing. Returning empty data array.');
@@ -172,9 +278,9 @@ Return ONLY the valid raw JSON object. Do not wrap in markdown blocks, do not ad
     console.error('[Browser Service] Scraping error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   } finally {
-    if (browser) {
+    if (browserToClose) {
       try {
-        await browser.close();
+        await browserToClose.close();
       } catch (closeErr) {
         console.error('[Browser Service] Error closing browser:', closeErr.message);
       }
