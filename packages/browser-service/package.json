@@ -8,7 +8,7 @@
     "postinstall": "playwright install --with-deps chromium"
   },
   "dependencies": {
-    "@google/genai": "^0.1.1",
+    "@google/genai": "^2.11.0",
     "express": "^4.19.2",
     "playwright": "^1.43.0"
   },
