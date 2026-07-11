@@ -33,6 +33,8 @@ export async function runTask(
       message: 'Initializing Stagehand session...'
     });
 
+    socket.emit('task_update', { taskId, message: 'Initializing browser session...' });
+
     const urlMatch = intent.match(/https?:\/\/[^\s]+/);
     const startUrl = urlMatch ? urlMatch[0] : '';
 
@@ -64,6 +66,18 @@ export async function runTask(
           browserId,
           data: { ...update.data, browserId }
         });
+
+        socket.emit('task_update', { taskId, message: `Browser session started. Current URL: ${currentUrl || 'about:blank'}` });
+      } else if (update.step === 'screenshot') {
+        const currentUrl = update.data?.currentUrl || '';
+        const screenshot = update.data?.screenshot || '';
+
+        socket.emit('task_progress', {
+          taskId,
+          status: 'running',
+          currentUrl,
+          data: { screenshot, currentUrl }
+        });
       } else if (update.step === 'navigated') {
         const currentUrl = update.data?.currentUrl || startUrl;
         await updateTaskInFirestore(taskId, {
@@ -79,6 +93,8 @@ export async function runTask(
           currentUrl,
           data: update.data
         });
+
+        socket.emit('task_update', { taskId, message: `Navigating to: ${currentUrl}` });
       } else if (update.step === 'human_needed') {
         const currentUrl = update.data?.currentUrl || '';
         const type = update.data?.type || 'login';
@@ -95,6 +111,8 @@ export async function runTask(
           message,
           currentUrl
         });
+
+        socket.emit('task_update', { taskId, message: `Human intervention needed: ${message}` });
       } else if (update.step === 'action_complete') {
         const currentUrl = update.data?.currentUrl || '';
         await updateTaskInFirestore(taskId, {
@@ -110,10 +128,13 @@ export async function runTask(
           currentUrl,
           data: update.data
         });
+
+        socket.emit('task_update', { taskId, message: `Action completed. Current URL: ${currentUrl}` });
       } else if (update.step === 'complete') {
         const extraction = update.data?.extraction;
         const currentUrl = update.data?.currentUrl || '';
         const summary = typeof extraction === 'string' ? extraction : JSON.stringify(extraction || update.data);
+        const resultsCount = Array.isArray(extraction) ? extraction.length : (update.data?.results ? update.data.results.length : 0);
 
         await updateTaskInFirestore(taskId, {
           status: 'completed',
@@ -129,6 +150,9 @@ export async function runTask(
           currentUrl,
           results: extraction || update.data
         });
+
+        const leadCount = update.data?.leadCount;
+        socket.emit('task_update', { taskId, message: leadCount !== undefined ? `Task complete — ${leadCount} leads found.` : `Task complete. ${summary}`, status: 'done' });
       } else if (update.step === 'error') {
         const errorMsg = update.data?.message || 'Execution error';
         const currentUrl = update.data?.currentUrl || '';
@@ -145,6 +169,8 @@ export async function runTask(
           error: errorMsg,
           currentUrl
         });
+
+        socket.emit('task_update', { taskId, message: `Error: ${errorMsg}`, status: 'failed' });
       }
     });
 
@@ -160,6 +186,11 @@ export async function runTask(
     socket.emit('task_error', {
       taskId,
       error: errorMsg
+    });
+
+    socket.emit('task_update', {
+      taskId,
+      message: `Execution failed: ${errorMsg}`
     });
   }
 }

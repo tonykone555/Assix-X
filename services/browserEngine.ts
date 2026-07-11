@@ -18,6 +18,91 @@ export async function createStagehandSession(taskId: string) {
     return { page: existing.page, sessionId: taskId };
   }
 
+  const browserServiceUrl = process.env.BROWSER_SERVICE_URL;
+
+  if (browserServiceUrl) {
+    console.log(`[browserEngine] BROWSER_SERVICE_URL is set to ${browserServiceUrl}. Using remote Browser Service microservice.`);
+    
+    const mockPage: any = {
+      _url: '',
+      _markdown: '',
+      _data: [] as any[],
+      
+      goto: async (url: string, options?: any) => {
+        mockPage._url = url;
+        console.log(`[Remote Page] Remote goto called: ${url}`);
+        try {
+          const response = await fetch(`${browserServiceUrl}/scrape`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+          });
+          if (response.ok) {
+            const resData = await response.json();
+            if (resData.success) {
+              mockPage._url = resData.url || url;
+              mockPage._markdown = resData.markdown || '';
+              console.log(`[Remote Page] Remote goto success. Extracted ${mockPage._markdown.length} bytes of content.`);
+            }
+          }
+        } catch (err: any) {
+          console.error(`[Remote Page] Remote goto failed: ${err.message}. Will use local fallback or empty values.`);
+        }
+      },
+      
+      url: () => {
+        return mockPage._url || 'about:blank';
+      },
+      
+      evaluate: async (fn: any, ...args: any[]) => {
+        console.log(`[Remote Page] Remote evaluate called`);
+        return mockPage._markdown || '';
+      },
+      
+      screenshot: async (options?: any) => {
+        const dummyBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+        if (options?.type === 'base64' || options?.encoding === 'base64') {
+          return dummyBase64;
+        }
+        return Buffer.from(dummyBase64, 'base64');
+      },
+
+      extractLeads: async (prompt: string): Promise<any[]> => {
+        console.log(`[Remote Page] Remote extractLeads called with prompt: "${prompt.slice(0, 60)}..."`);
+        try {
+          const response = await fetch(`${browserServiceUrl}/scrape`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: mockPage._url, instruction: prompt })
+          });
+          if (response.ok) {
+            const resData = await response.json();
+            if (resData.success) {
+              return resData.data || [];
+            }
+          }
+        } catch (err: any) {
+          console.error(`[Remote Page] Remote extractLeads failed: ${err.message}`);
+        }
+        return [];
+      }
+    };
+
+    const mockSession = {
+      browser: {
+        close: async () => {
+          console.log(`[Remote Session] Closed session ${taskId}`);
+        }
+      } as any,
+      context: {} as any,
+      page: mockPage as any,
+      createdAt: Date.now()
+    };
+
+    activeSessions.set(taskId, mockSession);
+    return { page: mockPage as unknown as Page, sessionId: taskId };
+  }
+
   if (activeSessions.size >= MAX_SESSIONS) {
     // Close the oldest session to make room
     let oldestId = '';

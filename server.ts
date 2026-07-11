@@ -21,6 +21,7 @@ import { runTask, resumeTask } from './services/taskRunner';
 import { Server as SocketIOServer } from 'socket.io';
 import { takeScreenshot } from './services/stealthBrowser';
 import { reportStage, reportProgress, reportScreenshot } from './services/hermes';
+import { crawlPage } from './services/crawl4ai';
 
 import scrapeGoogleMapsHandler from './api/scrape-google-maps';
 import scrapeLeboncoinHandler from './api/scrape-leboncoin';
@@ -789,7 +790,23 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
     await checkCaptcha(taskId, page);
 
     await reportStage(taskId, "Reading page results...");
-    
+
+    const currentUrl = page.url() || `https://www.google.com/maps/search/${encodeURIComponent(searchQuery)}`;
+    let crawledMarkdown = '';
+    let crawlSuccess = false;
+
+    try {
+      await logAction(taskId, `Attempting Crawl4AI extraction on: ${currentUrl}`, 'info');
+      const crawlResult = await crawlPage(currentUrl);
+      if (crawlResult && crawlResult.success && crawlResult.markdown) {
+        crawledMarkdown = crawlResult.markdown;
+        crawlSuccess = true;
+        await logAction(taskId, `Crawl4AI successfully extracted page markdown (${crawledMarkdown.length} bytes)`, 'success');
+      }
+    } catch (crawlErr: any) {
+      await logAction(taskId, `Crawl4AI extraction failed, using fallback: ${crawlErr.message}`, 'warning');
+    }
+
     const extractionPrompt = `Extract up to ${maxLeads} B2B business profiles listed in the search results. For each business profile, extract:
     - businessName (exact business name)
     - phone (phone number, digits only e.g. "4165550192")
@@ -801,7 +818,27 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
     [{ "businessName": "...", "phone": "...", "website": "...", "rating": "...", "address": "..." }]
     Output ONLY valid JSON. Absolutely no other text or explanation.`;
 
-    const realLeads = await page.extractLeads(extractionPrompt);
+    let realLeads: any[] = [];
+    if (crawlSuccess && crawledMarkdown) {
+      try {
+        await logAction(taskId, `Analyzing Crawl4AI markdown using AI service...`, 'info');
+        const aiResponse = await callAI("browser_agent", [{
+          role: "user",
+          content: `${extractionPrompt}
+          Page markdown: ${crawledMarkdown}`
+        }]);
+        const cleaned = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        realLeads = JSON.parse(cleaned);
+      } catch (err: any) {
+        await logAction(taskId, `Failed to parse AI response from Crawl4AI markdown: ${err.message}. Falling back to default browser extraction.`, 'warning');
+        crawlSuccess = false;
+      }
+    }
+
+    if (!crawlSuccess || realLeads.length === 0) {
+      await logAction(taskId, `Using default browser-level extraction...`, 'info');
+      realLeads = await page.extractLeads(extractionPrompt);
+    }
 
     // If realLeads is empty and demo mode is enabled, fall back to marked fallback leads
     let leadsToSave = realLeads || [];
@@ -912,6 +949,22 @@ const runPagesJaunesScrape = async (taskId: string, config: any) => {
 
     await reportStage(taskId, "Reading page results...");
 
+    const currentUrl = page.url() || `https://www.pagesjaunes.ca/search/si/1/${encodeURIComponent(niche)}/${encodeURIComponent(city)}`;
+    let crawledMarkdown = '';
+    let crawlSuccess = false;
+
+    try {
+      await logAction(taskId, `Attempting Crawl4AI extraction on: ${currentUrl}`, 'info');
+      const crawlResult = await crawlPage(currentUrl);
+      if (crawlResult && crawlResult.success && crawlResult.markdown) {
+        crawledMarkdown = crawlResult.markdown;
+        crawlSuccess = true;
+        await logAction(taskId, `Crawl4AI successfully extracted page markdown (${crawledMarkdown.length} bytes)`, 'success');
+      }
+    } catch (crawlErr: any) {
+      await logAction(taskId, `Crawl4AI extraction failed, using fallback: ${crawlErr.message}`, 'warning');
+    }
+
     const extractionPrompt = `Extract up to ${maxLeads} Canadian B2B business profiles listed on this PagesJaunes search results page. For each business profile, extract:
     - businessName (the business name)
     - phone (phone number, e.g. "4165550192")
@@ -923,7 +976,27 @@ const runPagesJaunesScrape = async (taskId: string, config: any) => {
     [{ "businessName": "...", "phone": "...", "website": "...", "rating": "...", "address": "..." }]
     Output ONLY valid JSON. Absolutely no other text or explanation.`;
 
-    const realLeads = await page.extractLeads(extractionPrompt);
+    let realLeads: any[] = [];
+    if (crawlSuccess && crawledMarkdown) {
+      try {
+        await logAction(taskId, `Analyzing Crawl4AI markdown using AI service...`, 'info');
+        const aiResponse = await callAI("browser_agent", [{
+          role: "user",
+          content: `${extractionPrompt}
+          Page markdown: ${crawledMarkdown}`
+        }]);
+        const cleaned = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        realLeads = JSON.parse(cleaned);
+      } catch (err: any) {
+        await logAction(taskId, `Failed to parse AI response from Crawl4AI markdown: ${err.message}. Falling back to default browser extraction.`, 'warning');
+        crawlSuccess = false;
+      }
+    }
+
+    if (!crawlSuccess || realLeads.length === 0) {
+      await logAction(taskId, `Using default browser-level extraction...`, 'info');
+      realLeads = await page.extractLeads(extractionPrompt);
+    }
 
     // If realLeads is empty and demo mode is enabled, fall back to marked fallback leads
     let leadsToSave = realLeads || [];
@@ -1108,11 +1181,10 @@ Output ONLY valid JSON. Absolutely no other text or explanation.`;
     await reportStage(taskId, `Found ${uniqueCount} active advertisers...`);
     await logAction(taskId, `Found ${uniqueCount} active advertisers...`);
 
-    await reportStage(taskId, "Saving leads to database...");
-    await logAction(taskId, "Saving leads to database...");
-
     let idx = 0;
     let savedCount = 0;
+    let contactedCount = 0;
+
     for (const [key, ads] of groupedLeads.entries()) {
       if (!activeBrowsers.has(taskId)) break;
       idx++;
@@ -1122,8 +1194,8 @@ Output ONLY valid JSON. Absolutely no other text or explanation.`;
       const pageLink = firstLead.pageLink || '';
       const pageId = getPageId(firstLead);
 
-      await reportStage(taskId, `Extracting ad #${idx} of ${uniqueCount}...`, `Processing ${pageName}`);
-      await logAction(taskId, `Processing advertiser: ${pageName} with ${ads.length} active ads`);
+      await reportStage(taskId, `Extracting contact info for ${pageName} (${idx} of ${uniqueCount})...`);
+      await logAction(taskId, `Extracting contact info for ${pageName} (${idx} of ${uniqueCount})...`);
 
       let maxDaysRunning = 0;
       for (const ad of ads) {
@@ -1149,6 +1221,48 @@ Output ONLY valid JSON. Absolutely no other text or explanation.`;
       const activeAdsCount = ads.length;
       const opportunityScore = runAdGapAnalysis({ daysRunning: maxDaysRunning, activeAdsCount });
 
+      let contactInfo = { website: '', phone: '', email: '' };
+      if (pageLink && (pageLink.includes('facebook.com') || pageLink.includes('fb.com'))) {
+        const pageAboutUrl = pageLink.endsWith('/') ? `${pageLink}about` : `${pageLink}/about`;
+        try {
+          await logAction(taskId, `Navigating to About tab for ${pageName}: ${pageAboutUrl}`, 'info');
+          await page.goto(pageAboutUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          
+          // Add a per-advertiser delay (3-5 seconds) to avoid rate-limiting as requested
+          const randomDelay = 3000 + Math.floor(Math.random() * 2000);
+          await logAction(taskId, `Rate-limiting delay: waiting ${Math.round(randomDelay/1000)}s...`, 'info');
+          await delay(randomDelay, randomDelay);
+          await sendScreenshot(taskId, page);
+
+          const contactPrompt = `We are on the Facebook Page About tab for "${pageName}".
+Extract the following details if listed on this page:
+- website (website URL or link)
+- phone (phone number, digits and symbols)
+- email (email address)
+
+Format the output strictly as a JSON object matching this schema:
+{ "website": "...", "phone": "...", "email": "..." }
+Output ONLY valid JSON. Absolutely no other text or explanation.`;
+
+          const contactResult = await page.extractLeads(contactPrompt);
+          if (contactResult) {
+            const parsedObj = Array.isArray(contactResult) ? contactResult[0] : contactResult;
+            if (parsedObj && typeof parsedObj === 'object') {
+              contactInfo.website = parsedObj.website || '';
+              contactInfo.phone = parsedObj.phone || '';
+              contactInfo.email = parsedObj.email || '';
+            }
+          }
+        } catch (aboutErr: any) {
+          await logAction(taskId, `Could not extract contact info for ${pageName}: ${aboutErr.message}`, 'warning');
+        }
+      }
+
+      const hasContact = !!(contactInfo.website || contactInfo.phone || contactInfo.email);
+      if (hasContact) {
+        contactedCount++;
+      }
+
       try {
         const leadRef = db.collection('leads').doc(pageId);
         await leadRef.set({
@@ -1157,8 +1271,9 @@ Output ONLY valid JSON. Absolutely no other text or explanation.`;
           businessName: pageName,
           sector: niche,
           city: firstLead.city || country || '',
-          website: firstLead.pageLink || '',
-          phone: null,
+          website: contactInfo.website || firstLead.pageLink || '',
+          phone: contactInfo.phone || null,
+          email: contactInfo.email || null,
           gapScore: opportunityScore === 'high' ? 95 : opportunityScore === 'medium' ? 65 : 35,
           gapFound: [`Running Facebook ads for only ${maxDaysRunning} days`],
           source: 'facebook_ads',
@@ -1166,10 +1281,11 @@ Output ONLY valid JSON. Absolutely no other text or explanation.`;
           createdAt: new Date().toISOString(),
           sentToClose: false,
           status: 'new',
-          leadType: firstLead.pageLink ? 'has_website' : 'no_website',
+          leadType: (contactInfo.website || firstLead.pageLink) ? 'has_website' : 'no_website',
           opportunity: opportunityScore,
           daysRunning: maxDaysRunning,
           activeAdsCount,
+          contactable: hasContact,
           ads: ads.map(a => ({
             adId: a.adId || '',
             adBody: a.adBody || '',
@@ -1183,7 +1299,7 @@ Output ONLY valid JSON. Absolutely no other text or explanation.`;
         console.error(`Failed to save Facebook ad lead to Firestore:`, fsErr);
       }
 
-      await updateProgress(taskId, savedCount, uniqueCount);
+      await updateProgress(taskId, idx, uniqueCount);
       await checkCaptcha(taskId, page);
       await delay(500, 1500);
     }
@@ -1194,8 +1310,9 @@ Output ONLY valid JSON. Absolutely no other text or explanation.`;
       completedAt: new Date().toISOString()
     });
 
-    await reportStage(taskId, `Task complete — ${savedCount} advertisers found`);
-    sendWS(taskId, { type: 'complete', taskId, results: { saved: savedCount } });
+    const finalStageMsg = `Task complete — ${savedCount} advertisers found, ${contactedCount} with contact info`;
+    await reportStage(taskId, finalStageMsg);
+    sendWS(taskId, { type: 'complete', taskId, results: { saved: savedCount, contacted: contactedCount } });
 
   } catch (err: any) {
     await reportStage(taskId, `Task failed: ${err.message || 'Unknown Facebook Ads automation error'}`);
