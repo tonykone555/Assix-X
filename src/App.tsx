@@ -1764,7 +1764,7 @@ export default function App() {
 
   const fetchConnectionStatus = async () => {
     try {
-      const res = await fetch(`${serverUrl}/api/connections/status?userId=${encodeURIComponent(userId)}`);
+      const res = await fetch(`/api/connections/status?userId=${encodeURIComponent(userId)}`);
       if (res.ok) {
         const data = await res.json();
         setConnectionStatus(data);
@@ -1777,7 +1777,7 @@ export default function App() {
   const generateConnectionCode = async () => {
     setConnectionLoading(true);
     try {
-      const res = await fetch(`${serverUrl}/api/connections/generate-code`, {
+      const res = await fetch(`/api/connections/generate-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
@@ -1797,7 +1797,7 @@ export default function App() {
 
   const disconnectBrowser = async () => {
     try {
-      const res = await fetch(`${serverUrl}/api/connections/disconnect`, {
+      const res = await fetch(`/api/connections/disconnect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
