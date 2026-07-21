@@ -5,11 +5,11 @@
     "start": "node dist/server.cjs",
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "lint": "tsc --noEmit",
-    "postinstall": "playwright install --with-deps chromium"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@browserbasehq/stagehand": "^3.6.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "axios": "^1.6.0",
     "cors": "^2.8.5",
     "express": "^4.18.0",

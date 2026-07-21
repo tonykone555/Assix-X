@@ -64,7 +64,12 @@ const getBackendUrl = (): string => {
   }
   const saved = localStorage.getItem('assix_server_url');
   if (saved && (saved.startsWith('http://') || saved.startsWith('https://'))) {
-    return saved;
+    // If the saved URL is localhost but the current environment is remote/cloud, bypass it to avoid Failed to fetch
+    const isLocalhost = saved.includes('localhost') || saved.includes('127.0.0.1');
+    const isCurrentLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (!isLocalhost || isCurrentLocal) {
+      return saved;
+    }
   }
   return window.location.origin;
 };
@@ -84,6 +89,7 @@ const WS_URL = getWsUrlFromUrl(SERVER);
 const TASK_TYPES = [
   { id: 'google_maps_scrape', label: 'Google Maps Scrape', desc: 'Scan local listings for website, phone, and coordinates' },
   { id: 'pages_jaunes_scrape', label: 'Pages Jaunes Scrape', desc: 'Extract Canadian/French B2B directory prospects' },
+  { id: 'instagram_discovery', label: 'Instagram Discovery', desc: 'Discover niche handles, scrap post content, and extract high-intent lead comments' },
   { id: 'facebook_ads_scrape', label: 'Facebook Ads Scrape', desc: 'Scrape and analyze Facebook Ads Library for active ads' },
   { id: 'facebook_groups_scrape', label: 'Facebook Groups Scrape', desc: 'Search and extract prospect leads from Facebook Group posts' },
   { id: 'instagram_dm', label: 'Instagram DM Campaign', desc: 'Auto-pilot outreach to targeted IG influencers/brands' },
@@ -127,11 +133,156 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
   const [intervention, setIntervention] = useState<any>(null);
   const [code, setCode] = useState<string>('');
   const [liveViewUrl, setLiveViewUrl] = useState<string>('');
+  const [isStealth, setIsStealth] = useState<boolean>(false);
   const [firestoreSteelDebugUrl, setFirestoreSteelDebugUrl] = useState<string>('');
   const [leadsCount, setLeadsCount] = useState<number>(0);
   const [screenshot, setScreenshot] = useState<string>('');
   const [browserId, setBrowserId] = useState<string>('');
   const [liveView, setLiveView] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'screenshot' | 'iframe'>('screenshot');
+  const [fitMode, setFitMode] = useState<'fit' | 'full'>('fit');
+  const [zoom, setZoom] = useState<number>(100);
+
+  // AI Copilot States
+  const [copilotExpanded, setCopilotExpanded] = useState<boolean>(true);
+  const [copilotLoading, setCopilotLoading] = useState<boolean>(false);
+  const [copilotAnalysis, setCopilotAnalysis] = useState<string>('');
+  const [copilotRecommendation, setCopilotRecommendation] = useState<string>('');
+  const [copilotConfidence, setCopilotConfidence] = useState<string>('');
+  const [copilotError, setCopilotError] = useState<string>('');
+  const [stepExecuting, setStepExecuting] = useState<boolean>(false);
+  const [stepResult, setStepResult] = useState<string>('');
+  
+  const [copilotTab, setCopilotTab] = useState<'suggest' | 'chat'>('chat');
+  const [copilotChat, setCopilotChat] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([
+    { role: 'assistant', text: "Hello! I am your AI Copilot. I analyze the active browser screen and suggest automated actions. Type below to ask me anything or instruct me!" }
+  ]);
+  const [copilotMsgInput, setCopilotMsgInput] = useState<string>('');
+  const [copilotChatSending, setCopilotChatSending] = useState<boolean>(false);
+  const [copiedKey, setCopiedKey] = useState<string>('');
+
+  const handleCopyText = (text: string, key: string) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedKey(key);
+    setTimeout(() => {
+      setCopiedKey(prev => prev === key ? '' : prev);
+    }, 1500);
+  };
+
+  const handleAnalyzePage = async () => {
+    if (!taskId) return;
+    setCopilotLoading(true);
+    setCopilotError('');
+    setCopilotAnalysis('');
+    setCopilotRecommendation('');
+    setCopilotConfidence('');
+    setStepResult('');
+    try {
+      const res = await fetch(`${serverUrl}/api/task/${taskId}/analyze-screenshot`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server returned ${res.status}`);
+      }
+      const data = await res.json();
+      setCopilotAnalysis(data.analysis || 'Page analyzed.');
+      setCopilotRecommendation(data.recommendation || '');
+      setCopilotConfidence(data.confidence || 'medium');
+      if (data.screenshot) {
+        setScreenshot(`data:image/jpeg;base64,${data.screenshot}`);
+      }
+    } catch (err: any) {
+      console.error('Failed to analyze page with Gemini:', err);
+      setCopilotError(err.message || 'Failed to analyze page. Make sure the browser session is active.');
+    } finally {
+      setCopilotLoading(false);
+    }
+  };
+
+  const handleExecuteStep = async () => {
+    if (!taskId || !copilotRecommendation) return;
+    setStepExecuting(true);
+    setCopilotError('');
+    setStepResult('');
+    try {
+      const res = await fetch(`${serverUrl}/api/task/${taskId}/apply-step`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ stepText: copilotRecommendation })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server returned ${res.status}`);
+      }
+      const data = await res.json();
+      setStepResult('Step successfully executed!');
+      
+      // Instantly trigger screenshot update in 2.5 seconds
+      setTimeout(async () => {
+        try {
+          const freshRes = await fetch(`${serverUrl}/api/screenshot`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ browserId, taskId })
+          });
+          if (freshRes.ok) {
+            const freshData = await freshRes.json();
+            if (freshData.screenshot) {
+              setScreenshot(freshData.screenshot.startsWith('data:') ? freshData.screenshot : `data:image/png;base64,${freshData.screenshot}`);
+            }
+          }
+        } catch (e) {}
+      }, 2500);
+    } catch (err: any) {
+      console.error('Failed to execute guided step:', err);
+      setCopilotError(err.message || 'Guided step execution failed.');
+    } finally {
+      setStepExecuting(false);
+    }
+  };
+
+  const handleSendCopilotMessage = async () => {
+    if (!taskId || !copilotMsgInput.trim() || copilotChatSending) return;
+    const msgText = copilotMsgInput.trim();
+    setCopilotMsgInput('');
+    setCopilotChat(prev => [...prev, { role: 'user', text: msgText }]);
+    setCopilotChatSending(true);
+
+    try {
+      const res = await fetch(`${serverUrl}/api/task/${taskId}/copilot-chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: msgText,
+          history: copilotChat
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error: ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (data.reply) {
+        setCopilotChat(prev => [...prev, { role: 'assistant', text: data.reply }]);
+      }
+      if (data.suggestion) {
+        setCopilotRecommendation(data.suggestion);
+        setCopilotTab('suggest');
+      }
+    } catch (err: any) {
+      console.error('Failed to chat with Copilot:', err);
+      setCopilotChat(prev => [...prev, { role: 'assistant', text: `Error: ${err.message || 'Failed to send message.'}` }]);
+    } finally {
+      setCopilotChatSending(false);
+    }
+  };
 
   const setTaskStatus = setStatus as any;
   const appendLog = (message: string) => {
@@ -201,6 +352,59 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
 
     if (useFirestore) {
       let unsubscribe: (() => void) | null = null;
+      let pollIntervalId: any = null;
+
+      const pollStatus = () => {
+        fetch(`${serverUrl}/api/task/${taskId}/status`)
+          .then(res => {
+            if (res.ok) return res.json();
+            throw new Error();
+          })
+          .then(data => {
+            if (data && data.task) {
+              const taskObj = data.task;
+              if (taskObj.status) {
+                setStatus(taskObj.status);
+              }
+              if (taskObj.useStealth !== undefined) {
+                setIsStealth(!!taskObj.useStealth);
+              } else if (taskId && taskId.toLowerCase().includes('stealth')) {
+                setIsStealth(true);
+              }
+              if (taskObj.step !== undefined) {
+                setStep(typeof taskObj.step === 'number' ? taskObj.step : parseInt(taskObj.step) || 0);
+              }
+              if (taskObj.description !== undefined) {
+                setDescription(taskObj.description || '');
+              }
+              if (taskObj.screenshot) {
+                const src = taskObj.screenshot.startsWith('data:') 
+                  ? taskObj.screenshot 
+                  : `data:image/png;base64,${taskObj.screenshot}`;
+                setScreenshot(src);
+                setLiveView(src);
+              }
+              if (taskObj.steelDebugUrl) {
+                setFirestoreSteelDebugUrl(taskObj.steelDebugUrl);
+                setLiveViewUrl(taskObj.steelDebugUrl);
+              } else if (taskObj.liveViewUrl) {
+                setLiveViewUrl(taskObj.liveViewUrl);
+              }
+              if (taskObj.leadsCount !== undefined) {
+                setLeadsCount(taskObj.leadsCount);
+              } else if (taskObj.results?.saved !== undefined) {
+                setLeadsCount(taskObj.results.saved);
+              } else if (taskObj.results?.leads && Array.isArray(taskObj.results.leads)) {
+                setLeadsCount(taskObj.results.leads.length);
+              }
+            }
+          })
+          .catch(() => {});
+      };
+
+      pollStatus();
+      pollIntervalId = setInterval(pollStatus, 3000);
+
       fetch(`${serverUrl}/api/firebase-config`)
         .then(res => res.json())
         .then(config => {
@@ -211,11 +415,16 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
             app = getApp();
           }
           const db = getFirestore(app, config.firestoreDatabaseId || undefined);
-          unsubscribe = onSnapshot(doc(db, 'tasks', taskId), (docSnap) => {
+          const handleDocSnap = (docSnap: any) => {
             if (docSnap.exists()) {
               const data = docSnap.data();
               if (data.status) {
                 setStatus(data.status);
+              }
+              if (data.useStealth !== undefined) {
+                setIsStealth(!!data.useStealth);
+              } else if (taskId && taskId.toLowerCase().includes('stealth')) {
+                setIsStealth(true);
               }
               if (data.step !== undefined) {
                 setStep(typeof data.step === 'number' ? data.step : parseInt(data.step) || 0);
@@ -250,13 +459,17 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
                 if (onError) onError(data.description || 'Task failed');
               }
             }
-          });
+          };
+
+          const unsubAssix = onSnapshot(doc(db, 'assix_tasks', taskId), handleDocSnap);
+          const unsubTasks = onSnapshot(doc(db, 'tasks', taskId), handleDocSnap);
+
+          unsubscribe = () => {
+            unsubAssix();
+            unsubTasks();
+          };
         })
         .catch(err => console.error("Failed to load Firebase config for LiveViewer:", err));
-
-      return () => {
-        if (unsubscribe) unsubscribe();
-      };
     } else {
       // Fetch initial task state (including liveViewUrl/browserId if it already exists)
       fetch(`${serverUrl}/api/task/${taskId}/status`)
@@ -267,6 +480,11 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
         .then(data => {
           if (data.task) {
             setStatus(data.task.status);
+            if (data.task.useStealth !== undefined) {
+              setIsStealth(!!data.task.useStealth);
+            } else if (taskId && taskId.toLowerCase().includes('stealth')) {
+              setIsStealth(true);
+            }
             if (data.task.liveViewUrl) {
               setLiveViewUrl(data.task.liveViewUrl);
             }
@@ -279,95 +497,119 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
           }
         })
         .catch(() => {});
-
-      socket.emit('join_task', taskId);
-
-      socket.on('task_status', (data: any) => {
-        setStatus(data.status);
-        setDescription(data.message || '');
-        if (data.liveViewUrl) {
-          setLiveViewUrl(data.liveViewUrl);
-        }
-        if (data.browserId) {
-          setBrowserId(data.browserId);
-        }
-      });
-
-      socket.on('task_planned', (data: any) => {
-        setTotalSteps(data.totalSteps);
-        setStatus('running');
-      });
-
-      socket.on('task_progress', (data: any) => {
-        setStep(data.step);
-        setDescription(data.description || '');
-        setStatus('running');
-        if (data.data?.liveViewUrl) {
-          setLiveViewUrl(data.data.liveViewUrl);
-        }
-        if (data.browserId || data.data?.browserId) {
-          setBrowserId(data.browserId || data.data.browserId);
-        }
-        if (data.screenshot || data.data?.screenshot) {
-          const rawScreenshot = data.screenshot || data.data.screenshot;
-          const src = rawScreenshot.startsWith('data:') 
-            ? rawScreenshot 
-            : `data:image/png;base64,${rawScreenshot}`;
-          setScreenshot(src);
-        }
-      });
-
-      // Listen for custom task_update containing screenshot or browserId
-      socket.on('task_update', (update: any) => {
-        if (update.message) {
-          appendLog(update.message);
-        }
-        if (update.screenshot) {
-          setLiveView(
-            `data:image/png;base64,${update.screenshot}`
-          );
-        }
-        if (update.status === 'done') {
-          setTaskStatus('complete');
-        }
-        if (update.status === 'failed') {
-          setTaskStatus('error');
-        }
-      });
-
-      socket.on('human_needed', (data: any) => {
-        setStatus('intervention');
-        setIntervention(data);
-      });
-
-      socket.on('task_complete', (data: any) => {
-        setStatus('completed');
-        if (data?.results?.saved !== undefined) {
-          setLeadsCount(data.results.saved);
-        } else if (data?.results?.leads && Array.isArray(data.results.leads)) {
-          setLeadsCount(data.results.leads.length);
-        } else if (data?.results?.results && Array.isArray(data.results.results)) {
-          setLeadsCount(data.results.results.length);
-        }
-        if (onComplete) onComplete(data);
-      });
-
-      socket.on('task_error', (data: any) => {
-        setStatus('failed');
-        setDescription(data.error || 'Unknown error occurred');
-        if (onError) onError(data.error);
-      });
-
-      return () => {
-        socket.off('task_status');
-        socket.off('task_planned');
-        socket.off('task_progress');
-        socket.off('task_update');
-        socket.off('human_needed');
-        socket.off('task_complete');
-        socket.off('task_error');
-      };
     }
+
+    // Connect to WebSocket room and establish listeners unconditionally
+    socket.emit('join_task', taskId);
+
+    const onTaskStatus = (data: any) => {
+      setStatus(data.status);
+      setDescription(data.message || '');
+      if (data.useStealth !== undefined) {
+        setIsStealth(!!data.useStealth);
+      } else if (taskId && taskId.toLowerCase().includes('stealth')) {
+        setIsStealth(true);
+      }
+      if (data.liveViewUrl) {
+        setLiveViewUrl(data.liveViewUrl);
+      }
+      if (data.browserId) {
+        setBrowserId(data.browserId);
+      }
+    };
+
+    const onTaskPlanned = (data: any) => {
+      setTotalSteps(data.totalSteps);
+      setStatus('running');
+    };
+
+    const onTaskProgress = (data: any) => {
+      if (data.step !== undefined) {
+        setStep(data.step);
+      }
+      if (data.description !== undefined) {
+        setDescription(data.description || '');
+      }
+      setStatus('running');
+      if (data.useStealth !== undefined) {
+        setIsStealth(!!data.useStealth);
+      } else if (data.data?.useStealth !== undefined) {
+        setIsStealth(!!data.data.useStealth);
+      } else if (taskId && taskId.toLowerCase().includes('stealth')) {
+        setIsStealth(true);
+      }
+      if (data.data?.liveViewUrl) {
+        setLiveViewUrl(data.data.liveViewUrl);
+      }
+      if (data.browserId || data.data?.browserId) {
+        setBrowserId(data.browserId || data.data.browserId);
+      }
+      if (data.screenshot || data.data?.screenshot) {
+        const rawScreenshot = data.screenshot || data.data.screenshot;
+        const src = rawScreenshot.startsWith('data:') 
+          ? rawScreenshot 
+          : `data:image/png;base64,${rawScreenshot}`;
+        setScreenshot(src);
+      }
+    };
+
+    const onTaskUpdate = (update: any) => {
+      if (update.message) {
+        appendLog(update.message);
+      }
+      if (update.screenshot) {
+        setLiveView(
+          `data:image/png;base64,${update.screenshot}`
+        );
+      }
+      if (update.status === 'done') {
+        setStatus('complete');
+      }
+      if (update.status === 'failed') {
+        setStatus('error');
+      }
+    };
+
+    const onHumanNeeded = (data: any) => {
+      setStatus('intervention');
+      setIntervention(data);
+    };
+
+    const onTaskComplete = (data: any) => {
+      setStatus('completed');
+      if (data?.results?.saved !== undefined) {
+        setLeadsCount(data.results.saved);
+      } else if (data?.results?.leads && Array.isArray(data.results.leads)) {
+        setLeadsCount(data.results.leads.length);
+      } else if (data?.results?.results && Array.isArray(data.results.results)) {
+        setLeadsCount(data.results.results.length);
+      }
+      if (onComplete) onComplete(data);
+    };
+
+    const onTaskError = (data: any) => {
+      setStatus('failed');
+      setDescription(data.error || 'Unknown error occurred');
+      if (onError) onError(data.error);
+    };
+
+    socket.on('task_status', onTaskStatus);
+    socket.on('task_planned', onTaskPlanned);
+    socket.on('task_progress', onTaskProgress);
+    socket.on('task_update', onTaskUpdate);
+    socket.on('human_needed', onHumanNeeded);
+    socket.on('task_complete', onTaskComplete);
+    socket.on('task_error', onTaskError);
+
+    return () => {
+      socket.off('task_status', onTaskStatus);
+      socket.off('task_planned', onTaskPlanned);
+      socket.off('task_progress', onTaskProgress);
+      socket.off('task_update', onTaskUpdate);
+      socket.off('human_needed', onHumanNeeded);
+      socket.off('task_complete', onTaskComplete);
+      socket.off('task_error', onTaskError);
+    };
   }, [taskId, onComplete, onError, serverUrl, useFirestore]);
 
   useEffect(() => {
@@ -398,28 +640,129 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
     }
   }, [steelDebugUrl]);
 
+  useEffect(() => {
+    if (!isStealth) {
+      setViewMode('screenshot');
+    }
+  }, [isStealth]);
+
+  // Clear recommendations and errors when the step progresses to trigger a fresh analysis for the new page state
+  useEffect(() => {
+    setCopilotRecommendation('');
+    setCopilotAnalysis('');
+    setCopilotConfidence('');
+    setCopilotError('');
+  }, [step, taskId]);
+
+  // Auto-analyze page when we don't have recommendations yet and the agent is running
+  useEffect(() => {
+    if (taskId && !copilotRecommendation && !copilotLoading && !copilotError && status === 'running') {
+      const timer = setTimeout(() => {
+        handleAnalyzePage();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [taskId, copilotRecommendation, copilotLoading, copilotError, status, step]);
+
   return (
-    <div style={{
-      background: '#0a0a0a',
-      border: '1px solid #1a1a1a',
-      borderRadius: '8px',
-      overflow: 'hidden',
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      flexDirection: 'column'
-    }}>
+    <div className="flex flex-col lg:flex-row gap-5 w-full max-w-[1300px] mx-auto p-4 items-center lg:items-start justify-center">
+      {/* Left Column: Live Browser Box */}
+      <div style={{
+        background: '#0a0a0a',
+        border: '1px solid #1a1a1a',
+        borderRadius: '8px',
+        overflow: 'hidden',
+        width: '100%',
+        maxWidth: '600px',
+        aspectRatio: '1 / 1',
+        margin: '0 auto',
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
+        alignSelf: 'flex-start',
+        flexShrink: 0
+      }}>
       {/* Header */}
       <div style={{
         padding: '10px 14px',
         borderBottom: '1px solid #111',
         display: 'flex',
         justifyContent: 'space-between',
+        alignItems: 'center',
         fontSize: '11px',
         color: '#555',
         letterSpacing: '0.1em'
       }}>
-        <span>LIVE BROWSER</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {isStealth ? (
+            <span style={{ fontWeight: 'bold', color: '#fbbf24' }}>
+              🕵️‍♂️ STEALTH BROWSER
+            </span>
+          ) : (
+            <span>LIVE BROWSER</span>
+          )}
+          {liveViewUrl && (
+            <div style={{ display: 'inline-flex', background: '#111', borderRadius: '4px', padding: '2px', border: '1px solid #222', gap: '2px' }}>
+              <button
+                onClick={() => setViewMode('screenshot')}
+                style={{
+                  background: viewMode === 'screenshot' ? '#22c55e' : 'transparent',
+                  color: viewMode === 'screenshot' ? '#000' : '#888',
+                  border: 'none',
+                  padding: '2px 8px',
+                  borderRadius: '3px',
+                  fontSize: '9px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}
+              >
+                SCREENSHOTS
+              </button>
+              {isStealth && (
+                <button
+                  onClick={() => setViewMode('iframe')}
+                  style={{
+                    background: viewMode === 'iframe' ? '#3b82f6' : 'transparent',
+                    color: viewMode === 'iframe' ? '#fff' : '#888',
+                    border: 'none',
+                    padding: '2px 8px',
+                    borderRadius: '3px',
+                    fontSize: '9px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                >
+                  INTERACTIVE
+                </button>
+              )}
+            </div>
+          )}
+          {liveViewUrl && (
+            <a 
+              href={liveViewUrl} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              style={{
+                background: '#14532d',
+                color: '#4ade80',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                border: '1px solid #16a34a',
+                fontSize: '9px',
+                fontWeight: 'bold',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              className="hover:bg-[#166534] hover:text-[#4ade80]"
+            >
+              OPEN SESSION IN NEW TAB ↗
+            </a>
+          )}
+        </div>
         {status === 'planning' && (
           <span style={{ color: '#3b82f6' }}>
             ● PLANNING
@@ -453,32 +796,135 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
       </div>
 
       {/* Live Frame */}
-      <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px', width: '100%', height: '100%' }}>
-        {(status !== 'complete' && status !== 'completed' && status !== 'failed' && status !== 'error' && status !== 'idle') ? (
-          liveViewUrl ? (
+      <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '300px', width: '100%', height: '100%' }}>
+
+        {/* Content of the Live Frame */}
+        {viewMode === 'iframe' && liveViewUrl ? (
+          <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <div style={{ 
+              background: isStealth ? '#1e1b4b' : '#1c1917', 
+              borderBottom: isStealth ? '1px solid #312e81' : '1px solid #292524', 
+              padding: '54px 14px 10px 14px', 
+              fontSize: '10px', 
+              color: isStealth ? '#818cf8' : '#f59e0b', 
+              textAlign: 'center', 
+              fontWeight: 'bold', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              gap: '6px' 
+            }}>
+              {isStealth ? (
+                <>
+                  <span>🕵️‍♂️ ACTIVE STEALTH SESSION: Routed securely through Stealth Browser MCP (residential fingerprint-proof proxy nodes).</span>
+                  <span>If third-party platforms block direct embedded viewports, click below to open the direct secure session console!</span>
+                </>
+              ) : (
+                <span>⚠️ Browser security blocks cookies & session data inside embedded windows. If the viewer says "Signed Out" or prompts to log in, click below to open the session directly!</span>
+              )}
+              <a 
+                href={liveViewUrl} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                style={{ 
+                  background: isStealth ? '#4f46e5' : '#d97706', 
+                  color: '#fff', 
+                  textDecoration: 'none', 
+                  padding: '4px 12px', 
+                  borderRadius: '4px', 
+                  fontSize: '9px', 
+                  fontWeight: 'bold', 
+                  display: 'inline-flex', 
+                  alignItems: 'center', 
+                  gap: '4px' 
+                }}
+              >
+                {isStealth ? 'Open Secure Stealth Console in New Tab ↗' : 'Open Interactive Session in New Tab ↗'}
+              </a>
+            </div>
             <iframe 
               src={liveViewUrl} 
-              style={{ width: '100%', height: '100%', minHeight: '400px', border: 'none', borderRadius: '8px', background: '#000' }}
+              style={{ width: '100%', height: '100%', flex: 1, minHeight: '0', border: 'none', borderRadius: '0 0 8px 8px', background: '#000' }}
               title="Live Browser"
               allow="clipboard-read; clipboard-write"
             />
-          ) : liveView ? (
+          </div>
+        ) : (liveView || screenshot) ? (
+          <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '58px 12px 12px 12px', gap: '8px', overflowY: 'auto' }}>
+            {/* Zoom & Fit Toolbar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: '#121214', border: '1px solid #222', padding: '4px 10px', borderRadius: '6px', width: '100%', maxWidth: '400px', justifyContent: 'space-between', marginBottom: '4px', zIndex: 10 }}>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button
+                  onClick={() => setFitMode('fit')}
+                  style={{
+                    background: fitMode === 'fit' ? '#7C5335' : 'transparent',
+                    color: fitMode === 'fit' ? '#fff' : '#888',
+                    border: 'none',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '9px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                >
+                  FIT SCREEN
+                </button>
+                <button
+                  onClick={() => setFitMode('full')}
+                  style={{
+                    background: fitMode === 'full' ? '#7C5335' : 'transparent',
+                    color: fitMode === 'full' ? '#fff' : '#888',
+                    border: 'none',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '9px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                >
+                  FULL SIZE (SCROLL)
+                </button>
+              </div>
+              {fitMode === 'full' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button
+                    onClick={() => setZoom(Math.max(50, zoom - 10))}
+                    style={{ background: '#222', border: 'none', color: '#ccc', width: '18px', height: '18px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    -
+                  </button>
+                  <span style={{ fontSize: '9px', color: '#aaa', minWidth: '28px', textAlign: 'center' }}>{zoom}%</span>
+                  <button
+                    onClick={() => setZoom(Math.min(200, zoom + 10))}
+                    style={{ background: '#222', border: 'none', color: '#ccc', width: '18px', height: '18px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    +
+                  </button>
+                </div>
+              )}
+            </div>
+
             <img 
-              src={liveView} 
-              style={{width:'100%', borderRadius:'8px'}}
+              src={liveView || screenshot} 
+              style={{ 
+                width: fitMode === 'fit' ? '100%' : `${zoom}%`, 
+                maxWidth: fitMode === 'fit' ? '100%' : 'none', 
+                maxHeight: fitMode === 'fit' ? 'calc(100% - 60px)' : 'none', 
+                objectFit: 'contain', 
+                borderRadius: '8px', 
+                border: '1px solid #222' 
+              }}
               alt="Live browser view"
             />
-          ) : (
-            <div style={{
-              color: 'var(--text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '300px'
-            }}>
-              Browser will appear here
+            <div style={{ fontSize: '9px', color: '#777', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '450px' }}>
+              <span>Streaming live browser screenshots. No sign-in or cookies required!</span>
+              {liveViewUrl && (
+                <span style={{ color: '#10B981' }}>
+                  Want to control the browser? click <strong>"OPEN SESSION IN NEW TAB"</strong> above!
+                </span>
+              )}
             </div>
-          )
+          </div>
         ) : (status === 'complete' || status === 'completed') ? (
           <div style={{
             display: 'flex',
@@ -524,7 +970,9 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
         ) : (
           /* Idle / Planning state */
           <div style={{
-            height: '200px',
+            width: '100%',
+            height: '100%',
+            flex: 1,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -665,24 +1113,531 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
         )}
       </div>
 
-      {/* Progress bar */}
+      {/* Progress bar in the left column footer */}
       {status === 'running' && description && (
         <div style={{
           padding: '8px 14px',
           borderTop: '1px solid #111',
           fontSize: '11px',
-          color: '#555'
+          color: '#555',
+          background: '#070707'
         }}>
           {description}
         </div>
       )}
     </div>
+
+    {/* Right Column: Gemini AI-Guided Copilot Panel */}
+    <div style={{
+      flex: '1 1 0%',
+      width: '100%',
+      maxWidth: '450px',
+      height: '600px',
+      background: 'rgba(9, 9, 11, 0.95)',
+      backdropFilter: 'blur(12px)',
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      borderRadius: '12px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '12px',
+      boxShadow: '0 12px 40px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.05)',
+      padding: '16px',
+      boxSizing: 'border-box',
+      position: 'relative',
+      alignSelf: 'flex-start',
+      flexShrink: 0
+    }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          borderBottom: '1px solid #1c1917',
+          paddingBottom: '8px',
+          flexShrink: 0
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#e4e4e7', letterSpacing: '0.05em' }}>AI-GUIDED COPILOT</span>
+            <span style={{
+              fontSize: '8px',
+              background: '#1c1917',
+              color: '#a1a1aa',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              border: '1px solid #27272a'
+            }}>POWERED BY GEMINI</span>
+          </div>
+          <button
+            onClick={() => setCopilotExpanded(!copilotExpanded)}
+            style={{
+              background: 'transparent',
+              color: '#888',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '10px',
+              padding: '2px 6px'
+            }}
+          >
+            {copilotExpanded ? 'Hide' : 'Show Suggestion'}
+          </button>
+        </div>
+
+        {copilotExpanded && (
+          <div style={{ display: 'flex', gap: '4px', background: '#1c1917', padding: '3px', borderRadius: '6px', flexShrink: 0 }}>
+            <button
+              onClick={() => setCopilotTab('chat')}
+              style={{
+                flex: 1,
+                background: copilotTab === 'chat' ? '#27272a' : 'transparent',
+                color: copilotTab === 'chat' ? '#fff' : '#a1a1aa',
+                border: 'none',
+                borderRadius: '4px',
+                padding: '5px 0',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              💬 COPILOT CHAT
+            </button>
+            <button
+              onClick={() => setCopilotTab('suggest')}
+              style={{
+                flex: 1,
+                background: copilotTab === 'suggest' ? '#27272a' : 'transparent',
+                color: copilotTab === 'suggest' ? '#fff' : '#a1a1aa',
+                border: 'none',
+                borderRadius: '4px',
+                padding: '5px 0',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              💡 ACTIONS & TIPS
+            </button>
+          </div>
+        )}
+
+        {copilotExpanded && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+            {copilotTab === 'suggest' && (
+              <>
+                {!copilotRecommendation && !copilotLoading && !copilotError && (
+                  <div style={{ textAlign: 'center', padding: '12px 6px' }}>
+                    <p style={{ fontSize: '11px', color: '#71717a', marginBottom: '12px' }}>
+                      Analyze the current page state with Gemini to get smart recommendations and custom next steps.
+                    </p>
+                    <button
+                      onClick={handleAnalyzePage}
+                      disabled={status === 'idle' || status === 'planning'}
+                      style={{
+                        background: '#f4f4f5',
+                        color: '#09090b',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '8px 14px',
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        cursor: (status === 'idle' || status === 'planning') ? 'not-allowed' : 'pointer',
+                        opacity: (status === 'idle' || status === 'planning') ? 0.5 : 1,
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      Analyze Current Screen
+                    </button>
+                  </div>
+                )}
+
+                {copilotLoading && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '18px' }}>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <div className="animate-bounce" style={{ width: '6px', height: '6px', background: '#e4e4e7', borderRadius: '50%' }}></div>
+                      <div className="animate-bounce" style={{ width: '6px', height: '6px', background: '#e4e4e7', borderRadius: '50%', animationDelay: '0.15s' }}></div>
+                      <div className="animate-bounce" style={{ width: '6px', height: '6px', background: '#e4e4e7', borderRadius: '50%', animationDelay: '0.3s' }}></div>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#a1a1aa' }}>Gemini is analyzing page state...</span>
+                  </div>
+                )}
+
+                {copilotError && (
+                  <div style={{ background: '#1c1917', border: '1px solid #27272a', borderRadius: '6px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <p style={{ fontSize: '11px', color: '#f4f4f5', margin: 0 }}>{copilotError}</p>
+                    <button
+                      onClick={handleAnalyzePage}
+                      style={{
+                        alignSelf: 'flex-start',
+                        background: '#27272a',
+                        color: '#e4e4e7',
+                        border: '1px solid #3f3f46',
+                        borderRadius: '4px',
+                        padding: '4px 10px',
+                        fontSize: '9px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Retry Analysis
+                    </button>
+                  </div>
+                )}
+
+                {copilotRecommendation && !copilotLoading && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {copilotAnalysis && (
+                      <div style={{ background: '#09090b', padding: '8px 10px', borderRadius: '4px', borderLeft: '3px solid #3b82f6' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '9px', color: '#60a5fa', fontWeight: 'bold' }}>GEMINI DIAGNOSIS:</span>
+                          <button
+                            onClick={() => handleCopyText(copilotAnalysis, 'diagnosis')}
+                            style={{
+                              background: '#18181b',
+                              border: '1px solid #27272a',
+                              color: '#a1a1aa',
+                              fontSize: '8px',
+                              fontWeight: 'bold',
+                              cursor: 'pointer',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            {copiedKey === 'diagnosis' ? '✓ COPIED!' : '📋 COPY'}
+                          </button>
+                        </div>
+                        <p style={{ fontSize: '11px', color: '#cbd5e1', margin: 0, fontStyle: 'italic', lineHeight: '1.4' }}>"{copilotAnalysis}"</p>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '9px', color: '#a1a1aa', fontWeight: 'bold' }}>EDIT & ADJUST STEP:</span>
+                          <button
+                            onClick={() => handleCopyText(copilotRecommendation, 'recommendation')}
+                            style={{
+                              background: '#18181b',
+                              border: '1px solid #27272a',
+                              color: '#a1a1aa',
+                              fontSize: '8px',
+                              fontWeight: 'bold',
+                              cursor: 'pointer',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            {copiedKey === 'recommendation' ? '✓ COPIED!' : '📋 COPY'}
+                          </button>
+                        </div>
+                        <span style={{
+                          fontSize: '8px',
+                          background: copilotConfidence === 'high' ? '#14532d' : copilotConfidence === 'medium' ? '#27272a' : '#7f1d1d',
+                          color: copilotConfidence === 'high' ? '#4ade80' : copilotConfidence === 'medium' ? '#e4e4e7' : '#fca5a5',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          fontWeight: 'bold',
+                          letterSpacing: '0.05em'
+                        }}>
+                          CONFIDENCE: {copilotConfidence.toUpperCase()}
+                        </span>
+                      </div>
+                      <textarea
+                        value={copilotRecommendation}
+                        onChange={(e) => setCopilotRecommendation(e.target.value)}
+                        style={{
+                          width: '100%',
+                          minHeight: '45px',
+                          background: '#18181b',
+                          border: '1px solid #27272a',
+                          borderRadius: '6px',
+                          color: '#f4f4f5',
+                          fontSize: '11px',
+                          fontFamily: 'inherit',
+                          padding: '8px',
+                          resize: 'vertical',
+                          boxSizing: 'border-box',
+                          lineHeight: '1.4'
+                        }}
+                        placeholder="E.g. Click on search bar or type values..."
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                      <button
+                        onClick={handleExecuteStep}
+                        disabled={stepExecuting || !copilotRecommendation}
+                        style={{
+                          flex: 1,
+                          background: '#22c55e',
+                          color: '#000',
+                          border: 'none',
+                          borderRadius: '6px',
+                          padding: '8px 12px',
+                          fontSize: '11px',
+                          fontWeight: 'bold',
+                          cursor: (stepExecuting || !copilotRecommendation) ? 'not-allowed' : 'pointer',
+                          opacity: (stepExecuting || !copilotRecommendation) ? 0.6 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        {stepExecuting ? 'Executing Action...' : 'Apply & Execute Step'}
+                      </button>
+                      <button
+                        onClick={handleAnalyzePage}
+                        disabled={stepExecuting}
+                        style={{
+                          background: '#27272a',
+                          color: '#e4e4e7',
+                          border: '1px solid #3f3f46',
+                          borderRadius: '6px',
+                          padding: '8px 12px',
+                          fontSize: '11px',
+                          fontWeight: 'bold',
+                          cursor: stepExecuting ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        Recalculate
+                      </button>
+                    </div>
+
+                    {stepResult && (
+                      <div style={{ fontSize: '10px', color: '#22c55e', fontWeight: 'bold', textAlign: 'center', marginTop: '2px' }}>
+                        {stepResult}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {copilotTab === 'chat' && (
+              <div style={{ display: 'flex', flexDirection: 'column', height: '100%', flex: 1, justifyBetween: 'space-between', overflow: 'hidden' }}>
+                <div style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  padding: '8px 4px',
+                  boxSizing: 'border-box',
+                  minHeight: 0
+                }}>
+                  {copilotChat.map((msg, idx) => (
+                    <div 
+                      key={idx}
+                      style={{
+                        alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                        background: msg.role === 'user' ? '#7C5335' : '#18181b',
+                        color: msg.role === 'user' ? '#fff' : '#f4f4f5',
+                        border: msg.role === 'user' ? 'none' : '1px solid #27272a',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        fontSize: '11px',
+                        maxWidth: '85%',
+                        wordBreak: 'break-word',
+                        lineHeight: '1.4',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                        position: 'relative'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '9px', color: msg.role === 'user' ? '#ffd8a8' : '#a1a1aa', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          {msg.role === 'user' ? 'You' : 'Copilot'}
+                        </span>
+                        <button
+                          onClick={() => handleCopyText(msg.text, `chat-${idx}`)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: msg.role === 'user' ? '#ffd8a8' : '#a1a1aa',
+                            fontSize: '8px',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            padding: '1px 4px',
+                            borderRadius: '4px',
+                            opacity: 0.8
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+                          onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.8')}
+                        >
+                          {copiedKey === `chat-${idx}` ? '✓ COPIED' : '📋 COPY'}
+                        </button>
+                      </div>
+                      <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                    </div>
+                  ))}
+                  {copilotChatSending && (
+                    <div style={{ alignSelf: 'flex-start', background: '#18181b', border: '1px solid #27272a', borderRadius: '8px', padding: '8px 12px', fontSize: '11px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '9px', color: '#a1a1aa', fontWeight: 'bold', textTransform: 'uppercase' }}>Copilot is thinking</span>
+                      <div style={{ display: 'flex', gap: '2px', marginLeft: '4px' }}>
+                        <div className="animate-bounce" style={{ width: '4px', height: '4px', background: '#a1a1aa', borderRadius: '50%' }}></div>
+                        <div className="animate-bounce" style={{ width: '4px', height: '4px', background: '#a1a1aa', borderRadius: '50%', animationDelay: '0.15s' }}></div>
+                        <div className="animate-bounce" style={{ width: '4px', height: '4px', background: '#a1a1aa', borderRadius: '50%', animationDelay: '0.3s' }}></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px', borderTop: '1px solid #1c1917', paddingTop: '8px', flexShrink: 0 }}>
+                  <input
+                    type="text"
+                    value={copilotMsgInput}
+                    onChange={(e) => setCopilotMsgInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSendCopilotMessage();
+                      }
+                    }}
+                    placeholder="Ask Copilot or request action..."
+                    disabled={copilotChatSending || !taskId}
+                    style={{
+                      flex: 1,
+                      background: '#18181b',
+                      border: '1px solid #27272a',
+                      borderRadius: '6px',
+                      color: '#f4f4f5',
+                      fontSize: '11px',
+                      fontFamily: 'inherit',
+                      padding: '8px 10px',
+                      boxSizing: 'border-box',
+                      outline: 'none'
+                    }}
+                  />
+                  <button
+                    onClick={handleSendCopilotMessage}
+                    disabled={copilotChatSending || !copilotMsgInput.trim() || !taskId}
+                    style={{
+                      background: '#f4f4f5',
+                      color: '#09090b',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '0 12px',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      cursor: (copilotChatSending || !copilotMsgInput.trim() || !taskId) ? 'not-allowed' : 'pointer',
+                      opacity: (copilotChatSending || !copilotMsgInput.trim() || !taskId) ? 0.5 : 1,
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 
 export default function App() {
-  // Navigation Tabs: 'workspace' | 'tasks' | 'leads' | 'history' | 'settings' | 'outreach' | 'sectors' | 'agency'
-  const [tab, setTab] = useState<'workspace' | 'tasks' | 'leads' | 'history' | 'settings' | 'outreach' | 'sectors' | 'agency'>('workspace');
+  // Navigation Tabs: 'workspace' | 'tasks' | 'leads' | 'history' | 'settings' | 'outreach' | 'sectors' | 'agency' | 'ig_discovery'
+  const [tab, setTab] = useState<'workspace' | 'tasks' | 'leads' | 'history' | 'settings' | 'outreach' | 'sectors' | 'agency' | 'ig_discovery'>('workspace');
+  
+  // Instagram Discovery states
+  const [discoverySessions, setDiscoverySessions] = useState<any[]>([]);
+  const [selectedDiscoverySession, setSelectedDiscoverySession] = useState<any | null>(null);
+  const [activeDiscoverySessionId, setActiveDiscoverySessionId] = useState<string>('');
+  const [igNiche, setIgNiche] = useState<string>('luxury lifestyle');
+  const [igMaxProfiles, setIgMaxProfiles] = useState<number>(5);
+  const [igMaxPosts, setIgMaxPosts] = useState<number>(3);
+  const [igMaxComments, setIgMaxComments] = useState<number>(10);
+  const [isStartingDiscovery, setIsStartingDiscovery] = useState<boolean>(false);
+
+  const fetchDiscoverySessions = async () => {
+    try {
+      const res = await fetch(`${serverUrl}/api/instagram/sessions`);
+      if (res.ok) {
+        const data = await res.json();
+        setDiscoverySessions(data || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch discovery sessions:", err);
+    }
+  };
+
+  const fetchSessionDetails = async (sessionId: string) => {
+    try {
+      const res = await fetch(`${serverUrl}/api/instagram/session/${sessionId}/details`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedDiscoverySession(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch discovery session details:", err);
+    }
+  };
+
+  const handleStartDiscovery = async () => {
+    setIsStartingDiscovery(true);
+    try {
+      const res = await fetch(`${serverUrl}/api/instagram/discover`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userId || 'system',
+          niche: igNiche,
+          maxProfiles: igMaxProfiles,
+          maxPosts: igMaxPosts,
+          maxComments: igMaxComments
+        })
+      });
+      if (res.ok) {
+        showNotification("Instagram Discovery campaign launched successfully!");
+        setTimeout(() => {
+          fetchDiscoverySessions();
+        }, 1000);
+      } else {
+        alert("Failed to start Instagram Discovery session.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("Error starting Instagram Discovery campaign: " + err.message);
+    } finally {
+      setIsStartingDiscovery(false);
+    }
+  };
+
+  const handleUpdateLeadStage = async (sessionId: string, profile: string, shortcode: string, leadUsername: string, stage: string) => {
+    try {
+      const res = await fetch(`${serverUrl}/api/instagram/leads/update-stage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, profile, shortcode, leadUsername, stage })
+      });
+      if (res.ok) {
+        showNotification(`Lead stage updated to ${stage}!`);
+        fetchSessionDetails(sessionId);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteDiscoverySession = async (sessionId: string) => {
+    if (!confirm("Are you sure you want to delete this discovery session?")) return;
+    try {
+      const res = await fetch(`${serverUrl}/api/instagram/session/${sessionId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        showNotification("Discovery session deleted.");
+        fetchDiscoverySessions();
+        if (selectedDiscoverySession?.sessionId === sessionId) {
+          setSelectedDiscoverySession(null);
+        }
+      } else {
+        alert("Failed to delete session.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
   
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('assix_theme') as 'dark' | 'light') || 'dark';
@@ -752,6 +1707,13 @@ export default function App() {
       url = url.replace('ws://', 'http://');
     } else if (url.startsWith('wss://')) {
       url = url.replace('wss://', 'https://');
+    }
+
+    // Safety check: if current window is remote but saved/derived URL is localhost, fallback to window.location.origin
+    const isLocalhost = url.includes('localhost') || url.includes('127.0.0.1');
+    const isCurrentLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isLocalhost && !isCurrentLocal) {
+      url = window.location.origin;
     } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
       url = window.location.origin;
     }
@@ -785,6 +1747,8 @@ export default function App() {
   const [screenshots, setScreenshots] = useState<Record<string, string>>({});
   const [captchaAlert, setCaptchaAlert] = useState<boolean>(false);
   const [captchaScreenshot, setCaptchaScreenshot] = useState<string | null>(null);
+  const [solvingCaptcha, setSolvingCaptcha] = useState<boolean>(false);
+  const [captchaError, setCaptchaError] = useState<string | null>(null);
   const [activeDynamicTaskId, setActiveDynamicTaskId] = useState<string>('');
   
   // Firebase & Browser Use Integration states
@@ -792,6 +1756,68 @@ export default function App() {
   const [browserUseTasks, setBrowserUseTasks] = useState<any[]>([]);
   const [activeBrowserUseTask, setActiveBrowserUseTask] = useState<any>(null);
   const [userId, setUserId] = useState<string>('tonykone21@gmail.com');
+
+  // Browser Connection states
+  const [connectionStatus, setConnectionStatus] = useState<{ connected: boolean; connectedAt?: string | null; machineName?: string | null }>({ connected: false });
+  const [connectionCode, setConnectionCode] = useState<string | null>(null);
+  const [connectionLoading, setConnectionLoading] = useState<boolean>(false);
+
+  const fetchConnectionStatus = async () => {
+    try {
+      const res = await fetch(`${serverUrl}/api/connections/status?userId=${encodeURIComponent(userId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setConnectionStatus(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch connection status:", err);
+    }
+  };
+
+  const generateConnectionCode = async () => {
+    setConnectionLoading(true);
+    try {
+      const res = await fetch(`${serverUrl}/api/connections/generate-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setConnectionCode(data.code);
+        showNotification("Short-lived connection code generated!");
+      }
+    } catch (err) {
+      console.error(err);
+      showNotification("Failed to generate connection code.");
+    } finally {
+      setConnectionLoading(false);
+    }
+  };
+
+  const disconnectBrowser = async () => {
+    try {
+      const res = await fetch(`${serverUrl}/api/connections/disconnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      if (res.ok) {
+        showNotification("Browser connection disconnected.");
+        fetchConnectionStatus();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === 'settings' && userId) {
+      fetchConnectionStatus();
+      const interval = setInterval(fetchConnectionStatus, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [tab, userId, serverUrl]);
 
   // =========================================================================
   // ASSIX THREE-TIER LEAD FINDER CLIENT STATES
@@ -1072,7 +2098,7 @@ export default function App() {
       const data = await res.json();
       if (Array.isArray(data)) {
         setTasks(data);
-        const active = data.filter((t: any) => t.status === 'running' || t.status === 'paused_captcha').length;
+        const active = data.filter((t: any) => t.status === 'running' || t.status === 'paused_captcha' || t.status === 'paused_input' || t.status === 'planning' || t.status === 'queued').length;
         setActiveCount(active);
         
         // Auto assign active task if none selected
@@ -1136,7 +2162,28 @@ export default function App() {
 
     try {
       let taskId = '';
-      if (newTaskType === 'google_maps_scrape') {
+      if (newTaskType === 'instagram_discovery') {
+        taskId = 'igdisc-' + Date.now();
+        fetch(`${serverUrl}/api/instagram/discover`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: userId || 'system',
+            niche: taskConfig.niche || igNiche,
+            maxProfiles: taskConfig.maxProfiles || igMaxProfiles,
+            maxPosts: taskConfig.maxPosts || igMaxPosts,
+            maxComments: taskConfig.maxComments || igMaxComments
+          })
+        }).catch(err => console.error("Instagram Discovery task error:", err));
+        
+        showNotification("Instagram Discovery campaign launched successfully!");
+        setNewTaskModal(false);
+        setTab('ig_discovery');
+        setTimeout(() => {
+          fetchDiscoverySessions();
+        }, 1000);
+        return;
+      } else if (newTaskType === 'google_maps_scrape') {
         taskId = 'gmaps-' + Date.now();
         fetch(`/api/scrape-google-maps`, {
           method: 'POST',
@@ -1452,6 +2499,29 @@ export default function App() {
     } catch (e) {}
   };
 
+  const handleAutoResolveCaptcha = async () => {
+    if (!activeTask) return;
+    setSolvingCaptcha(true);
+    setCaptchaError(null);
+    try {
+      const res = await fetch(`${serverUrl}/api/task/${activeTask.taskId}/auto-resolve-captcha`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.screenshotBase64) {
+          setCaptchaScreenshot('data:image/jpeg;base64,' + data.screenshotBase64);
+        }
+      } else {
+        setCaptchaError(data.message || "AI was unable to locate or click the verification element.");
+      }
+    } catch (err: any) {
+      setCaptchaError("Failed to communicate with CAPTCHA auto-solver service.");
+    } finally {
+      setSolvingCaptcha(false);
+    }
+  };
+
   const [submittingInput, setSubmittingInput] = useState<boolean>(false);
   const handleSubmitInputRequest = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -1622,53 +2692,7 @@ export default function App() {
     const taskId = crypto.randomUUID();
     const userMessage = text;
 
-    if (executionMode === 'auto') {
-      appendChatMessage({
-        role: 'assistant',
-        text: '🤖 Hermes is handling this task in the background...',
-        taskId
-      });
-      appendLog(`[CHATBOT ACTION] Initiating background task (ID: ${taskId.slice(0, 8)}) for command: "${userMessage}"`);
-      if (process.env.HERMES_URL) {
-        socket.emit('hermes_task', { 
-          instruction: userMessage, taskId 
-        });
-      } else {
-        socket.emit('task', { 
-          instruction: userMessage, taskId 
-        });
-      }
-      setIsSending(false);
-      return;
-    } else {
-      // Live mode - Watch browser execute in real time
-      appendChatMessage({
-        role: 'assistant',
-        text: '🤖 Live Browser Session initiated. Streaming screenshots...',
-        taskId
-      });
-      appendLog(`[CHATBOT ACTION] Spawning live browser task (ID: ${taskId.slice(0, 8)}) for command: "${userMessage}"`);
-      socket.emit('browser_task', { 
-        instruction: userMessage, taskId 
-      });
-
-      const newTask: Task = {
-        taskId,
-        taskType: 'dynamic',
-        label: `Live Task: ${userMessage.slice(0, 30)}...`,
-        config: { goal: userMessage, context: '' },
-        status: 'running',
-        progress: 0,
-        total: 10,
-        createdAt: new Date().toISOString()
-      };
-      setTasks(prev => [newTask, ...prev]);
-      selectTask(newTask);
-      setIsSending(false);
-      return;
-    }
-
-    // Agency Mode short circuit
+    // 1. Agency Mode short circuit
     if (agencyMode) {
       const agencyId = 'agency-' + Math.random().toString(36).substring(2, 9);
       setAgencyTaskId(agencyId);
@@ -1685,30 +2709,31 @@ export default function App() {
       return;
     }
 
-    // Check direct automated instruction short circuit
+    // 2. Direct command instruction short circuit (e.g. starting with "do:" or "run:")
     if (text.toLowerCase().startsWith('do:') || text.toLowerCase().startsWith('run:')) {
       const goal = text.replace(/^(do:|run:)/i, '').trim();
       setIsSending(false);
 
-      let taskId = activeDynamicTaskId;
+      let activeTaskIdToUse = activeDynamicTaskId;
       const isReusable = activeDynamicTaskId && activeTask && activeTask.taskId === activeDynamicTaskId && activeTask.status !== 'complete' && activeTask.status !== 'failed';
+      const useStealth = executionMode === 'auto' || goal.toLowerCase().startsWith('stealth:') || goal.toLowerCase().includes('linkedin') || goal.toLowerCase().includes('leboncoin');
 
       if (isReusable) {
-        appendLog(`[CHATBOT ACTION] Continuing sequence on active browser session (ID: ${taskId.slice(0, 8)}) with instruction: "${goal}"`);
+        appendLog(`[CHATBOT ACTION] Continuing sequence on active browser session (ID: ${activeTaskIdToUse.slice(0, 8)}) with instruction: "${goal}"${useStealth ? ' (Stealth Mode)' : ''}`);
         socket.emit('browser_task', { 
-          instruction: goal, taskId 
+          instruction: goal, taskId: activeTaskIdToUse, useStealth 
         });
 
         setChat(prev => [...prev, { role: 'agent', msg: `Continuing sequence for objective "${goal}" on current browser session...` }]);
         
-        setTasks(prev => prev.map(t => t.taskId === taskId ? {
+        setTasks(prev => prev.map(t => t.taskId === activeTaskIdToUse ? {
           ...t,
           status: 'running',
           label: `Chat Auto: ${goal.slice(0, 30)}...`,
           config: { goal, context: '' }
         } : t));
 
-        if (activeTask && activeTask.taskId === taskId) {
+        if (activeTask && activeTask.taskId === activeTaskIdToUse) {
           setActiveTask(prev => prev ? {
             ...prev,
             status: 'running',
@@ -1718,16 +2743,36 @@ export default function App() {
         }
       } else {
         const newId = 'dyn-' + Date.now();
-        taskId = newId;
         setActiveDynamicTaskId(newId);
 
-        appendLog(`[CHATBOT ACTION] Spawning new browser sequence (ID: ${newId}) with instruction: "${goal}"`);
-        socket.emit('browser_task', { 
-          instruction: goal, taskId: newId 
-        });
-
-        setChat(prev => [...prev, { role: 'agent', msg: `Sequence initiated for objective "${goal}". Monitoring live browser session...` }]);
+        appendLog(`[CHATBOT ACTION] Spawning new browser sequence (ID: ${newId}) with instruction: "${goal}"${useStealth ? ' (Stealth Mode)' : ''}`);
         
+        if (executionMode === 'auto') {
+          appendChatMessage({
+            role: 'assistant',
+            text: '🤖 Hermes is handling this task in the background...',
+            taskId: newId
+          });
+          if (process.env.HERMES_URL) {
+            socket.emit('hermes_task', { 
+              instruction: goal, taskId: newId 
+            });
+          } else {
+            socket.emit('task', { 
+              instruction: goal, taskId: newId, useStealth 
+            });
+          }
+        } else {
+          appendChatMessage({
+            role: 'assistant',
+            text: '🤖 Live Browser Session initiated. Streaming screenshots...',
+            taskId: newId
+          });
+          socket.emit('browser_task', { 
+            instruction: goal, taskId: newId, useStealth 
+          });
+        }
+
         const newTask: Task = {
           taskId: newId,
           taskType: 'dynamic',
@@ -1740,15 +2785,16 @@ export default function App() {
         };
         
         setTasks(prev => [newTask, ...prev]);
-        selectTask(newTask);
+        selectTask(newTask, true); // Automatically switch to live viewer to see it in action
       }
       return;
     }
 
-    // Standard conversational interface
+    // 3. Standard conversational interface with automatic intent classification
     const fd = new FormData();
     fd.append('message', text);
     fd.append('taskId', activeTask?.taskId || 'general');
+    fd.append('useStealth', String(executionMode === 'auto'));
     attachments.forEach(file => {
       fd.append('files', file);
     });
@@ -1762,6 +2808,7 @@ export default function App() {
       const data = await res.json();
       setChat(prev => [...prev, { role: 'agent', msg: data.response }]);
       appendLog(`[CHATBOT RESPONSE] Agent reply: "${data.response?.slice(0, 80)}${data.response?.length > 80 ? '...' : ''}"`);
+      
       if (data.launchTaskId) {
         appendLog(`[CHATBOT RESPONSE] Launched automation task (ID: ${data.launchTaskId.slice(0, 8)})`);
         await fetchTasks();
@@ -1777,7 +2824,7 @@ export default function App() {
           }
         }
         if (selected) {
-          selectTask(selected);
+          selectTask(selected, true); // Automatically focus the live viewer and stream screenshots
         } else {
           selectTask({
             taskId: data.launchTaskId,
@@ -1788,7 +2835,7 @@ export default function App() {
             progress: 0,
             total: 10,
             createdAt: new Date().toISOString()
-          });
+          }, true); // Automatically focus the live viewer and stream screenshots
         }
       }
     } catch (e: any) {
@@ -2163,9 +3210,77 @@ export default function App() {
     return () => clearInterval(iv);
   }, []);
 
+  // Rapid active-task logs and status poller fallback (every 2.5s) to guarantee real-time updates
+  // regardless of WebSocket state, VPNs, or iframe sandbox limitations.
+  useEffect(() => {
+    if (!activeTask) return;
+    const isRunning = activeTask.status === 'running' || 
+                      activeTask.status === 'paused_captcha' || 
+                      activeTask.status === 'paused_input' || 
+                      activeTask.status === 'planning';
+    
+    const pollFunc = async () => {
+      try {
+        const res = await fetch(`${serverUrl}/api/task/${activeTask.taskId}/status`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.task) {
+            setTasks(prev => prev.map(t => t.taskId === activeTask.taskId ? { ...t, ...data.task } : t));
+            setActiveTask(prev => {
+              if (prev && prev.taskId === activeTask.taskId) {
+                return { ...prev, ...data.task };
+              }
+              return prev;
+            });
+          }
+          if (data.logs && Array.isArray(data.logs)) {
+            setLogs(data.logs);
+          }
+        }
+      } catch (e) {
+        console.error("Rapid poller status/logs fetch failed:", e);
+      }
+
+      try {
+        const res = await fetch(`${serverUrl}/api/task/${activeTask.taskId}/leads`);
+        if (res.ok) {
+          const leadsData = await res.json();
+          if (Array.isArray(leadsData)) {
+            setActiveTaskLeads(leadsData);
+          }
+        }
+      } catch (e) {
+        console.error("Rapid poller leads fetch failed:", e);
+      }
+    };
+
+    pollFunc();
+
+    if (!isRunning) return;
+
+    const intervalId = setInterval(pollFunc, 2500);
+    return () => clearInterval(intervalId);
+  }, [activeTask?.taskId, activeTask?.status, serverUrl]);
+
   // Listen to Socket.io events globally to sync currentUrl and show human needed interventions
   useEffect(() => {
     const handleProgress = (data: any) => {
+      if (data && (data.step && (
+        String(data.step).startsWith('discovery_') || 
+        String(data.step).startsWith('profile_') || 
+        String(data.step).startsWith('post_') || 
+        String(data.step).startsWith('comment_') || 
+        String(data.step) === 'lead_saved' ||
+        String(data.step) === 'pipeline_complete' ||
+        String(data.step) === 'error'
+      ))) {
+        const sId = data.data?.sessionId || data.sessionId || (data.taskId?.startsWith('igdisc-') ? data.taskId : null);
+        if (sId) {
+          fetchDiscoverySessions();
+          fetchSessionDetails(sId);
+        }
+      }
+
       if (data && data.taskId) {
         setTasks(prev => prev.map(t => t.taskId === data.taskId ? { ...t, currentUrl: data.currentUrl, progress: data.step !== undefined ? data.step : t.progress } : t));
         setActiveTask(prev => {
@@ -2658,7 +3773,7 @@ export default function App() {
             </button>
             <button 
               onClick={() => setTab('agency')} 
-              className={`text-[9px] sm:text-[10px] font-bold tracking-[0.12em] sm:tracking-[0.15em] uppercase transition cursor-pointer ${tab === 'agency' ? 'text-[#F5F5F5]' : 'text-[#10B981] hover:text-[#14B8A6]'}`}
+              className={`text-[9px] sm:text-[10px] font-bold tracking-[0.12em] sm:tracking-[0.15em] uppercase transition cursor-pointer ${tab === 'agency' ? 'text-[#F5F5F5]' : 'text-[#52525B] hover:text-[#C4C4C4]'}`}
             >
               AGENCY
             </button>
@@ -2673,6 +3788,12 @@ export default function App() {
               className={`text-[9px] sm:text-[10px] font-bold tracking-[0.12em] sm:tracking-[0.15em] uppercase transition cursor-pointer ${tab === 'freelance' ? 'text-[#F5F5F5]' : 'text-[#52525B] hover:text-[#C4C4C4]'}`}
             >
               FREELANCE
+            </button>
+            <button 
+              onClick={() => { setTab('ig_discovery'); fetchDiscoverySessions(); }} 
+              className={`text-[9px] sm:text-[10px] font-bold tracking-[0.12em] sm:tracking-[0.15em] uppercase transition cursor-pointer ${tab === 'ig_discovery' ? 'text-[#F5F5F5]' : 'text-[#52525B] hover:text-[#C4C4C4]'}`}
+            >
+              IG DISCOVERY
             </button>
 
             {/* MORE Dropdown (History, Settings, and Cloud Mode Status) */}
@@ -2754,23 +3875,30 @@ export default function App() {
       {tab === 'workspace' && (
         <div className="flex flex-1 overflow-hidden relative">
 
-          {/* LEFT COMPANION RAILS - ACTIVE SESSIONS */}
+          {/* LEFT COMPANION RAILS - SEARCH DIRECTORIES / TABS */}
           <section 
             style={{ width: leftOpen ? '220px' : '0px' }}
-            className="border-r border-[#1A1A1A] h-full flex flex-col pt-4 pb-16 shrink-0 overflow-hidden bg-[#090909] transition-all duration-300"
+            className="border-r border-[#16161A] h-full flex flex-col pt-4 pb-16 shrink-0 overflow-hidden bg-[#070709] transition-all duration-300 select-none"
           >
-            <div className="px-4 mb-2 flex items-center justify-between shrink-0">
-              <span className="text-[8px] tracking-[0.2em] text-[#52525B] font-bold uppercase">ACTIVE SESSIONS ({tasks.filter(t => t.status === 'running' || t.status === 'paused_captcha' || t.status === 'paused_input' || t.status === 'queued').length})</span>
-              <Activity size={10} className="text-[#52525B22]" />
+            {/* Header / Brand */}
+            <div className="px-4 mb-4 shrink-0">
+              <h3 className="text-[9px] tracking-[0.25em] text-[#A27B5C] font-extrabold uppercase mb-0.5">SEARCH TABS</h3>
+              <p className="text-[8px] text-[#52525B] font-bold tracking-wider uppercase">Lead Directories By Run</p>
             </div>
 
-            <div className="max-h-[220px] overflow-y-auto space-y-1 select-none shrink-0 border-b border-[#1A1A1A] pb-4 mb-2">
-              {tasks.filter(t => t.status === 'running' || t.status === 'paused_captcha' || t.status === 'paused_input' || t.status === 'queued').length === 0 ? (
-                <div className="px-4 py-3 text-center text-[#52525B] text-[10px] italic">No active automations.</div>
+            {/* Sub-section: ACTIVE SCANS */}
+            <div className="px-4 mb-2 flex items-center justify-between shrink-0">
+              <span className="text-[8px] tracking-[0.15em] text-[#52525B] font-bold uppercase">ACTIVE SCANS ({tasks.filter(t => t.status === 'running' || t.status === 'paused_captcha' || t.status === 'paused_input' || t.status === 'queued' || t.status === 'planning').length})</span>
+              <Activity size={9} className="text-[#10B981] animate-pulse" />
+            </div>
+
+            <div className="max-h-[180px] overflow-y-auto space-y-1 select-none shrink-0 border-b border-[#16161A] pb-3 mb-2 scrollbar-thin">
+              {tasks.filter(t => t.status === 'running' || t.status === 'paused_captcha' || t.status === 'paused_input' || t.status === 'queued' || t.status === 'planning').length === 0 ? (
+                <div className="px-4 py-2 text-left text-[#52525B] text-[9.5px] italic">No active scanners.</div>
               ) : (
-                tasks.filter(t => t.status === 'running' || t.status === 'paused_captcha' || t.status === 'paused_input' || t.status === 'queued').map((task, idx) => {
+                tasks.filter(t => t.status === 'running' || t.status === 'paused_captcha' || t.status === 'paused_input' || t.status === 'queued' || t.status === 'planning').map((task, idx) => {
                   const isActive = activeTask?.taskId === task.taskId;
-                  const isRun = task.status === 'running' || task.status === 'paused_captcha';
+                  const isRun = task.status === 'running' || task.status === 'paused_captcha' || task.status === 'planning';
                   return (
                     <SwipeableTaskItem
                       key={task.taskId || `active-task-${idx}`}
@@ -2779,43 +3907,67 @@ export default function App() {
                       isActive={isActive}
                     >
                       <div 
-                        className={`group relative py-2 px-3 rounded cursor-pointer outline-none border-l-2 transition-all ${isActive ? 'bg-[#0F0F0F] border-[#7C5335]' : 'border-transparent hover:bg-[#0C0C0C]'}`}
+                        className={`group relative mx-2 py-2 px-2.5 rounded transition-all cursor-pointer ${
+                          isActive 
+                            ? 'bg-[#101014] border border-transparent border-l-2 border-l-[#7C5335] text-white shadow-sm rounded-l-none' 
+                            : 'bg-transparent border border-transparent hover:bg-[#0C0C0F] hover:border-zinc-800 text-[#A1A1AA]'
+                        }`}
                       >
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-xs font-semibold tracking-wide truncate max-w-[150px] text-[#F5F5F5]">
-                            {task.label || (task.taskType || '').replace(/_/g, ' ')}
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            {isRun && <span className="flex h-1.5 w-1.5 relative">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7C5335] opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#7C5335]"></span>
-                            </span>}
+                        {/* Hover direct delete button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm('Are you sure you want to delete this task?')) {
+                              handleDeleteTask(task.taskId);
+                            }
+                          }}
+                          className="absolute right-2 top-2 px-1 py-1 text-zinc-500 hover:text-red-400 hover:bg-zinc-900 rounded transition-all duration-150 z-20 cursor-pointer border-0"
+                          title="Delete task"
+                          style={{ background: 'transparent' }}
+                        >
+                          <Trash2 size={10} />
+                        </button>
+
+                        <div className="flex items-center justify-between gap-1.5 mb-1 pr-4">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="text-[10.5px] font-bold tracking-wide truncate max-w-[110px] text-zinc-200">
+                              {task.config?.query || task.label || (task.taskType || '').replace(/_/g, ' ')}
+                            </span>
+                            {task.useStealth && (
+                              <span className="px-1 py-0.5 rounded text-[7px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+                                STEALTH
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {isRun && (
+                              <span className="flex h-1.5 w-1.5 relative">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10B981] opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#10B981]"></span>
+                              </span>
+                            )}
                             <div 
                               className="w-1.5 h-1.5 rounded-full" 
                               style={{ 
-                                background: task.status === 'complete' ? '#10B981' : task.status === 'running' ? '#7C5335' : task.status === 'paused_captcha' ? '#F59E0B' : task.status === 'error' ? '#EF4444' : '#52525B' 
+                                background: task.status === 'running' ? '#10B981' : task.status === 'paused_captcha' ? '#F59E0B' : '#52525B' 
                               }} 
                             />
                           </div>
                         </div>
 
-                        <div className="flex justify-between items-center text-[8px] text-[#52525B] group-hover:text-[#88888B] tracking-wider uppercase font-medium">
-                          <span>{(task.taskType || '').replace(/_scrape|_outreach/g, '')}</span>
-                          {task.config?.city && <span className="truncate max-w-[80px]">{task.config.city}</span>}
+                        <div className="flex justify-between items-center text-[8px] text-[#52525B] group-hover:text-zinc-500 font-semibold tracking-wide uppercase">
+                          <span className="truncate max-w-[90px] text-[#A27B5C]">{task.config?.city || ''}</span>
+                          <span>{task.progress || 0} leads</span>
                         </div>
 
-                        {/* Micro Progress Bar */}
+                        {/* Micro progress indicators */}
                         {isRun && task.total > 0 && (
-                          <div className="mt-2 text-[8px] font-bold text-[#52525B]">
-                            <div className="w-full bg-[#161616] h-1 rounded-full overflow-hidden mt-1">
+                          <div className="mt-1.5">
+                            <div className="w-full bg-[#1A1A22] h-1 rounded-full overflow-hidden">
                               <div 
-                                className="bg-[#7C5335] h-full transition-all duration-500" 
+                                className="bg-[#10B981] h-full transition-all duration-500" 
                                 style={{ width: `${task.progressPct || 0}%` }}
                               />
-                            </div>
-                            <div className="flex justify-between mt-1 select-none">
-                              <span>INDEXING</span>
-                              <span>{task.progress}/{task.total}</span>
                             </div>
                           </div>
                         )}
@@ -2826,65 +3978,28 @@ export default function App() {
               )}
             </div>
 
-            {/* SAVED SEARCHES SECTION */}
-            <div className="px-4 mt-4 mb-2 flex items-center justify-between shrink-0 border-t border-[#1A1A1A]/40 pt-4">
-              <span className="text-[8px] tracking-[0.2em] text-[#52525B] font-bold uppercase">SAVED SEARCHES ({workflows.length})</span>
-              <Activity size={10} className="text-[#52525B22]" />
-            </div>
-
-            <div className="max-h-[160px] overflow-y-auto space-y-1 select-none shrink-0 border-b border-[#1A1A1A] pb-4 mb-2 scrollbar-thin">
-              {workflows.length === 0 ? (
-                <div className="px-4 py-2 text-[#52525B] text-[10px] italic">No saved workflows.</div>
-              ) : (
-                workflows.map((wf: any, idx) => (
-                  <div 
-                    key={wf.workflowId || idx} 
-                    className="mx-3 p-2 rounded bg-[#0F0F12] border border-[#1A1A1D] hover:border-[#10B981]/30 transition flex flex-col gap-1.5"
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-[10px] font-bold text-[#F5F5F5] truncate max-w-[125px] uppercase" title={`${wf.niche} in ${wf.location}`}>
-                        {wf.niche} in {wf.location}
-                      </span>
-                      <span className="text-[6.5px] text-[#10B981] font-extrabold uppercase tracking-wider bg-[#10B981]/5 px-1 py-0.5 border border-[#10B981]/10 rounded select-none shrink-0">
-                        {wf.tier}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-[8px] text-zinc-500 font-medium select-none">
-                      <span>Count: {wf.count}</span>
-                      <button 
-                        onClick={() => handleRunWorkflow(wf)}
-                        disabled={searchRunning}
-                        className="text-[7.5px] text-[#A27B5C] hover:text-white bg-[#15151B] hover:bg-[#7C5335] border border-[#27272E] px-1.5 py-0.5 rounded cursor-pointer font-extrabold uppercase tracking-widest disabled:opacity-30 transition"
-                      >
-                        Run Again
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="px-4 mt-3 mb-2 flex items-center justify-between shrink-0">
-              <span className="text-[8px] tracking-[0.2em] text-[#52525B] font-bold uppercase">TASK HISTORY ({tasks.filter(t => t.status !== 'running' && t.status !== 'paused_captcha' && t.status !== 'paused_input' && t.status !== 'queued').length})</span>
+            {/* Sub-section: COMPLETED SEARCH TABS (DIRECTORIES) */}
+            <div className="px-4 mt-2 mb-2 flex items-center justify-between shrink-0">
+              <span className="text-[8px] tracking-[0.15em] text-[#52525B] font-bold uppercase">SAVED DIRECTORY TABS ({tasks.filter(t => t.status !== 'running' && t.status !== 'paused_captcha' && t.status !== 'paused_input' && t.status !== 'queued' && t.status !== 'planning').length})</span>
               <div className="flex items-center gap-1.5">
                 {tasks.length > 0 && (
                   <button
                     onClick={handleDeleteAllTasks}
-                    className="text-[7.5px] font-bold uppercase tracking-widest text-red-500 hover:text-red-400 bg-transparent border-0 p-0 cursor-pointer transition-colors"
-                    title="Delete all tasks and active sessions"
+                    className="text-[7px] font-bold uppercase tracking-widest text-red-500 hover:text-red-400 bg-transparent border-0 p-0 cursor-pointer transition-colors"
+                    title="Delete all"
                   >
-                    Delete All
+                    Clear All
                   </button>
                 )}
-                <History size={10} className="text-[#52525B22]" />
+                <History size={9} className="text-[#52525B22]" />
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-1 select-none">
-              {tasks.filter(t => t.status !== 'running' && t.status !== 'paused_captcha' && t.status !== 'paused_input' && t.status !== 'queued').length === 0 ? (
-                <div className="px-4 py-8 text-center text-[#52525B] text-xs">No history recorded yet.</div>
+            <div className="flex-1 overflow-y-auto space-y-1 select-none scrollbar-thin">
+              {tasks.filter(t => t.status !== 'running' && t.status !== 'paused_captcha' && t.status !== 'paused_input' && t.status !== 'queued' && t.status !== 'planning').length === 0 ? (
+                <div className="px-4 py-6 text-center text-[#52525B] text-[10px] italic">No completed directories.</div>
               ) : (
-                tasks.filter(t => t.status !== 'running' && t.status !== 'paused_captcha' && t.status !== 'paused_input' && t.status !== 'queued').map((task, idx) => {
+                tasks.filter(t => t.status !== 'running' && t.status !== 'paused_captcha' && t.status !== 'paused_input' && t.status !== 'queued' && t.status !== 'planning').map((task, idx) => {
                   const isActive = activeTask?.taskId === task.taskId;
                   return (
                     <SwipeableTaskItem
@@ -2894,22 +4009,39 @@ export default function App() {
                       isActive={isActive}
                     >
                       <div 
-                        className={`group relative py-2 px-4 cursor-pointer outline-none border-l-2 transition-all ${isActive ? 'bg-[#0F0F0F] border-[#7C5335]' : 'border-transparent hover:bg-[#0C0C0C]'}`}
+                        className={`group relative mx-2 py-2.5 px-3 rounded-md transition-all cursor-pointer ${
+                          isActive 
+                            ? 'bg-[#0E0E12] border border-transparent border-l-2 border-l-[#7C5335] text-white shadow-inner rounded-l-none' 
+                            : 'bg-[#050507]/40 border border-[#141417] hover:bg-[#0B0B0E]/80 hover:border-zinc-800 text-[#A1A1AA]'
+                        }`}
                       >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-semibold tracking-wide truncate max-w-[155px] text-[#F5F5F5]">
-                            {task.label || (task.taskType || '').replace(/_/g, ' ')}
+                        {/* Hover direct delete button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm('Are you sure you want to delete this completed search directory?')) {
+                              handleDeleteTask(task.taskId);
+                            }
+                          }}
+                          className="absolute right-2 top-2 px-1 py-1 text-zinc-500 hover:text-red-400 hover:bg-zinc-900 rounded transition-all duration-150 z-20 cursor-pointer border-0"
+                          title="Delete directory"
+                          style={{ background: 'transparent' }}
+                        >
+                          <Trash2 size={10} />
+                        </button>
+
+                        <div className="flex items-center justify-between gap-1.5 mb-1 pr-4">
+                          <span className="text-[10.5px] font-bold tracking-wide truncate max-w-[110px] text-zinc-200">
+                            {task.config?.query || task.label || (task.taskType || '').replace(/_/g, ' ')}
                           </span>
-                          <div 
-                            className="w-1.5 h-1.5 rounded-full shrink-0" 
-                            style={{ 
-                              background: task.status === 'complete' ? '#10B981' : task.status === 'error' ? '#EF4444' : '#52525B' 
-                            }} 
-                          />
+                          {/* Leads Count Tab Badge */}
+                          <div className="px-1.5 py-0.5 rounded-full text-[8px] font-extrabold bg-[#7C5335]/10 text-[#A27B5C] border border-[#7C5335]/20 shrink-0">
+                            {task.progress || task.leadsCount || 0}
+                          </div>
                         </div>
 
-                        <div className="flex justify-between items-center text-[8px] text-[#52525B] group-hover:text-[#88888B] tracking-wider uppercase font-medium">
-                          <span>{(task.taskType || '').replace(/_scrape|_outreach/g, '')}</span>
+                        <div className="flex justify-between items-center text-[8px] text-[#52525B] group-hover:text-zinc-400 font-semibold tracking-wider uppercase font-sans">
+                          <span className="truncate max-w-[85px] text-[#A27B5C]">{task.config?.city || ''}</span>
                           {task.createdAt && (
                             <span>{new Date(task.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                           )}
@@ -2918,6 +4050,44 @@ export default function App() {
                     </SwipeableTaskItem>
                   );
                 })
+              )}
+            </div>
+
+            {/* Sub-section: SAVED SEARCH QUERY TEMPLATES */}
+            <div className="px-4 mt-3 mb-2 flex items-center justify-between shrink-0 border-t border-[#16161A] pt-3">
+              <span className="text-[8px] tracking-[0.15em] text-[#52525B] font-bold uppercase">QUERY TEMPLATES ({workflows.length})</span>
+              <Activity size={9} className="text-[#52525B22]" />
+            </div>
+
+            <div className="max-h-[140px] overflow-y-auto space-y-1 select-none shrink-0 pb-2 scrollbar-thin">
+              {workflows.length === 0 ? (
+                <div className="px-4 py-2 text-[#52525B] text-[9.5px] italic">No saved templates.</div>
+              ) : (
+                workflows.map((wf: any, idx) => (
+                  <div 
+                    key={wf.workflowId || idx} 
+                    className="mx-2.5 p-2 rounded bg-[#0A0A0D] border border-[#141418] hover:border-[#10B981]/30 transition flex flex-col gap-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[9.5px] font-bold text-[#F5F5F5] truncate max-w-[125px] uppercase" title={`${wf.niche} in ${wf.location}`}>
+                        {wf.niche} in {wf.location}
+                      </span>
+                      <span className="text-[6px] text-[#10B981] font-extrabold uppercase tracking-wider bg-[#10B981]/5 px-1 py-0.5 border border-[#10B981]/10 rounded shrink-0">
+                        {wf.tier}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[8px] text-zinc-500 font-medium">
+                      <span>Target: {wf.count}</span>
+                      <button 
+                        onClick={() => handleRunWorkflow(wf)}
+                        disabled={searchRunning}
+                        className="text-[7px] text-[#A27B5C] hover:text-white bg-[#111116] hover:bg-[#7C5335] border border-[#1F1F24] px-1.5 py-0.5 rounded cursor-pointer font-extrabold uppercase tracking-widest disabled:opacity-30 transition"
+                      >
+                        Run Again
+                      </button>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           </section>
@@ -2971,7 +4141,7 @@ export default function App() {
                 </div>
               </div>
 
-              {activeTask && (activeTask.status === 'running' || activeTask.status === 'paused_captcha') && (
+              {activeTask && (activeTask.status === 'running' || activeTask.status === 'paused_captcha' || activeTask.status === 'planning') && (
                 <div className="flex items-center gap-2">
                   <button 
                     onClick={() => handleStopTask(activeTask.taskId)}
@@ -3021,12 +4191,21 @@ export default function App() {
                   <AlertTriangle className="text-[#F59E0B] animate-bounce" size={14} />
                   <span className="text-[10px] font-bold tracking-widest text-[#F59E0B] uppercase">CRITICAL: CAPTCHA VERIFICATION INTERCEPT REQUISITE</span>
                 </div>
-                <button 
-                  onClick={handleResolveCaptcha}
-                  className="px-4 py-1 bg-[#F59E0B] hover:bg-[#D97706] text-[#080808] text-[9px] font-bold tracking-widest uppercase rounded shadow-[0_2px_8px_rgba(245,158,11,0.3)] transition cursor-pointer"
-                >
-                  Resolve CAPTCHA
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={handleAutoResolveCaptcha}
+                    disabled={solvingCaptcha}
+                    className="px-4 py-1 bg-[#7C5335] hover:bg-[#A27B5C] text-[#F0ECE4] text-[9px] font-bold tracking-widest uppercase rounded shadow-[0_2px_8px_rgba(124,83,53,0.3)] transition cursor-pointer disabled:opacity-50"
+                  >
+                    {solvingCaptcha ? '🤖 SOLVING...' : '🤖 AUTO-SOLVE WITH AI'}
+                  </button>
+                  <button 
+                    onClick={handleResolveCaptcha}
+                    className="px-4 py-1 bg-[#F59E0B] hover:bg-[#D97706] text-[#080808] text-[9px] font-bold tracking-widest uppercase rounded shadow-[0_2px_8px_rgba(245,158,11,0.3)] transition cursor-pointer"
+                  >
+                    Resolve CAPTCHA
+                  </button>
+                </div>
               </div>
             )}
 
@@ -3074,6 +4253,18 @@ export default function App() {
 
                       {activeTask && (
                         <div className="flex items-center gap-3 font-mono">
+                          {(activeTask.steelDebugUrl || activeTask.liveViewUrl) && (
+                            <a 
+                              href={activeTask.steelDebugUrl || activeTask.liveViewUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="px-2 py-0.5 rounded text-[8px] font-bold bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/20 hover:bg-[#10B981]/20 transition flex items-center gap-1.5 animate-pulse"
+                              title="Click to view real-time browser actions on Steel.dev"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-ping" />
+                              OPEN STEEL LIVE VIEW ↗
+                            </a>
+                          )}
                           <div className="text-[8px] font-semibold text-[#52525B]">
                             STATUS: {activeTask.status.toUpperCase()}
                           </div>
@@ -3082,14 +4273,14 @@ export default function App() {
                     </div>
 
                     {/* Screenshot view / Results View */}
-                    <div className="flex-1 relative bg-[#090909] overflow-hidden flex items-center justify-center">
+                    <div className="flex-1 relative bg-[#090909] overflow-y-auto flex flex-col items-center justify-start">
                       {workspaceBoxTab === 'viewport' ? (
                         activeTask ? (
                           <LiveViewer 
                             taskId={activeTask.taskId} 
                             ws={ws.current} 
                             serverUrl={serverUrl} 
-                            useFirestore={['google_maps_scrape', 'leboncoin_scrape'].includes(activeTask.taskType)} 
+                            useFirestore={true} 
                           />
                         ) : true ? (
                           <div className="w-full h-full overflow-y-auto p-6 bg-[#080808] text-[#F5F5F5] flex flex-col items-center justify-center text-center space-y-4 select-none">
@@ -3499,7 +4690,8 @@ export default function App() {
                                         <th className="px-4 py-2.5">Business Name</th>
                                         <th className="px-4 py-2.5">Phone</th>
                                         <th className="px-4 py-2.5">Website</th>
-                                        <th className="px-4 py-2.5">Location</th>
+                                        <th className="px-4 py-2.5">Address</th>
+                                        <th className="px-4 py-2.5">Rating & Reviews</th>
                                         <th className="px-4 py-2.5">Type</th>
                                       </tr>
                                     </thead>
@@ -3510,12 +4702,16 @@ export default function App() {
                                           <td className="px-4 py-3 text-[#A1A1AA] font-mono">{lead.phone || '—'}</td>
                                           <td className="px-4 py-3 text-[#A1A1AA]">
                                             {lead.website ? (
-                                              <a href={lead.website} target="_blank" rel="noreferrer" className="text-[#A27B5C] hover:underline font-mono truncate max-w-[150px] block">
+                                              <a href={lead.website} target="_blank" rel="noreferrer" className="text-[#A27B5C] hover:underline font-mono truncate max-w-[150px] block" title={lead.website}>
                                                 {lead.website.replace(/https?:\/\/|www\./g, '')}
                                               </a>
                                             ) : '—'}
                                           </td>
-                                          <td className="px-4 py-3 text-[#7C7C85]">{lead.city || 'Ontario, CA'}</td>
+                                          <td className="px-4 py-3 text-[#7C7C85] truncate max-w-[150px]" title={lead.address || lead.city || ''}>{lead.address || lead.city || '—'}</td>
+                                          <td className="px-4 py-3 text-amber-400 font-semibold">
+                                            {lead.rating ? `${lead.rating} ★` : '—'}
+                                            {lead.reviewsCount ? <span className="text-zinc-500 font-normal text-[10px] ml-1">({lead.reviewsCount})</span> : ''}
+                                          </td>
                                           <td className="px-4 py-3">
                                             <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
                                               lead.leadType === 'no_website' ? 'bg-[#EF4444]/10 text-[#EF4444]' : 'bg-[#10B981]/10 text-[#10B981]'
@@ -3581,18 +4777,37 @@ export default function App() {
                           <div className="max-w-md w-full border border-[#F59E0B]/30 rounded-lg bg-[#0F0F0F] p-6 flex flex-col items-center text-center">
                             <ShieldAlert size={28} className="text-[#F59E0B] mb-3 animate-bounce" />
                             <h4 className="text-xs font-bold tracking-widest text-[#F59E0B] uppercase">AGENT INTERCEPTED BY CAPTCHA</h4>
-                            <p className="text-[10px] text-[#52525B] max-w-xs mt-1 mb-4">Please solve the challenge below on the visual projection and click resolve to safely bypass cloud firewall rules.</p>
+                            <p className="text-[10px] text-[#52525B] max-w-xs mt-1 mb-4">Please solve the challenge below on the visual projection or let our Gemini-powered AI Auto-Solver click it for you.</p>
                             
-                            <div className="w-full h-48 bg-[#080808] border border-[#2A2A2A] rounded overflow-hidden flex items-center justify-center mb-4">
+                            <div className="w-full h-48 bg-[#080808] border border-[#2A2A2A] rounded overflow-hidden flex items-center justify-center mb-4 relative">
                               <img src={captchaScreenshot} alt="Stuck in CAPTCHA challenge screen" className="max-w-full max-h-full object-contain" />
+                              {solvingCaptcha && (
+                                <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center text-[#F59E0B] gap-2">
+                                  <div className="w-6 h-6 border-2 border-[#F59E0B] border-t-transparent rounded-full animate-spin" />
+                                  <span className="text-[9px] font-bold uppercase tracking-wider">AI Solvator Working...</span>
+                                </div>
+                              )}
                             </div>
 
-                            <button 
-                              onClick={handleResolveCaptcha}
-                              className="w-full py-2 bg-[#F59E0B] hover:bg-[#D97706] text-[#080808] text-[10px] font-bold tracking-widest uppercase rounded shadow-[0_4px_12px_rgba(245,158,11,0.25)] transition active:scale-95 cursor-pointer"
-                            >
-                              RESOLVE & RESUME BROWSER →
-                            </button>
+                            {captchaError && (
+                              <p className="text-[10px] text-rose-400 mb-3 bg-rose-950/20 px-2.5 py-1 rounded border border-rose-900/30 w-full text-center">{captchaError}</p>
+                            )}
+
+                            <div className="flex gap-2 w-full">
+                              <button 
+                                onClick={handleAutoResolveCaptcha}
+                                disabled={solvingCaptcha}
+                                className="flex-1 py-2 bg-[#7C5335] hover:bg-[#A27B5C] text-[#F0ECE4] text-[10px] font-bold tracking-widest uppercase rounded shadow-[0_4px_12px_rgba(124,83,53,0.25)] transition active:scale-95 cursor-pointer disabled:opacity-50"
+                              >
+                                {solvingCaptcha ? 'SOLVING...' : '🤖 RUN AI SOLVER'}
+                              </button>
+                              <button 
+                                onClick={handleResolveCaptcha}
+                                className="flex-1 py-2 bg-[#F59E0B] hover:bg-[#D97706] text-[#080808] text-[10px] font-bold tracking-widest uppercase rounded shadow-[0_4px_12px_rgba(245,158,11,0.25)] transition active:scale-95 cursor-pointer"
+                              >
+                                RESOLVE & RESUME
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -3906,7 +5121,7 @@ export default function App() {
               )}
 
               {/* OUTLET NAVIGATION TRIGGER BUTTON PILL */}
-              {!chatInputFocused && executionMode === 'live' && (
+              {!chatInputFocused && (
                 <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 p-1 bg-[#141416]/90 backdrop-blur border border-[#232326] shadow-[0_8px_32px_rgba(0,0,0,0.8)] rounded-full">
                   <button 
                     onClick={() => setSubTab('operator')} 
@@ -3991,9 +5206,16 @@ export default function App() {
                     >
                       <div className="flex items-start justify-between gap-4 mb-2">
                         <div>
-                          <h4 className="text-xs font-semibold tracking-wide text-[#F5F5F5] uppercase">
-                            {task.label || (task.taskType || '').replace(/_/g, ' ')}
-                          </h4>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4 className="text-xs font-semibold tracking-wide text-[#F5F5F5] uppercase">
+                              {task.label || (task.taskType || '').replace(/_/g, ' ')}
+                            </h4>
+                            {task.useStealth && (
+                              <span className="px-1 py-0.5 rounded text-[7px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                STEALTH
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[8px] text-[#52525B] font-mono tracking-widest uppercase mt-1 block">
                             ID: {task.taskId ? `${task.taskId.slice(0, 18)}...` : 'N/A'}
                           </span>
@@ -4136,9 +5358,16 @@ export default function App() {
                       className={`py-2 px-3 rounded cursor-pointer border-l-2 transition-all ${isActive ? 'bg-[#0F0F0F] border-[#7C5335]' : 'border-transparent hover:bg-[#0C0C0C]'}`}
                     >
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[11px] font-semibold tracking-wide truncate max-w-[130px] text-[#F5F5F5]">
-                          {task.label || (task.taskType || '').replace(/_/g, ' ')}
-                        </span>
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="text-[11px] font-semibold tracking-wide truncate max-w-[130px] text-[#F5F5F5]">
+                            {task.label || (task.taskType || '').replace(/_/g, ' ')}
+                          </span>
+                          {task.useStealth && (
+                            <span className="px-1 py-0.5 rounded text-[7px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+                              STEALTH
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           {isRun && <span className="flex h-1.5 w-1.5 relative">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7C5335] opacity-75"></span>
@@ -4291,7 +5520,8 @@ export default function App() {
                               <th className="px-6 py-3 font-bold uppercase tracking-wider">Phone</th>
                               <th className="px-6 py-3 font-bold uppercase tracking-wider">Email</th>
                               <th className="px-6 py-3 font-bold uppercase tracking-wider">Website</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Geo Location</th>
+                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Address</th>
+                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Rating & Reviews</th>
                               <th className="px-6 py-3 font-bold uppercase tracking-wider">CRM Sync</th>
                             </tr>
                           </thead>
@@ -4329,8 +5559,12 @@ export default function App() {
                                     <span className="flex items-center gap-1.5 text-xs text-[#52525B] font-mono select-none">—</span>
                                   )}
                                 </td>
-                                <td className="px-6 py-3.5 text-[#7c7c85]">
-                                  {lead.city || 'Ontario, CA'}
+                                <td className="px-6 py-3.5 text-[#7C7C85] max-w-[150px] truncate" title={lead.address || lead.city || ''}>
+                                  {lead.address || lead.city || '—'}
+                                </td>
+                                <td className="px-6 py-3.5 text-amber-400 font-semibold">
+                                  {lead.rating ? `${lead.rating} ★` : '—'}
+                                  {lead.reviewsCount ? <span className="text-zinc-500 font-normal text-[10px] ml-1">({lead.reviewsCount})</span> : ''}
                                 </td>
                                 <td className="px-6 py-3.5">
                                   {lead.sentToClose ? (
@@ -5891,6 +7125,361 @@ export default function App() {
         </section>
       )}
 
+      {tab === 'ig_discovery' && (
+        <section className="flex-1 flex flex-col p-6 overflow-y-auto bg-[#080808]">
+          <div className="max-w-7xl mx-auto w-full space-y-6">
+            
+            {/* Header */}
+            <header className="border-b border-[#1A1A1A] pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5 bg-[#0F0F12] border border-[#1C1C1F] px-2.5 py-2 rounded-lg">
+                  <span className="w-2 h-2 rounded-full bg-[#EF4444]" />
+                  <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
+                  <span className="w-2 h-2 rounded-full bg-[#10B981]" />
+                </div>
+                <div>
+                  <div className="text-[8px] tracking-[0.16em] text-[#52525B] font-bold uppercase">Pipeline Discovery Systems</div>
+                  <h2 className="text-sm font-extrabold tracking-widest text-[#F5F5F5] uppercase mt-0.5 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-500 inline-block animate-pulse" />
+                    INSTAGRAM DISCOVERY PIPELINE
+                  </h2>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={fetchDiscoverySessions}
+                  className="px-3 py-1.5 bg-[#141414] hover:bg-[#1A1A1F] border border-[#27272E] rounded text-[#A0A0AB] hover:text-white text-[9px] font-bold tracking-wider uppercase transition flex items-center gap-1.5"
+                >
+                  <RefreshCw size={10} />
+                  Refresh
+                </button>
+              </div>
+            </header>
+
+            {/* Grid Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              
+              {/* Left Column: Configuration & Cost Calculator (Col Span 5) */}
+              <div className="lg:col-span-5 space-y-6">
+                <div className="bg-[#09090B] border border-[#1C1C1F] rounded-lg p-5 space-y-5">
+                  <div className="flex items-center gap-2 border-b border-[#1A1A1A] pb-3">
+                    <Sliders size={14} className="text-orange-500" />
+                    <h3 className="text-xs font-bold text-[#F5F5F5] uppercase tracking-wider">CAMPAIGN SETUP</h3>
+                  </div>
+
+                  {/* Niche Input */}
+                  <div>
+                    <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">TARGET NICHE / KEYWORDS</label>
+                    <input 
+                      type="text" 
+                      value={igNiche}
+                      onChange={e => setIgNiche(e.target.value)}
+                      placeholder="e.g. luxury lifestyle, real estate nyc"
+                      className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-orange-500"
+                    />
+                  </div>
+
+                  {/* Profiles Limit Slider */}
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase">PROFILES TO SCAN</label>
+                      <span className="text-[10px] font-mono text-orange-500 font-bold">{igMaxProfiles} profiles</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="20" 
+                      value={igMaxProfiles}
+                      onChange={e => setIgMaxProfiles(parseInt(e.target.value))}
+                      className="w-full accent-orange-500 h-1 bg-[#1A1A1F] rounded-lg cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Posts Limit Slider */}
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase">POSTS PER PROFILE</label>
+                      <span className="text-[10px] font-mono text-orange-500 font-bold">{igMaxPosts} posts</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="10" 
+                      value={igMaxPosts}
+                      onChange={e => setIgMaxPosts(parseInt(e.target.value))}
+                      className="w-full accent-orange-500 h-1 bg-[#1A1A1F] rounded-lg cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Comments Limit Slider */}
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase">COMMENTS PER POST</label>
+                      <span className="text-[10px] font-mono text-orange-500 font-bold">{igMaxComments} comments</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="50" 
+                      value={igMaxComments}
+                      onChange={e => setIgMaxComments(parseInt(e.target.value))}
+                      className="w-full accent-orange-500 h-1 bg-[#1A1A1F] rounded-lg cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Live Cost Calculator Panel */}
+                  <div className="bg-[#0D0D10] border border-[#1A1A1F] rounded-lg p-4 space-y-3">
+                    <div className="text-[8px] tracking-[0.16em] text-[#52525B] font-bold uppercase flex items-center justify-between">
+                      <span>COST CONTROL & PROJECTIONS</span>
+                      <span className="text-[9px] text-green-500 font-extrabold tracking-normal">PREPAID ACTOR CREDITS</span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 py-1 border-b border-[#1A1A1A]">
+                      <div className="text-center">
+                        <div className="text-[11px] font-mono text-[#F5F5F5] font-extrabold">{igMaxProfiles}</div>
+                        <div className="text-[7px] text-[#52525B] font-bold uppercase mt-0.5">Profiles</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-[11px] font-mono text-[#F5F5F5] font-extrabold">{igMaxProfiles * igMaxPosts}</div>
+                        <div className="text-[7px] text-[#52525B] font-bold uppercase mt-0.5">Posts</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-[11px] font-mono text-[#F5F5F5] font-extrabold">{igMaxProfiles * igMaxPosts * igMaxComments}</div>
+                        <div className="text-[7px] text-[#52525B] font-bold uppercase mt-0.5">Comments</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 text-[9px] font-mono text-[#A0A0AB]">
+                      <div className="flex justify-between">
+                        <span>Profile Scraping ({igMaxProfiles} * $0.003)</span>
+                        <span>${(igMaxProfiles * 0.003).toFixed(4)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Post Analysis ({(igMaxProfiles * igMaxPosts)} * $0.0015)</span>
+                        <span>${(igMaxProfiles * igMaxPosts * 0.0015).toFixed(4)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Comment Crawling ({(igMaxProfiles * igMaxPosts * igMaxComments)} * $0.0023)</span>
+                        <span>${(igMaxProfiles * igMaxPosts * igMaxComments * 0.0023).toFixed(4)}</span>
+                      </div>
+                      <div className="flex justify-between text-[#F5F5F5] font-bold pt-1.5 border-t border-[#1A1A1F]">
+                        <span className="uppercase text-[8px] tracking-wider text-[#52525B]">ESTIMATED PIPELINE COST</span>
+                        <span className="text-green-500">
+                          ${(
+                            (igMaxProfiles * 0.003) + 
+                            (igMaxProfiles * igMaxPosts * 0.0015) + 
+                            (igMaxProfiles * igMaxPosts * igMaxComments * 0.0023)
+                          ).toFixed(4)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Launch button */}
+                  <button
+                    onClick={handleStartDiscovery}
+                    disabled={isStartingDiscovery || !igNiche}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:bg-[#1C1C1F] disabled:text-[#52525B] disabled:cursor-not-allowed text-white text-[10px] font-bold tracking-widest uppercase rounded shadow transition cursor-pointer"
+                  >
+                    {isStartingDiscovery ? (
+                      <>
+                        <RefreshCw size={10} className="animate-spin" />
+                        LAUNCHING DISCOVERY PIPELINE...
+                      </>
+                    ) : (
+                      <>
+                        <Zap size={10} strokeWidth={3} />
+                        START DISCOVERY CAMPAIGN
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Right Column: Sessions list, live visualizer & Leads database (Col Span 7) */}
+              <div className="lg:col-span-7 space-y-6">
+                
+                {/* Section 1: Sessions List */}
+                <div className="bg-[#09090B] border border-[#1C1C1F] rounded-lg p-5">
+                  <div className="flex items-center justify-between border-b border-[#1A1A1A] pb-3 mb-4">
+                    <div className="flex items-center gap-2">
+                      <Database size={14} className="text-orange-500" />
+                      <h3 className="text-xs font-bold text-[#F5F5F5] uppercase tracking-wider">DISCOVERY SESSIONS ({discoverySessions.length})</h3>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 max-h-[180px] overflow-y-auto scrollbar-thin">
+                    {discoverySessions.length === 0 ? (
+                      <div className="text-center py-6 text-[10px] text-zinc-500 uppercase tracking-wider font-mono">
+                        No discovery sessions launched yet
+                      </div>
+                    ) : (
+                      discoverySessions.map((session) => {
+                        const isSelected = selectedDiscoverySession?.sessionId === session.sessionId;
+                        const dateStr = new Date(session.createdAt).toLocaleDateString() + ' ' + new Date(session.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        
+                        return (
+                          <div 
+                            key={session.sessionId}
+                            onClick={() => fetchSessionDetails(session.sessionId)}
+                            className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition ${isSelected ? 'bg-orange-950/15 border-orange-500/50' : 'bg-[#08080A] border-[#1C1C1F] hover:border-zinc-700'}`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className={`w-2 h-2 rounded-full ${
+                                session.status === 'completed' ? 'bg-green-500' :
+                                session.status === 'running' ? 'bg-orange-500 animate-pulse' :
+                                session.status === 'failed' ? 'bg-red-500' : 'bg-zinc-500'
+                              }`} />
+                              <div>
+                                <div className="text-xs font-bold text-[#F5F5F5]">Niche: {session.niche}</div>
+                                <div className="text-[8px] text-zinc-500 font-mono mt-0.5">ID: {session.sessionId.slice(0, 8)} | {dateStr}</div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <div className="text-[10px] text-zinc-300 font-mono">
+                                  Profiles: {session.profilesCount || 0} | Leads: {session.leadsCount || 0}
+                                </div>
+                                <div className="text-[8px] text-zinc-500 font-mono mt-0.5 uppercase">{session.status}</div>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteDiscoverySession(session.sessionId);
+                                }}
+                                className="p-1.5 rounded bg-transparent text-zinc-500 hover:text-red-500 transition hover:bg-red-950/20"
+                                title="Delete session"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* Section 2: Selected Session Interactive Tree / Live Progress Visualizer */}
+                {selectedDiscoverySession && (
+                  <div className="bg-[#09090B] border border-[#1C1C1F] rounded-lg p-5 space-y-4">
+                    <div className="flex items-center justify-between border-b border-[#1A1A1A] pb-3">
+                      <div>
+                        <div className="text-[8px] tracking-[0.16em] text-orange-500 font-bold uppercase">Selected Run Details</div>
+                        <h4 className="text-xs font-bold text-[#F5F5F5] uppercase tracking-wider">
+                          Campaign Tree: {selectedDiscoverySession.profiles?.length || 0} Profiles Scanned
+                        </h4>
+                      </div>
+                      <div className="text-[9px] font-mono text-[#52525B] font-semibold uppercase">
+                        SESSION: {selectedDiscoverySession.sessionId.slice(0, 8)}
+                      </div>
+                    </div>
+
+                    {/* Hierarchy Visualization: Session -> Profiles -> Posts -> Leads */}
+                    <div className="space-y-4 max-h-[350px] overflow-y-auto scrollbar-thin pr-2 font-sans text-xs">
+                      {selectedDiscoverySession.profiles?.length === 0 ? (
+                        <div className="text-center py-6 text-[10px] text-zinc-500 uppercase tracking-wider font-mono">
+                          Pipeline initiated. Awaiting profile discoveries...
+                        </div>
+                      ) : (
+                        selectedDiscoverySession.profiles.map((profile: any) => (
+                          <div key={profile.username} className="bg-[#08080A] border border-[#1C1C1F] rounded-lg p-3 space-y-2">
+                            {/* Profile Row */}
+                            <div className="flex items-center justify-between bg-[#0F0F12] border border-[#1A1A1F] p-2 rounded">
+                              <div className="flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+                                <span className="font-bold text-[#F5F5F5] text-xs">@{profile.username}</span>
+                                {profile.isBusinessAccount && (
+                                  <span className="text-[7px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1 py-0.5 rounded uppercase tracking-wider">Business</span>
+                                )}
+                              </div>
+                              <div className="text-[9px] font-mono text-zinc-500">
+                                Followers: {profile.followers || 'N/A'} | Category: {profile.categoryName || 'N/A'}
+                              </div>
+                            </div>
+
+                            {/* Posts row under this profile */}
+                            <div className="pl-4 space-y-2 border-l border-orange-500/20 ml-2 pt-1">
+                              {profile.posts?.length === 0 ? (
+                                <div className="text-[9px] text-zinc-500 italic font-mono">No posts scanned yet...</div>
+                              ) : (
+                                profile.posts.map((post: any) => (
+                                  <div key={post.shortcode} className="space-y-1.5">
+                                    <div className="flex items-center justify-between text-[10px] bg-[#111] px-2 py-1 rounded">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="w-1 h-1 rounded-full bg-zinc-500" />
+                                        <span className="font-semibold text-zinc-300">Post Code: {post.shortcode}</span>
+                                      </div>
+                                      <span className="text-[8px] text-zinc-500 font-mono">
+                                        Likes: {post.likesCount || 0} | Comments: {post.commentsCount || 0}
+                                      </span>
+                                    </div>
+
+                                    {/* Leads Row under this post */}
+                                    <div className="pl-4 space-y-1.5 border-l border-zinc-700/30 ml-1.5 pt-0.5">
+                                      {post.leads?.length === 0 ? (
+                                        <div className="text-[9px] text-zinc-500 italic font-mono">Awaiting lead comments extraction...</div>
+                                      ) : (
+                                        post.leads.map((lead: any) => (
+                                          <div key={lead.username} className="bg-[#141417]/40 border border-[#1C1C1F] rounded p-2 flex flex-col gap-1.5">
+                                            <div className="flex items-center justify-between">
+                                              <span className="font-bold text-zinc-300">@{lead.username}</span>
+                                              <div className="flex items-center gap-2">
+                                                {/* Stage Badges with live selector */}
+                                                <select 
+                                                  value={lead.stage || 'Discovered'}
+                                                  onChange={(e) => handleUpdateLeadStage(
+                                                    selectedDiscoverySession.sessionId, 
+                                                    profile.username, 
+                                                    post.shortcode, 
+                                                    lead.username, 
+                                                    e.target.value
+                                                  )}
+                                                  className="bg-[#09090B] border border-[#222225] text-[8px] font-bold text-orange-400 uppercase rounded px-1.5 py-0.5 outline-none cursor-pointer"
+                                                >
+                                                  <option value="Discovered">Discovered</option>
+                                                  <option value="Contacted">Contacted</option>
+                                                  <option value="Replied">Replied</option>
+                                                  <option value="Converted">Converted</option>
+                                                </select>
+                                                <span className="text-[7.5px] font-mono text-[#52525B]">{lead.timeAgo || 'just now'}</span>
+                                              </div>
+                                            </div>
+
+                                            <div className="text-[10px] text-zinc-400 bg-[#080808] p-1.5 rounded border border-[#161616]">
+                                              "{lead.commentText}"
+                                            </div>
+
+                                            <div className="flex flex-wrap gap-1.5 text-[7px] font-mono font-bold uppercase">
+                                              <span className={`px-1 rounded-full border ${
+                                                lead.sentiment === 'positive' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                                                lead.sentiment === 'neutral' ? 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' :
+                                                'bg-red-500/10 text-red-400 border-red-500/20'
+                                              }`}>Sentiment: {lead.sentiment}</span>
+                                              {lead.email && <span className="bg-orange-500/10 text-orange-400 border border-orange-500/20 px-1 rounded-full">Email: {lead.email}</span>}
+                                              {lead.phone && <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 rounded-full">Phone: {lead.phone}</span>}
+                                            </div>
+                                          </div>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* FREELANCE MONITOR TAB */}
       {tab === 'freelance' && (
         <section className="flex-1 flex flex-col p-6 overflow-y-auto shrink-0 bg-[#080808]">
@@ -6226,6 +7815,93 @@ export default function App() {
                 </div>
               </div>
 
+              <div className="h-px bg-[#1A1A1A]" />
+
+              {/* Browser Connection System */}
+              <div>
+                <h4 className="text-xs font-bold text-[#F5F5F5] tracking-widest uppercase mb-2">ASSIX BROWSER CONNECTOR</h4>
+                <p className="text-[11px] text-[#52525B] leading-relaxed mb-4">
+                  Link your local browser session to run outreach automation directly via Playwriter. Retrieve your connection code below, paste it into the downloaded Assix Connector app, and start controlling sessions.
+                </p>
+
+                {connectionStatus.connected ? (
+                  <div className="p-5 border border-emerald-500/30 bg-emerald-500/5 rounded-lg flex flex-col gap-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex gap-3">
+                        <div className="p-2 rounded-full bg-emerald-500/10 text-emerald-400">
+                          <CheckCircle size={16} />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-[#F5F5F5] uppercase tracking-wider block">
+                            CONNECTED — {connectionStatus.machineName || 'Active Session'}
+                          </span>
+                          <p className="text-[10px] text-[#52525B] leading-normal mt-1">
+                            Tunnel established and authenticated successfully. Machine is ready to accept playwriter tasks.
+                          </p>
+                          {connectionStatus.connectedAt && (
+                            <span className="text-[9px] text-[#52525B] block mt-1 uppercase tracking-wider">
+                              Since: {new Date(connectionStatus.connectedAt).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={disconnectBrowser}
+                      className="w-full py-2 bg-red-950/20 hover:bg-red-900/40 border border-red-500/20 hover:border-red-500 text-red-400 text-[10px] font-extrabold tracking-widest uppercase rounded transition cursor-pointer text-center"
+                    >
+                      Disconnect & Terminate Session
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-5 border border-[#1C1C1F] bg-[#0A0A0C] rounded-lg flex flex-col gap-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex gap-3">
+                        <div className="p-2 rounded-full bg-zinc-900 text-zinc-500">
+                          <Zap size={16} />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">
+                            No active connection
+                          </span>
+                          <p className="text-[10px] text-zinc-600 leading-normal mt-1">
+                            Your browser session is not currently connected to this account. Get a connection code to link it.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {!connectionCode ? (
+                      <button 
+                        onClick={generateConnectionCode} 
+                        disabled={connectionLoading}
+                        className="w-full py-2.5 bg-[#7C5335] hover:bg-[#694226] text-white text-[10px] font-extrabold tracking-widest uppercase rounded shadow-[0_2px_8px_rgba(124,83,53,0.3)] disabled:opacity-50 transition cursor-pointer text-center"
+                      >
+                        {connectionLoading ? "Generating..." : "Get Connection Code"}
+                      </button>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex flex-col items-center justify-center p-4 bg-[#080808] border border-[#1A1A1D] rounded">
+                          <span className="text-[9px] text-[#52525B] uppercase font-bold tracking-widest mb-1.5">CONNECTION CODE</span>
+                          <span className="text-2xl font-mono font-extrabold text-[#7C5335] tracking-widest select-all">{connectionCode}</span>
+                        </div>
+                        <p className="text-[10px] text-[#52525B] leading-relaxed text-center">
+                          Paste this code into the Assix Connector desktop application on your system. This code will expire in 15 minutes.
+                        </p>
+                        <a 
+                          href="/connect-page.html" 
+                          target="_blank" 
+                          className="flex items-center justify-center gap-1.5 text-[10px] text-[#7C5335] hover:text-[#9A6A48] font-bold uppercase tracking-wider transition underline"
+                        >
+                          Don't have the app? Download it →
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
             </div>
           </div>
         </section>
@@ -6451,6 +8127,86 @@ export default function App() {
                       onChange={e => setTaskConfig((c: any) => ({ ...c, maxLeads: parseInt(e.target.value) || 20 }))}
                       className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
                     />
+                  </div>
+                </>
+              )}
+
+              {newTaskType === 'instagram_discovery' && (
+                <>
+                  <div>
+                    <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">TARGET NICHE / TOPIC</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. luxury lifestyle, digital nomad"
+                      onChange={e => {
+                        const val = e.target.value;
+                        setIgNiche(val);
+                        setTaskConfig((c: any) => ({ ...c, niche: val }));
+                      }}
+                      className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">PROFILES</label>
+                      <input 
+                        type="number" 
+                        defaultValue={5}
+                        min={1}
+                        max={20}
+                        onChange={e => {
+                          const val = parseInt(e.target.value) || 5;
+                          setIgMaxProfiles(val);
+                          setTaskConfig((c: any) => ({ ...c, maxProfiles: val }));
+                        }}
+                        className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">POSTS / PROFILE</label>
+                      <input 
+                        type="number" 
+                        defaultValue={3}
+                        min={1}
+                        max={10}
+                        onChange={e => {
+                          const val = parseInt(e.target.value) || 3;
+                          setIgMaxPosts(val);
+                          setTaskConfig((c: any) => ({ ...c, maxPosts: val }));
+                        }}
+                        className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[8px] tracking-widest text-[#52525B] font-bold uppercase block mb-1.5">COMMENTS / POST</label>
+                      <input 
+                        type="number" 
+                        defaultValue={10}
+                        min={1}
+                        max={50}
+                        onChange={e => {
+                          const val = parseInt(e.target.value) || 10;
+                          setIgMaxComments(val);
+                          setTaskConfig((c: any) => ({ ...c, maxComments: val }));
+                        }}
+                        className="w-full bg-[#080808] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-[#7C5335]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="bg-[#0A0A0C] border border-[#1C1C1F] p-3 rounded text-[9.5px] font-mono text-zinc-400 space-y-1">
+                    <div className="text-[7.5px] tracking-widest text-[#52525B] font-bold uppercase">Estimated Run Projections & Costs</div>
+                    <div className="flex justify-between">
+                      <span>Total Comments Searched:</span>
+                      <span className="text-[#F5F5F5] font-bold">{igMaxProfiles * igMaxPosts * igMaxComments} comments</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Estimated Credits Cost:</span>
+                      <span className="text-green-500 font-bold">
+                        ${((igMaxProfiles * 0.003) + (igMaxProfiles * igMaxPosts * 0.0015) + (igMaxProfiles * igMaxPosts * igMaxComments * 0.0023)).toFixed(4)}
+                      </span>
+                    </div>
                   </div>
                 </>
               )}

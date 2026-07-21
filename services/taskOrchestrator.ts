@@ -1,22 +1,44 @@
 import { createStagehandSession, closeSession } from "./browserEngine";
-import { callAI } from "./aiService";
+import { callAI, findTargetUrl } from "./aiService";
 import { saveLeadToFirestore, formatPhone } from "./firebase";
 import { crawlPage } from "./crawl4ai";
+import { withRetry, classifyPlaywrightError } from "./errors";
+import { runStealthAutomation } from "./stealthTaskRunner";
+
+const ensureAbsoluteUrl = (url: string): string => {
+  if (!url) return 'about:blank';
+  let cleaned = url.trim();
+  if (cleaned.startsWith('http://') || cleaned.startsWith('https://') || cleaned.startsWith('about:')) {
+    return cleaned;
+  }
+  // If it's a domain name (contains a dot and no spaces, like google.com, maps.google.com)
+  if (/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?$/.test(cleaned)) {
+    return `https://${cleaned}`;
+  }
+  // Otherwise, fallback to a search query!
+  return `https://www.google.com/search?q=${encodeURIComponent(cleaned)}`;
+};
 
 export async function runTask(
   taskId: string,
   userInstruction: string,
   startUrl: string,
   socket: any,
-  onProgress: (update: any) => void
+  onProgress: (update: any) => void,
+  useStealth: boolean = false
 ) {
-  const { page } = await createStagehandSession(taskId);
+  if (useStealth) {
+    const targetUrl = startUrl || await findTargetUrl(userInstruction);
+    return runStealthAutomation(taskId, userInstruction, ensureAbsoluteUrl(targetUrl), onProgress);
+  }
+
+  const { page, liveViewUrl } = await createStagehandSession(taskId);
 
   // Step 1: tell the frontend the session exists (LiveViewer expects this exact step name)
   onProgress({
     step: "session_started",
     status: "running",
-    data: { currentUrl: "" }
+    data: { currentUrl: "", liveViewUrl }
   });
   if (socket) {
     socket.emit('task_update', { taskId, message: "Browser session started successfully." });
@@ -48,15 +70,48 @@ export async function runTask(
   }, 250);
 
   try {
-    // Step 3: navigate. If no explicit startUrl was given, default to a
-    // Google Maps search built from the user's natural-language instruction.
-    const targetUrl = startUrl || `https://www.google.com/maps/search/${encodeURIComponent(userInstruction)}`;
+    // Step 3: navigate. Smart URL detection:
+    // 1. If startUrl is set, use it.
+    // 2. If the user instruction contains an HTTP/HTTPS URL, extract and use it.
+    // 3. If the user instruction is a command to navigate somewhere, clean it and check if it's a domain/URL or search phrase.
+    onProgress({ step: "navigating", status: "running", data: { message: "Determining best target page..." } });
+    if (socket) {
+      socket.emit('task_update', { taskId, message: "Determining best target page via Gemini Search..." });
+    }
+    let targetUrl = startUrl || await findTargetUrl(userInstruction);
+
+    targetUrl = ensureAbsoluteUrl(targetUrl);
+
     onProgress({ step: "navigating", status: "running", data: { message: `Navigating to ${targetUrl}` } });
     if (socket) {
       socket.emit('task_update', { taskId, message: `Navigating to ${targetUrl}...` });
     }
 
-    await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
+    try {
+      await withRetry(
+        async () => {
+          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        },
+        {
+          maxRetries: 3,
+          onRetry: (attempt, error) => {
+            onProgress({
+              step: "retrying",
+              status: "running",
+              data: { message: `Retry attempt ${attempt}: ${error.message}` }
+            });
+            if (socket) {
+              socket.emit('task_update', { taskId, message: `Retry attempt ${attempt}: ${error.message}` });
+            }
+          }
+        }
+      );
+    } catch (gotoErr: any) {
+      console.warn(`[taskOrchestrator] Navigation warning/timeout on ${targetUrl}: ${gotoErr.message || gotoErr}. Continuing...`);
+      if (socket) {
+        socket.emit('task_update', { taskId, message: `Navigation warning: ${gotoErr.message || gotoErr}. Proceeding with extraction anyway...` });
+      }
+    }
     await new Promise(r => setTimeout(r, 3000)); // let dynamic content (map results) finish rendering
 
     // Consent page check
@@ -179,12 +234,12 @@ export async function runTask(
       socket.emit('task_update', { taskId, message: `Saving ${results.length} extracted leads to Leads tab...` });
     }
     for (const item of results) {
-      if (item.name || item.phone) {
+      if (item.name || item.phone || item.businessName) {
         await saveLeadToFirestore({
           taskId,
-          businessName: item.name || 'Unknown',
+          businessName: item.name || item.businessName || 'Unknown',
           phone: formatPhone(item.phone || ''),
-          website: item.url || '',
+          website: item.url || item.website || '',
           rating: item.rating ? String(item.rating) : '',
           address: item.address || '',
           email: item.email || '',
@@ -195,6 +250,15 @@ export async function runTask(
     pollingActive = false;
     clearInterval(screenshotInterval);
 
+    // Capture final screenshot before completing
+    let finalScreenshotBase64 = '';
+    try {
+      const buffer = await page.screenshot({ type: 'jpeg', quality: 60 });
+      finalScreenshotBase64 = buffer.toString('base64');
+    } catch (e) {
+      console.warn('Failed to take final screenshot:', e);
+    }
+
     // Step 6: tell the frontend the task is done. taskRunner.ts forwards
     // this as a 'task_complete' event with this exact data shape.
     onProgress({
@@ -204,7 +268,8 @@ export async function runTask(
         results,
         leadCount: results.length,
         summary: `Found ${results.length} results`,
-        currentUrl: page.url()
+        currentUrl: page.url(),
+        screenshot: finalScreenshotBase64
       }
     });
     if (socket) {
@@ -214,18 +279,36 @@ export async function runTask(
   } catch (err: any) {
     pollingActive = false;
     clearInterval(screenshotInterval);
+
+    let finalScreenshotBase64 = '';
+    try {
+      const buffer = await page.screenshot({ type: 'jpeg', quality: 60 });
+      finalScreenshotBase64 = buffer.toString('base64');
+    } catch (e) {}
+
+    const classifiedError = classifyPlaywrightError(err);
     onProgress({
       step: "error",
       status: "failed",
-      data: { message: err.message }
+      data: { 
+        message: `Error [${classifiedError.code}]: ${classifiedError.message}`,
+        code: classifiedError.code,
+        screenshot: finalScreenshotBase64
+      }
     });
     if (socket) {
-      socket.emit('task_update', { taskId, message: `Execution failed: ${err.message || 'Unknown error'}` });
+      socket.emit('task_update', { taskId, message: `Execution failed: Error [${classifiedError.code}]: ${classifiedError.message}` });
     }
     throw err;
   } finally {
-    // Always close the browser when the task ends, whether it succeeded or failed.
-    await closeSession(taskId);
+    // Keep Steel session alive for 10 minutes after task ends so the user can interact with it
+    console.log(`[taskOrchestrator] Keeping Steel session alive for 10 minutes for user interaction...`);
+    setTimeout(async () => {
+      try {
+        console.log(`[taskOrchestrator] Delayed closing of session for task ${taskId}...`);
+        await closeSession(taskId);
+      } catch (e) {}
+    }, 10 * 60 * 1000);
   }
 }
 

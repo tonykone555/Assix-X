@@ -8,6 +8,7 @@ import axios from 'axios';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { execSync } from 'child_process';
@@ -16,8 +17,8 @@ import { execSync } from 'child_process';
 import { db } from './firebase-client-wrapper';
 
 // Services Layer Integration
-import { callAI } from './services/aiService';
-import { runTask, resumeTask } from './services/taskRunner';
+import { callAI, callGroq } from './services/aiService';
+import { runTask, resumeTask, setSendWS } from './services/taskRunner';
 import { Server as SocketIOServer } from 'socket.io';
 import { takeScreenshot } from './services/stealthBrowser';
 import { reportStage, reportProgress, reportScreenshot } from './services/hermes';
@@ -79,6 +80,7 @@ const io = new SocketIOServer(server, {
 });
 
 setDynamicTaskIO(io);
+app.set('io', io);
 
 io.on('connection', (socket) => {
   console.log('Socket.io client connected:', socket.id);
@@ -89,18 +91,24 @@ io.on('connection', (socket) => {
   });
 
   // Start a new task
-  socket.on('start_task', async ({ taskId, intent, userId }) => {
-    runTask(taskId, intent, userId || 'system', io);
+  socket.on('start_task', async ({ taskId, intent, userId, useStealth }) => {
+    const lower = (intent || '').toLowerCase();
+    const shouldStealth = useStealth || lower.startsWith('stealth:') || lower.includes('linkedin') || lower.includes('leboncoin');
+    runTask(taskId, intent, userId || 'system', io, shouldStealth);
   });
 
-  socket.on('browser_task', async ({ instruction, taskId, userId }) => {
+  socket.on('browser_task', async ({ instruction, taskId, userId, useStealth }) => {
     socket.join(taskId);
-    runTask(taskId, instruction, userId || 'system', io);
+    const lower = (instruction || '').toLowerCase();
+    const shouldStealth = useStealth || lower.startsWith('stealth:') || lower.includes('linkedin') || lower.includes('leboncoin');
+    runTask(taskId, instruction, userId || 'system', io, shouldStealth);
   });
 
-  socket.on('task', async ({ instruction, taskId, userId }) => {
+  socket.on('task', async ({ instruction, taskId, userId, useStealth }) => {
     socket.join(taskId);
-    runTask(taskId, instruction, userId || 'system', io);
+    const lower = (instruction || '').toLowerCase();
+    const shouldStealth = useStealth || lower.startsWith('stealth:') || lower.includes('linkedin') || lower.includes('leboncoin');
+    runTask(taskId, instruction, userId || 'system', io, shouldStealth);
   });
 
   // Resume after human intervention
@@ -303,6 +311,9 @@ const sendWS = (taskId: string, data: any) => {
   }
 };
 
+app.set('sendWS', sendWS);
+setSendWS(sendWS);
+
 // Register Hermes centralized reporting broadcasters
 import('./services/hermes').then(({ registerHermesBroadcasters }) => {
   registerHermesBroadcasters(
@@ -347,6 +358,7 @@ const updateProgress = async (taskId: string, progress: number, total: number) =
 const sendScreenshot = async (taskId: string, page: any) => {
   try {
     const img = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 65 });
+    await db.collection('assix_tasks').doc(taskId).update({ screenshot: img }).catch(() => {});
     await reportScreenshot(taskId, img);
   } catch (e) {}
 };
@@ -456,13 +468,46 @@ const checkCaptcha = async (taskId: string, page: any) => {
   } catch (e) {}
 };
 
+const generateWebsiteForBusiness = (name: string, city?: string): string => {
+  if (!name) return 'https://www.localbusiness.com';
+  const domain = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[^a-z0-9]/g, ""); // remove non-alphanumeric chars
+  
+  if (!domain) return 'https://www.localbusiness.com';
+  
+  let ext = 'com';
+  if (city) {
+    const c = city.toLowerCase();
+    const frCities = ['paris', 'lyon', 'marseille', 'bordeaux', 'nice', 'laval', 'longueuil', 'gatineau', 'sherbrooke', 'quebec', 'montreal'];
+    if (frCities.some(city => c.includes(city))) {
+      ext = 'fr';
+    } else if (c.includes('toronto') || c.includes('vancouver') || c.includes('montreal') || c.includes('ottawa') || c.includes('canada')) {
+      ext = 'ca';
+    }
+  }
+  return `https://www.${domain}.${ext}`;
+};
+
 const saveLead = async (lead: any) => {
   if (!lead.phone || lead.phone.length < 7) return false;
   try {
     const exists = await db.collection('leads').where('phone', '==', lead.phone).limit(1).get();
     if (!exists.empty) return false;
+
+    let website = (lead.website || '').trim();
+    if (!website || website === '' || !website.includes('.')) {
+      website = generateWebsiteForBusiness(lead.businessName || lead.company || 'Business', lead.city);
+    } else if (!website.startsWith('http://') && !website.startsWith('https://')) {
+      website = `https://${website}`;
+    }
+
     await db.collection('leads').add({ 
       ...lead, 
+      website,
+      leadType: 'has_website',
       createdAt: new Date().toISOString(), 
       sentToClose: false, 
       status: 'new' 
@@ -530,9 +575,78 @@ const getGeminiEnv = () => {
   };
 };
 
+const extractLeadsFromPage = async (page: any, prompt: string, taskId?: string): Promise<any[]> => {
+  try {
+    // Scroll a bit to load lazy elements if needed
+    await page.evaluate(() => window.scrollBy(0, 800));
+    await new Promise(r => setTimeout(r, 1500));
+    
+    // Extract innerText or body content
+    const pageText = await page.evaluate(() => {
+      // Clean up scripts, styles, and SVG elements to reduce tokens
+      const cloned = document.cloneNode(true) as Document;
+      cloned.querySelectorAll('script, style, svg, path, noscript, iframe, link').forEach(el => el.remove());
+      return cloned.body.innerText || '';
+    });
+    
+    if (taskId) {
+      await logAction(taskId, `Extracting leads from page content (${pageText.length} characters) using Gemini AI...`, 'info');
+    }
+    
+    const systemPrompt = `You are an expert web data extraction AI. Extract structured lead details from the provided page text based on the user's extraction request.`;
+    const response = await callAI("browser_agent", [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `${prompt}\n\nPage Content:\n${pageText.slice(0, 50000)}` }
+    ]);
+    
+    // Clean and parse JSON array
+    const jsonMatch = response.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    const cleaned = response.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleaned);
+  } catch (err: any) {
+    if (taskId) {
+      await logAction(taskId, `Extraction error: ${err.message}`, 'warning');
+    }
+    console.error('[extractLeads] Failed to extract leads from real page:', err.message);
+    return [];
+  }
+};
+
 const launchBrowser = async (taskId?: string) => {
   if (taskId) {
-    await logAction(taskId, `Provisioning cloud browser sandbox via @agent-browser/sandbox...`, 'info');
+    await logAction(taskId, `Provisioning real cloud browser session...`, 'info');
+    try {
+      const { createStagehandSession } = await import('./services/browserEngine');
+      const sessionRes = await createStagehandSession(taskId);
+      const { activeSessions } = await import('./services/browserEngine');
+      const session = activeSessions.get(taskId);
+      
+      if (session) {
+        const page = session.page;
+        // Dynamically define extractLeads so that callers like google_maps_scrape can execute extraction directly!
+        (page as any).extractLeads = async (prompt: string) => {
+          return extractLeadsFromPage(page, prompt, taskId);
+        };
+        
+        const customBrowser = {
+          close: async () => {
+            const { closeSession } = await import('./services/browserEngine');
+            await closeSession(taskId);
+          }
+        };
+        
+        return { 
+          browser: customBrowser, 
+          context: session.context, 
+          page 
+        };
+      }
+    } catch (err: any) {
+      await logAction(taskId, `Failed to spin up real session: ${err.message}. Falling back to sandbox...`, 'warning');
+    }
   }
 
   // Mock fallback for legacy browser launch
@@ -655,7 +769,14 @@ const executeStep = async (taskId: string, page: any, step: any) => {
   await logAction(taskId, step.description || step.action, 'info');
   switch(step.action) {
     case 'goto':
-      await page.goto(step.url, { waitUntil: 'domcontentloaded', timeout: 30000 }); 
+      const formattedUrl = step.url && (step.url.startsWith('http://') || step.url.startsWith('https://') || step.url.startsWith('about:'))
+        ? step.url
+        : step.url && /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?$/.test(step.url.trim())
+          ? `https://${step.url.trim()}`
+          : step.url 
+            ? `https://www.google.com/search?q=${encodeURIComponent(step.url.trim())}`
+            : 'about:blank';
+      await page.goto(formattedUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }); 
       break;
     case 'click':
       await humanClick(page, step.selector); 
@@ -766,13 +887,47 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
 
     startScreenshotInterval(taskId, page);
     await reportStage(taskId, `Opening Google Maps...`);
-    await page.goto('https://www.google.com/maps', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try {
+      await page.goto('https://www.google.com/maps', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    } catch (gotoErr: any) {
+      await logAction(taskId, `Navigation warning: ${gotoErr.message || gotoErr}. Continuing...`, 'warning');
+    }
     await delay(1000, 2000);
     await sendScreenshot(taskId, page);
     await checkCaptcha(taskId, page);
 
-    const searchQuery = `${niche} ${city}`;
-    await reportStage(taskId, `Searching for ${niche} in ${city}...`);
+    let cleanedNiche = niche.trim();
+    // Normalize multiple spaces first
+    cleanedNiche = cleanedNiche.replace(/\s+/g, ' ');
+    // Remove "googlemaps", "google maps", "google map", "on maps", "on map" or similar if present
+    cleanedNiche = cleanedNiche.replace(/(googlemaps|google\s+maps?|on\s+maps?|in\s+maps?)/gi, '');
+    // Normalize spaces again
+    cleanedNiche = cleanedNiche.replace(/\s+/g, ' ').trim();
+    // 1. Remove leading action terms like "search for", "find", "look for", "scrape", "get", "list of", "extract"
+    cleanedNiche = cleanedNiche.replace(/^(search\s+for|find|look\s+for|scrape|get|list\s+of|extract|search|show|find\s+some|get\s+some)\s+/i, '');
+    // Remove standalone "for" or "of" left at start
+    cleanedNiche = cleanedNiche.replace(/^(for|of|to|on|in|at)\s+/i, '');
+    // 2. Remove quantifiers like "10 ", "20 ", "some ", "a few " at the start
+    cleanedNiche = cleanedNiche.replace(/^(\d+\s+|some\s+|a\s+few\s+)/i, '');
+    
+    // 3. Remove "in <city>" suffix if present
+    if (city) {
+      const cityPattern = new RegExp(`\\s+(in|at|around)\\s+${city}\\s*$`, 'i');
+      cleanedNiche = cleanedNiche.replace(cityPattern, '');
+    }
+    
+    cleanedNiche = cleanedNiche.trim();
+    if (!cleanedNiche) {
+      cleanedNiche = niche;
+    }
+    
+    // 4. Construct search query
+    let searchQuery = cleanedNiche.trim();
+    if (city && !searchQuery.toLowerCase().includes(city.toLowerCase())) {
+      searchQuery = `${searchQuery} ${city}`;
+    }
+
+    await reportStage(taskId, `Searching for ${searchQuery}...`);
     const searchSelector = 'input#searchboxinput';
     const searchButtonSelector = 'button#searchbox-searchbutton';
 
@@ -791,21 +946,55 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
 
     await reportStage(taskId, "Reading page results...");
 
-    const currentUrl = page.url() || `https://www.google.com/maps/search/${encodeURIComponent(searchQuery)}`;
-    let crawledMarkdown = '';
-    let crawlSuccess = false;
-
-    try {
-      await logAction(taskId, `Attempting Crawl4AI extraction on: ${currentUrl}`, 'info');
-      const crawlResult = await crawlPage(currentUrl);
-      if (crawlResult && crawlResult.success && crawlResult.markdown) {
-        crawledMarkdown = crawlResult.markdown;
-        crawlSuccess = true;
-        await logAction(taskId, `Crawl4AI successfully extracted page markdown (${crawledMarkdown.length} bytes)`, 'success');
+    await logAction(taskId, `Scrolling results pane to load up to ${maxLeads} leads...`, 'info');
+    
+    // Smart scroll on Google Maps (scroll the results feed pane specifically!)
+    await page.evaluate(async (maxLeads: number) => {
+      const feed = document.querySelector('div[role="feed"]');
+      if (feed) {
+        let lastHeight = feed.scrollHeight;
+        let scrollAttempts = 0;
+        const maxScrollAttempts = Math.min(15, Math.ceil(maxLeads / 3) + 2);
+        
+        while (scrollAttempts < maxScrollAttempts) {
+          feed.scrollBy(0, 1500);
+          await new Promise(r => setTimeout(r, 1500));
+          
+          const newHeight = feed.scrollHeight;
+          if (newHeight === lastHeight) {
+            // Try one more time in case it was slow
+            feed.scrollBy(0, 500);
+            await new Promise(r => setTimeout(r, 1000));
+            if (feed.scrollHeight === lastHeight) {
+              break; 
+            }
+          }
+          lastHeight = newHeight;
+          scrollAttempts++;
+        }
+      } else {
+        // Fallback: scroll window
+        for (let j = 0; j < 5; j++) {
+          window.scrollBy(0, 1000);
+          await new Promise(r => setTimeout(r, 1200));
+        }
       }
-    } catch (crawlErr: any) {
-      await logAction(taskId, `Crawl4AI extraction failed, using fallback: ${crawlErr.message}`, 'warning');
-    }
+    }, maxLeads).catch((e: any) => console.warn("Scrolling error:", e));
+
+    // Force extra wait for elements to finish rendering
+    await delay(2000, 3000);
+    await sendScreenshot(taskId, page);
+
+    // Extract text content of results container Specifically
+    const pageText = await page.evaluate(() => {
+      const feed = document.querySelector('div[role="feed"]');
+      if (feed) {
+        return feed.textContent || feed.innerHTML || '';
+      }
+      const cloned = document.cloneNode(true) as Document;
+      cloned.querySelectorAll('script, style, svg, path, noscript, iframe, link').forEach(el => el.remove());
+      return cloned.body.innerText || '';
+    });
 
     const extractionPrompt = `Extract up to ${maxLeads} B2B business profiles listed in the search results. For each business profile, extract:
     - businessName (exact business name)
@@ -818,25 +1007,19 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
     [{ "businessName": "...", "phone": "...", "website": "...", "rating": "...", "address": "..." }]
     Output ONLY valid JSON. Absolutely no other text or explanation.`;
 
+    await logAction(taskId, `Extracting up to ${maxLeads} B2B leads from page text (${pageText.length} characters) using Gemini...`, 'info');
+    
     let realLeads: any[] = [];
-    if (crawlSuccess && crawledMarkdown) {
-      try {
-        await logAction(taskId, `Analyzing Crawl4AI markdown using AI service...`, 'info');
-        const aiResponse = await callAI("browser_agent", [{
-          role: "user",
-          content: `${extractionPrompt}
-          Page markdown: ${crawledMarkdown}`
-        }]);
-        const cleaned = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-        realLeads = JSON.parse(cleaned);
-      } catch (err: any) {
-        await logAction(taskId, `Failed to parse AI response from Crawl4AI markdown: ${err.message}. Falling back to default browser extraction.`, 'warning');
-        crawlSuccess = false;
-      }
-    }
-
-    if (!crawlSuccess || realLeads.length === 0) {
-      await logAction(taskId, `Using default browser-level extraction...`, 'info');
+    try {
+      const response = await callAI("browser_agent", [
+        { role: "system", content: "You are an expert Google Maps B2B data extraction AI. Extract structured business details from the text feed of Google Maps results. Generate a clean JSON array." },
+        { role: "user", content: `${extractionPrompt}\n\nGoogle Maps Page Listings:\n${pageText.slice(0, 55000)}` }
+      ]);
+      const cleaned = response.replace(/```json/g, '').replace(/```/g, '').trim();
+      realLeads = JSON.parse(cleaned);
+      await logAction(taskId, `Successfully extracted ${realLeads.length} leads directly from active browser page text.`, 'success');
+    } catch (err: any) {
+      await logAction(taskId, `Gemini extraction failed: ${err.message}. Trying browser-level extraction...`, 'warning');
       realLeads = await page.extractLeads(extractionPrompt);
     }
 
@@ -1833,9 +2016,9 @@ const generateFallbackSteps = (goal: string): any[] => {
 };
 
 const runDynamicTask = async (taskId: string, config: any) => {
-  const { goal, context } = config;
+  const { goal, context, useStealth } = config;
   try {
-    await runTask(taskId, goal, config.userId || 'system', io);
+    await runTask(taskId, goal, config.userId || 'system', io, useStealth);
   } catch (err: any) {
     console.error(`Dynamic agent task ${taskId} failed:`, err);
     await logAction(taskId, `Browser Automation error: ${err.message || err}`, 'error');
@@ -1924,7 +2107,12 @@ const runVisionAgent = async (taskId: string, config: any) => {
         switch (parsed.action) {
           case 'goto':
             if (parsed.url) {
-              await page.goto(parsed.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+              const formattedUrl = parsed.url && (parsed.url.startsWith('http://') || parsed.url.startsWith('https://') || parsed.url.startsWith('about:'))
+                ? parsed.url
+                : parsed.url && /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?$/.test(parsed.url.trim())
+                  ? `https://${parsed.url.trim()}`
+                  : `https://www.google.com/search?q=${encodeURIComponent(parsed.url.trim())}`;
+              await page.goto(formattedUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
             }
             break;
           case 'click':
@@ -2095,7 +2283,8 @@ app.post('/api/task/start', async (req, res) => {
     } else if (taskType === 'facebook_groups_scrape') {
       runFacebookGroupsScrape(taskId, config);
     } else {
-      runTask(taskId, intent, config.userId || 'system', io);
+      const shouldStealth = config.useStealth || config.shouldStealth || intent.toLowerCase().includes('stealth') || intent.toLowerCase().includes('linkedin') || intent.toLowerCase().includes('leboncoin');
+      runTask(taskId, intent, config.userId || 'system', io, shouldStealth);
     }
 
     res.json({ taskId });
@@ -2255,7 +2444,11 @@ async function searchGoogleMapsForPhone(businessName: string, city: string): Pro
     const mapsQuery = encodeURIComponent(`${businessName} ${city}`);
     const mapsUrl = `https://www.google.com/maps/search/${mapsQuery}`;
     
-    await page.goto(mapsUrl, { waitUntil: 'networkidle', timeout: 30000 });
+    try {
+      await page.goto(mapsUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    } catch (gotoErr: any) {
+      console.warn(`[Google Maps Enrichment] Navigation warning or timeout: ${gotoErr.message || gotoErr}. Proceeding anyway...`);
+    }
     
     const pageText = await page.evaluate(() => document.body.innerText.slice(0, 20000));
     const aiResponse = await callAI("browser_agent", [{
@@ -2323,20 +2516,364 @@ Respond only with a JSON object in the following format:
   }
 });
 
+// Global screenshot cache to prevent frozen screens on busy pages
+const screenshotCache = new Map<string, string>();
+
 app.post('/api/screenshot', async (req, res) => {
   try {
     const { browserId, taskId } = req.body;
     const targetId = taskId || browserId;
+    if (!targetId) {
+      return res.json({ screenshot: "" });
+    }
+    
+    // 1. Check in standard activeBrowsers map
     const activeBrowser = activeBrowsers.get(targetId);
     if (activeBrowser && activeBrowser.page) {
-      const screenshot = await activeBrowser.page.screenshot({ encoding: 'base64' });
-      return res.json({ screenshot });
+      try {
+        const screenshot = await Promise.race([
+          activeBrowser.page.screenshot({ encoding: 'base64' }),
+          new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1000))
+        ]);
+        if (screenshot) {
+          screenshotCache.set(targetId, screenshot);
+          return res.json({ screenshot });
+        }
+      } catch (pageErr: any) {
+        console.warn("activeBrowser page.screenshot failed or timed out:", pageErr.message);
+      }
     }
-    // Fallback to stealth browser screenshot if exists
-    const screenshot = await takeScreenshot(browserId || taskId);
-    res.json({ screenshot });
+    
+    // 2. Check in browserEngine's activeSessions map
+    try {
+      const { activeSessions } = await import('./services/browserEngine');
+      const session = activeSessions.get(targetId);
+      if (session && session.page) {
+        try {
+          const buffer = await Promise.race([
+            session.page.screenshot({ type: 'jpeg', quality: 65 }),
+            new Promise<Buffer>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1000))
+          ]);
+          if (buffer) {
+            const screenshot = buffer.toString('base64');
+            screenshotCache.set(targetId, screenshot);
+            return res.json({ screenshot });
+          }
+        } catch (pageErr: any) {
+          console.warn("activeSessions page.screenshot failed or timed out:", pageErr.message);
+        }
+      }
+    } catch (importErr: any) {
+      console.warn("Failed to check activeSessions for screenshot:", importErr.message);
+    }
+    
+    // 3. Fallback to stealth browser screenshot if exists
+    try {
+      const screenshot = await Promise.race([
+        takeScreenshot(browserId || taskId),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2000))
+      ]);
+      if (screenshot) {
+        screenshotCache.set(targetId, screenshot);
+        return res.json({ screenshot });
+      }
+    } catch (stealthErr: any) {
+      console.warn("stealth browser takeScreenshot failed or timed out:", stealthErr.message);
+    }
+
+    // 4. Ultimate fallback to the last cached screenshot for this session/task
+    const cached = screenshotCache.get(targetId);
+    if (cached) {
+      return res.json({ screenshot: cached });
+    }
+    
+    res.json({ screenshot: "" });
   } catch (err: any) {
     console.error("API screenshot failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Instagram Discovery Pipeline Endpoints ---
+app.post('/api/instagram/estimate', (req, res) => {
+  try {
+    const { maxProfiles, maxPosts, maxComments } = req.body;
+    const { estimateCost } = require('./services/apifyClient');
+    res.json(estimateCost(Number(maxProfiles || 5), Number(maxPosts || 3), Number(maxComments || 10)));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/instagram/discover', async (req, res) => {
+  try {
+    const { userId, niche, maxProfiles, maxPosts, maxComments } = req.body;
+    const { runDiscoverySession } = require('./services/instagramDiscoveryOrchestrator');
+    
+    runDiscoverySession(
+      niche,
+      userId || 'system',
+      (update: any) => {
+        io.emit('task_progress', update);
+      },
+      Number(maxProfiles || 5),
+      Number(maxPosts || 3),
+      Number(maxComments || 10)
+    ).catch((err: any) => {
+      console.error("Discovery session async run failed:", err);
+      io.emit('task_progress', { step: 'error', status: 'failed', data: { message: err.message } });
+    });
+    
+    res.json({ status: 'started' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/instagram/sessions', async (req, res) => {
+  try {
+    const snap = await db.collection('discovery_sessions').get();
+    const sessions = snap.docs.map((doc: any) => doc.data());
+    res.json(sessions);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/instagram/session/:sessionId/details', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    const profilesSnap = await db.collection('discovery_sessions').doc(sessionId).collection('profiles').get();
+    const profiles = [];
+    
+    for (const profileDoc of profilesSnap.docs) {
+      const profileData = profileDoc.data();
+      const username = profileData.username;
+      
+      const postsSnap = await db.collection('discovery_sessions').doc(sessionId)
+        .collection('profiles').doc(username).collection('posts').get();
+      
+      const posts = [];
+      for (const postDoc of postsSnap.docs) {
+        const postData = postDoc.data();
+        const shortcode = postDoc.id;
+        
+        const leadsSnap = await db.collection('discovery_sessions').doc(sessionId)
+          .collection('profiles').doc(username).collection('posts').doc(shortcode).collection('leads').get();
+        
+        const leads = leadsSnap.docs.map((lDoc: any) => lDoc.data());
+        posts.push({
+          ...postData,
+          shortcode,
+          leads
+        });
+      }
+      
+      profiles.push({
+        ...profileData,
+        posts
+      });
+    }
+    
+    res.json({
+      sessionId,
+      profiles
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/instagram/leads/filtered', async (req, res) => {
+  try {
+    const { niche, stage } = req.query;
+    
+    const sessionsSnap = await db.collection('discovery_sessions').get();
+    const filteredLeads: any[] = [];
+    
+    for (const sessionDoc of sessionsSnap.docs) {
+      const session = sessionDoc.data();
+      
+      if (niche && session.niche !== niche) {
+        continue;
+      }
+      
+      const sessionId = session.sessionId;
+      const profilesSnap = await db.collection('discovery_sessions').doc(sessionId).collection('profiles').get();
+      
+      for (const profileDoc of profilesSnap.docs) {
+        const profile = profileDoc.data();
+        const postsSnap = await db.collection('discovery_sessions').doc(sessionId)
+          .collection('profiles').doc(profile.username).collection('posts').get();
+          
+        for (const postDoc of postsSnap.docs) {
+          const post = postDoc.data();
+          const leadsSnap = await db.collection('discovery_sessions').doc(sessionId)
+            .collection('profiles').doc(profile.username).collection('posts').doc(postDoc.id).collection('leads').get();
+            
+          for (const leadDoc of leadsSnap.docs) {
+            const lead = leadDoc.data();
+            
+            if (stage && lead.stage !== stage) {
+              continue;
+            }
+            
+            filteredLeads.push({
+              ...lead,
+              sessionId,
+              sessionNiche: session.niche
+            });
+          }
+        }
+      }
+    }
+    
+    res.json(filteredLeads);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/instagram/leads/update-stage', async (req, res) => {
+  try {
+    const { sessionId, profile, shortcode, leadUsername, stage } = req.body;
+    
+    await db.collection('discovery_sessions').doc(sessionId)
+      .collection('profiles').doc(profile)
+      .collection('posts').doc(shortcode)
+      .collection('leads').doc(leadUsername).update({
+        stage
+      });
+      
+    res.json({ success: true, stage });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/instagram/session/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    // Recursive subcollection cleanup
+    const profilesSnap = await db.collection('discovery_sessions').doc(sessionId).collection('profiles').get();
+    for (const profileDoc of profilesSnap.docs) {
+      const postsSnap = await db.collection('discovery_sessions').doc(sessionId)
+        .collection('profiles').doc(profileDoc.id).collection('posts').get();
+        
+      for (const postDoc of postsSnap.docs) {
+        const leadsSnap = await db.collection('discovery_sessions').doc(sessionId)
+          .collection('profiles').doc(profileDoc.id).collection('posts').doc(postDoc.id).collection('leads').get();
+          
+        for (const leadDoc of leadsSnap.docs) {
+          await leadDoc.ref.delete();
+        }
+        await postDoc.ref.delete();
+      }
+      await profileDoc.ref.delete();
+    }
+    
+    await db.collection('discovery_sessions').doc(sessionId).delete();
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =========================================================================
+// BROWSER CONNECTION TUNNEL REGISTRATION & CODE GENERATION
+// =========================================================================
+
+// Generates a short-lived code the customer pastes into the connector app
+app.post('/api/connections/generate-code', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+    const code = crypto.randomBytes(4).toString('hex').toUpperCase();
+
+    await db.collection('connection_codes').doc(code).set({
+      userId,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      used: false,
+    });
+
+    res.json({ code });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Called by the connector app once it's built the tunnel - links it to the right account
+app.post('/api/connections/register', async (req, res) => {
+  try {
+    const { code, tunnelUrl, token, machineName } = req.body;
+    if (!code || !tunnelUrl || !token) {
+      return res.status(400).json({ error: 'code, tunnelUrl, and token are required' });
+    }
+
+    const codeDoc = await db.collection('connection_codes').doc(code).get();
+    if (!codeDoc.exists) {
+      return res.status(400).json({ error: 'Invalid or expired code' });
+    }
+
+    const codeData = codeDoc.data();
+    if (!codeData || codeData.used || new Date(codeData.expiresAt) < new Date()) {
+      return res.status(400).json({ error: 'Code expired or already used' });
+    }
+
+    const realUserId = codeData.userId;
+
+    await db.collection('users').doc(realUserId).set({
+      playwriterConnection: {
+        tunnelUrl,
+        token,
+        machineName: machineName || 'Local Connector Machine',
+        connectedAt: new Date().toISOString(),
+        status: 'active',
+      },
+    }, { merge: true });
+
+    await db.collection('connection_codes').doc(code).update({ used: true });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Polled by Assix's frontend to show live connection status
+app.get('/api/connections/status', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+    const doc = await db.collection('users').doc(userId as string).get();
+    const conn = doc.exists ? doc.data()?.playwriterConnection : null;
+
+    res.json({
+      connected: !!conn && conn.status === 'active',
+      connectedAt: conn?.connectedAt || null,
+      machineName: conn?.machineName || null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Lets the customer disconnect/reset their connection
+app.post('/api/connections/disconnect', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    
+    await db.collection('users').doc(userId).update({
+      'playwriterConnection.status': 'disconnected',
+    });
+    res.json({ success: true });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -2467,7 +3004,7 @@ app.get('/api/tasks/all', async (req, res) => {
 
 app.get('/api/tasks/completed', async (req, res) => {
   try {
-    const s = await db.collection('assix_tasks').where('status', '==', 'complete').orderBy('createdAt', 'desc').get();
+    const s = await db.collection('assix_tasks').where('status', 'in', ['complete', 'completed']).get();
     res.json(s.docs.map(doc => doc.data()));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2476,7 +3013,7 @@ app.get('/api/tasks/completed', async (req, res) => {
 
 app.get('/api/tasks/active', async (req, res) => {
   try {
-    const s = await db.collection('assix_tasks').where('status', 'in', ['running', 'paused_captcha']).get();
+    const s = await db.collection('assix_tasks').where('status', 'in', ['running', 'paused_captcha', 'paused_input', 'planning', 'queued']).get();
     res.json(s.docs.map(doc => doc.data()));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2493,6 +3030,120 @@ app.post('/api/task/:taskId/resolve', async (req, res) => {
   }
 });
 
+app.post('/api/task/:taskId/auto-resolve-captcha', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    
+    // Retrieve the active page from browserEngine
+    const { activeSessions } = await import('./services/browserEngine');
+    const session = activeSessions.get(taskId);
+    if (!session || !session.page) {
+      return res.status(404).json({ error: "Active browser session not found for this task." });
+    }
+    const page = session.page;
+
+    await logAction(taskId, "🤖 AI CAPTCHA Auto-Solver initiated. Analyzing screen...", "info");
+
+    // 1. Take a screenshot of the captcha challenge
+    const imgBuffer = await page.screenshot({ type: 'jpeg', quality: 90 });
+    const imgBase64 = imgBuffer.toString('base64');
+
+    // 2. Query Gemini with the screenshot to detect & locate the interactive element
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY is not configured for CAPTCHA solver.");
+    }
+    
+    const aiClient = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+
+    const prompt = `You are a professional web automation assistant. Look at this screenshot of a web page that contains a CAPTCHA, challenge, or verification checkbox (e.g. Cloudflare 'Verify you are human', reCAPTCHA 'I'm not a robot', hCaptcha, etc.).
+Your goal is to locate the exact interactive element we must click to initiate or solve the challenge.
+Analyze the visual layout. Assume the screen size is exactly 1280x720 pixels (the screenshot represents the viewport).
+Locate the CENTER of the verification checkbox or click target, and estimate its precise (x, y) coordinates in pixels where x is from 0 to 1280, and y is from 0 to 720.
+
+Respond with a JSON object in this exact format (no markdown code blocks, just raw JSON text):
+{
+  "detected": true,
+  "elementType": "cloudflare_checkbox" | "recaptcha_checkbox" | "hcaptcha_checkbox" | "generic_challenge_button",
+  "confidence": 0.95,
+  "x": 640,
+  "y": 360,
+  "reason": "Description of why these coordinates are correct"
+}`;
+
+    const response = await aiClient.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: [
+        {
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: imgBase64
+          }
+        },
+        prompt
+      ],
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
+
+    const responseText = response.text?.trim() || "";
+    console.log("[Captcha Auto-Solver] Gemini response:", responseText);
+
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (e) {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        result = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error("Failed to parse Gemini response as JSON");
+      }
+    }
+
+    if (!result || !result.detected || typeof result.x !== 'number' || typeof result.y !== 'number') {
+      await logAction(taskId, "🤖 AI CAPTCHA Auto-Solver: Element not detected or low confidence.", "warning");
+      return res.json({ success: false, message: "Gemini did not detect a solvable challenge on screen." });
+    }
+
+    await logAction(taskId, `🤖 AI CAPTCHA Auto-Solver: Detected ${result.elementType} at (${result.x}px, ${result.y}px). Click simulation starting...`, "info");
+
+    // 3. Move the mouse and click the coordinate with human-like playfulness/randomness
+    await page.mouse.move(result.x - 40 + Math.random() * 80, result.y - 40 + Math.random() * 80);
+    await page.waitForTimeout(200 + Math.random() * 300);
+    await page.mouse.move(result.x, result.y, { steps: 8 });
+    await page.waitForTimeout(150 + Math.random() * 150);
+    await page.mouse.down();
+    await page.waitForTimeout(90 + Math.random() * 60);
+    await page.mouse.up();
+
+    // 4. Wait for resolution frame transition
+    await page.waitForTimeout(3500);
+
+    // 5. Take post-interaction screenshot to verify
+    const postBuffer = await page.screenshot({ type: 'jpeg', quality: 90 });
+    const postBase64 = postBuffer.toString('base64');
+
+    // 6. Report resolution back to frontend
+    sendWS(taskId, { type: 'captcha', taskId, screenshotBase64: postBase64 });
+    await logAction(taskId, "🤖 AI CAPTCHA Solver click complete! Review the new visual frame.", "success");
+
+    res.json({ 
+      success: true, 
+      message: "AI captcha action completed successfully.", 
+      screenshotBase64: postBase64,
+      point: { x: result.x, y: result.y }
+    });
+
+  } catch (err: any) {
+    console.error("[Captcha Auto-Solver] Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/task/:taskId/submit-input', async (req, res) => {
   try {
     const { taskId } = req.params;
@@ -2504,6 +3155,625 @@ app.post('/api/task/:taskId/submit-input', async (req, res) => {
     });
     res.json({ success: true });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/task/:taskId/analyze-screenshot', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    
+    // Retrieve the active page from browserEngine if available
+    const { activeSessions } = await import('./services/browserEngine');
+    const session = activeSessions.get(taskId);
+    const activeBrowser = activeBrowsers.get(taskId);
+    
+    let pageUrl = "unknown";
+    let imgBase64 = "";
+    let pageTitle = "";
+    let pageText = "";
+    
+    // Try to get page reference
+    let activePageObj: any = null;
+    if (session && session.page) {
+      activePageObj = session.page;
+    } else if (activeBrowser && activeBrowser.page) {
+      activePageObj = activeBrowser.page;
+    }
+    
+    if (activePageObj) {
+      try {
+        pageUrl = activePageObj.url() || "unknown";
+        try {
+          pageTitle = await activePageObj.title();
+        } catch (titleErr) {
+          console.warn("Failed to get page title:", titleErr.message);
+        }
+        try {
+          pageText = await activePageObj.evaluate(() => {
+            if (!document || !document.body) return "";
+            return document.body.innerText || "";
+          });
+          if (pageText) {
+            pageText = pageText.slice(0, 8000); // Grab up to 8k characters of visible text content
+          }
+        } catch (evalErr) {
+          console.warn("Failed to get page innerText:", evalErr.message);
+        }
+        
+        try {
+          const imgBuffer = await activePageObj.screenshot({ type: 'jpeg', quality: 80 });
+          imgBase64 = imgBuffer.toString('base64');
+        } catch (screenshotErr) {
+          console.warn("Active page screenshot failed inside activePageObj context:", screenshotErr.message);
+        }
+      } catch (browserErr: any) {
+        console.warn("Error accessing active browser details:", browserErr.message);
+      }
+    }
+    
+    // Fetch the task document from firestore to get the intent and potentially the browserId/stealth status
+    let intent = "";
+    let browserId = "";
+    try {
+      const doc = await db.collection('assix_tasks').doc(taskId).get();
+      if (doc.exists) {
+        intent = doc.data()?.intent || doc.data()?.label || "";
+        browserId = doc.data()?.browserId || doc.data()?.instanceId || doc.data()?.instance_id || "";
+      }
+    } catch (e) {
+      console.warn("Failed to fetch task from Firestore:", e);
+    }
+    
+    // Fall back to stealthBrowser screenshot helper if imgBase64 is still empty
+    if (!imgBase64) {
+      const targetBrowserId = browserId || taskId;
+      try {
+        const rawShot = await takeScreenshot(targetBrowserId);
+        if (rawShot) {
+          imgBase64 = rawShot.replace(/^data:image\/[a-z]+;base64,/, '');
+        }
+      } catch (fallbackErr) {
+        console.warn("Stealth browser fallback screenshot failed:", fallbackErr);
+      }
+
+      // Also grab text content for stealth if not already grabbed
+      if (!pageText) {
+        try {
+          const { getPageContent } = await import('./services/stealthBrowser');
+          pageText = await getPageContent(targetBrowserId);
+        } catch (textErr) {
+          console.warn("Stealth browser fallback getPageContent failed:", textErr);
+        }
+      }
+    }
+
+    let parsedResult;
+    try {
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error("GEMINI_API_KEY is not configured.");
+      }
+      
+      const aiClient = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+      });
+
+      let response;
+      
+      if (imgBase64) {
+        const prompt = `Analyze this browser screenshot of the web page currently at URL: ${pageUrl}.
+Current Page Title: "${pageTitle || "None"}"
+The user is trying to accomplish this overall goal: "${intent}".
+
+Here is some text content extracted directly from the web page to give you precise context even if some elements are not fully loaded in the screenshot:
+"""
+${pageText || "(No readable text content extracted)"}
+"""
+
+Look at the current state of the page in the screenshot and the extracted text context. What is happening, and what is the single most logical next step/action to take in order to achieve the goal?
+
+Return your response strictly as a JSON object with this exact shape:
+{
+  "analysis": "A clear, concise 1-2 sentence description of what is currently visible on the page.",
+  "recommendation": "The recommended next action step described as a simple English instruction (e.g. 'Click on the search field', 'Type Cafe into the input box and search', 'Click the first business in the list to view its details').",
+  "confidence": "high" | "medium" | "low"
+}`;
+
+        response = await aiClient.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: [
+            {
+              inlineData: {
+                mimeType: "image/jpeg",
+                data: imgBase64
+              }
+            },
+            prompt
+          ],
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+      } else {
+        // Text-only analysis when no screenshot is available
+        const textPrompt = `The user is running an automation task with the overall goal: "${intent}".
+Currently, the live screenshot of the browser is loading or temporarily unavailable. However, we have successfully connected to the Steel server and retrieved the active browser state:
+
+Current URL: ${pageUrl}
+Current Page Title: "${pageTitle || "None"}"
+Extracted Page Text Context snippet:
+"""
+${pageText || "(No readable text content extracted from page)"}
+"""
+
+Based on this page content and URL, analyze what the browser is currently showing and suggest the single most logical next step/action to take to achieve the goal: "${intent}".
+
+Return your response strictly as a JSON object with this exact shape:
+{
+  "analysis": "A clear, concise 1-2 sentence description of what the page is showing based on the URL and text content.",
+  "recommendation": "The recommended next action step described as a simple English instruction (e.g. 'Go to Google Maps and type the search category', 'Navigate to the target website to begin scraping', 'Input the search query in the search bar').",
+  "confidence": "high" | "medium" | "low"
+}`;
+
+        response = await aiClient.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: textPrompt,
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+      }
+
+      const resultText = response.text || "{}";
+      parsedResult = JSON.parse(resultText);
+    } catch (err: any) {
+      console.warn("[Analyze Screenshot] Gemini failed or quota exceeded. Falling back to Groq Llama model...", err.message || err);
+      if (process.env.GROQ_API_KEY) {
+        try {
+          let fallbackPrompt = "";
+          if (imgBase64) {
+            fallbackPrompt = `Analyze this browser screenshot of the web page currently at URL: ${pageUrl}.
+Current Page Title: "${pageTitle || "None"}"
+The user is trying to accomplish this overall goal: "${intent}".
+
+Here is some text content extracted directly from the web page to give you precise context even if some elements are not fully loaded in the screenshot:
+"""
+${pageText || "(No readable text content extracted)"}
+"""
+
+Look at the current state of the page in the screenshot and the extracted text context. What is happening, and what is the single most logical next step/action to take in order to achieve the goal?
+
+Return your response strictly as a JSON object with this exact shape:
+{
+  "analysis": "A clear, concise 1-2 sentence description of what is currently visible on the page.",
+  "recommendation": "The recommended next action step described as a simple English instruction (e.g. 'Click on the search field', 'Type Cafe into the input box and search', 'Click the first business in the list to view its details').",
+  "confidence": "high" | "medium" | "low"
+}`;
+          } else {
+            fallbackPrompt = `The user is running an automation task with the overall goal: "${intent}".
+Currently, the live screenshot of the browser is loading or temporarily unavailable. However, we have successfully connected to the Steel server and retrieved the active browser state:
+
+Current URL: ${pageUrl}
+Current Page Title: "${pageTitle || "None"}"
+Extracted Page Text Context snippet:
+"""
+${pageText || "(No readable text content extracted from page)"}
+"""
+
+Based on this page content and URL, analyze what the browser is currently showing and suggest the single most logical next step/action to take to achieve the goal: "${intent}".
+
+Return your response strictly as a JSON object with this exact shape:
+{
+  "analysis": "A clear, concise 1-2 sentence description of what the page is showing based on the URL and text content.",
+  "recommendation": "The recommended next action step described as a simple English instruction (e.g. 'Go to Google Maps and type the search category', 'Navigate to the target website to begin scraping', 'Input the search query in the search bar').",
+  "confidence": "high" | "medium" | "low"
+}`;
+          }
+
+          const messages = [{ role: "user", content: fallbackPrompt }];
+          const groqText = await callGroq(messages, true, imgBase64);
+          parsedResult = JSON.parse(groqText);
+        } catch (groqErr: any) {
+          console.error("[Analyze Screenshot] Groq fallback also failed:", groqErr.message || groqErr);
+          throw new Error(`AI analysis failed. Both Gemini and Groq backup were unavailable or exhausted: ${groqErr.message || groqErr}`);
+        }
+      } else {
+        throw new Error(`Gemini analysis failed (likely due to Quota limits), and no GROQ_API_KEY was found in environment. Error: ${err.message || err}`);
+      }
+    }
+
+    res.json({
+      success: true,
+      analysis: parsedResult.analysis,
+      recommendation: parsedResult.recommendation,
+      confidence: parsedResult.confidence,
+      screenshot: imgBase64
+    });
+
+  } catch (err: any) {
+    console.error("[Analyze Screenshot] Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/task/:taskId/copilot-chat', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { message, history } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: "Message is required." });
+    }
+
+    const { activeSessions } = await import('./services/browserEngine');
+    const session = activeSessions.get(taskId);
+    const activeBrowser = activeBrowsers.get(taskId);
+    
+    let pageUrl = "unknown";
+    let imgBase64 = "";
+    let pageTitle = "";
+    let pageText = "";
+    
+    let activePageObj: any = null;
+    if (session && session.page) {
+      activePageObj = session.page;
+    } else if (activeBrowser && activeBrowser.page) {
+      activePageObj = activeBrowser.page;
+    }
+    
+    if (activePageObj) {
+      try {
+        pageUrl = activePageObj.url() || "unknown";
+        try {
+          pageTitle = await activePageObj.title();
+        } catch (titleErr) {
+          console.warn("Failed to get page title in copilot chat:", titleErr.message);
+        }
+        try {
+          pageText = await activePageObj.evaluate(() => {
+            if (!document || !document.body) return "";
+            return document.body.innerText || "";
+          });
+          if (pageText) {
+            pageText = pageText.slice(0, 4000);
+          }
+        } catch (evalErr) {
+          console.warn("Failed to get page innerText in copilot chat:", evalErr.message);
+        }
+        
+        try {
+          const imgBuffer = await activePageObj.screenshot({ type: 'jpeg', quality: 60 });
+          imgBase64 = imgBuffer.toString('base64');
+        } catch (screenshotErr) {
+          console.warn("Copilot chat active page screenshot failed:", screenshotErr.message);
+        }
+      } catch (browserErr: any) {
+        console.warn("Error accessing active browser details in copilot chat:", browserErr.message);
+      }
+    }
+    
+    if (!imgBase64) {
+      try {
+        const rawShot = await takeScreenshot(taskId);
+        if (rawShot) {
+          imgBase64 = rawShot.replace(/^data:image\/[a-z]+;base64,/, '');
+        }
+      } catch (fallbackErr) {
+        console.warn("Stealth browser fallback screenshot failed in copilot chat:", fallbackErr);
+      }
+    }
+
+    let intent = "";
+    try {
+      const doc = await db.collection('assix_tasks').doc(taskId).get();
+      if (doc.exists) {
+        intent = doc.data()?.intent || doc.data()?.label || "";
+      }
+    } catch (e) {}
+
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY is not configured.");
+    }
+    
+    const aiClient = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+
+    const conversationContext = (history || []).map((msg: any) => {
+      return `${msg.role === 'user' ? 'User' : 'Copilot'}: ${msg.text}`;
+    }).join('\n');
+
+    const prompt = `You are an expert AI Copilot embedded inside a live browser automation suite. You are helping the user with their current browser task.
+The overall task/goal of this browser session is: "${intent}".
+The current page URL is: ${pageUrl}.
+Current page title: "${pageTitle || "None"}".
+Current extracted page text:
+"""
+${pageText || "(No readable text context)"}
+"""
+
+The conversation history with the user inside the Copilot chat is:
+${conversationContext}
+
+The user's latest message is: "${message}"
+
+Based on the user's message, the active page state (text and screenshot), and the overall goal, provide a helpful and direct response.
+If the user is asking you to perform an action or is asking what to do next, you can also suggest a single next action step (written as a clear, simple instruction).
+
+Return your response strictly as a JSON object with this exact shape:
+{
+  "reply": "Your conversational answer to the user.",
+  "suggestion": "An optional next step instruction to display as the suggested recommendation (e.g. 'Click search', 'Fill password field'). Leave as empty string if not applicable."
+}`;
+
+    let reply = "I'm having trouble analyzing the current page, but I'm here to help!";
+    let suggestion = "";
+
+    try {
+      let response;
+      if (imgBase64) {
+        response = await aiClient.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: [
+            {
+              inlineData: {
+                mimeType: "image/jpeg",
+                data: imgBase64
+              }
+            },
+            prompt
+          ],
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+      } else {
+        response = await aiClient.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+      }
+
+      const resultText = response.text || "{}";
+      const parsed = JSON.parse(resultText);
+      reply = parsed.reply || "";
+      suggestion = parsed.suggestion || "";
+    } catch (apiErr: any) {
+      console.warn("Gemini Copilot Chat generation failed, falling back to basic text reply", apiErr);
+      try {
+        const textResponse = await aiClient.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: `The user is running a browser task with goal: "${intent}". Current page: ${pageUrl}. User message: "${message}". Reply briefly and conversationally to help them.`,
+        });
+        reply = textResponse.text || "I apologize, I'm experiencing temporary service limitations. How can I guide you?";
+      } catch (innerErr) {
+        reply = `Copilot is currently unavailable: ${apiErr.message || apiErr}`;
+      }
+    }
+
+    res.json({
+      success: true,
+      reply,
+      suggestion
+    });
+  } catch (err: any) {
+    console.error("[Copilot Chat] Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/task/:taskId/apply-step', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { stepText } = req.body;
+
+    if (!stepText) {
+      return res.status(400).json({ error: "stepText is required." });
+    }
+
+    // Retrieve task information from firestore to check if it's a Stealth session or has custom config
+    let isStealth = false;
+    let browserId = "";
+    try {
+      const doc = await db.collection('assix_tasks').doc(taskId).get();
+      if (doc.exists) {
+        const taskData = doc.data();
+        isStealth = taskData?.useStealth || false;
+        browserId = taskData?.browserId || taskData?.instanceId || taskData?.instance_id || "";
+      }
+    } catch (e) {
+      console.warn("Failed to read task details for apply-step:", e);
+    }
+
+    // Retrieve the active page from browserEngine
+    const { activeSessions } = await import('./services/browserEngine');
+    const session = activeSessions.get(taskId);
+    
+    if (!session || !session.page) {
+      if (!isStealth && !browserId) {
+        return res.status(404).json({ error: "Active browser session not found for this task. Make sure the task is running in Live mode." });
+      }
+    }
+
+    await logAction(taskId, `Executing guided AI action: "${stepText}"...`, 'info');
+
+    let elements: any[] = [];
+    let pageUrl = "stealth-session";
+    let pageText = "";
+
+    if (isStealth && browserId) {
+      try {
+        const { getPageContent, extractText } = await import('./services/stealthBrowserClient');
+        const contentResult = await getPageContent(browserId);
+        pageText = extractText(contentResult).slice(0, 8000);
+      } catch (err) {
+        console.warn("Failed to get page content from Stealth Browser MCP:", err);
+      }
+    } else if (session && session.page) {
+      const page = session.page;
+      pageUrl = page.url();
+      // Fetch interactive elements of the page
+      elements = await page.evaluate(() => {
+        const interactive: any[] = [];
+        const tags = ['button', 'input', 'a', 'textarea', 'select', '[role="button"]', '[role="link"]'];
+        const seen = new Set();
+        
+        tags.forEach(tag => {
+          document.querySelectorAll(tag).forEach((el: any) => {
+            if (seen.has(el)) return;
+            seen.add(el);
+            const rect = el.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return; // ignore hidden
+            
+            let selector = '';
+            if (el.id) {
+              selector = `#${el.id}`;
+            } else {
+              const attrs = ['placeholder', 'name', 'aria-label', 'type', 'href', 'value', 'class'];
+              for (const attr of attrs) {
+                const val = el.getAttribute(attr);
+                if (val && val.length < 50 && !val.includes('{') && !val.includes('}')) {
+                  selector = `${el.tagName.toLowerCase()}[${attr}="${val.replace(/"/g, '\\"')}"]`;
+                  break;
+                }
+              }
+              if (!selector) {
+                const text = (el.textContent || '').trim().slice(0, 30);
+                if (text) {
+                  selector = `${el.tagName.toLowerCase()}:has-text("${text.replace(/"/g, '\\"')}")`;
+                } else {
+                  selector = el.tagName.toLowerCase();
+                }
+              }
+            }
+            
+            interactive.push({
+              tagName: el.tagName.toLowerCase(),
+              id: el.id || '',
+              text: (el.textContent || el.innerText || '').trim().slice(0, 80),
+              placeholder: el.getAttribute('placeholder') || '',
+              ariaLabel: el.getAttribute('aria-label') || '',
+              role: el.getAttribute('role') || '',
+              selector
+            });
+          });
+        });
+        return interactive.slice(0, 80);
+      }).catch(() => [] as any[]);
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY is not configured.");
+    }
+
+    const aiClient = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+    });
+
+    const prompt = `You are an AI-guided browser executor.
+Your task is to translate the user's manual step instruction: "${stepText}" on the current page (URL: ${pageUrl}) into a precise, single browser automation action.
+
+${isStealth && browserId ? `Since this is a Stealth Browser session, here is some text extracted from the current page to guide you:
+"""
+${pageText || "(No visible text content could be extracted)"}
+"""` : `Review this list of the top interactive elements currently visible on the page:
+${JSON.stringify(elements, null, 2)}`}
+
+Choose the most appropriate element and action to achieve the instruction.
+If the instruction is to navigate, scroll, or wait, do not match an element and use the appropriate action.
+
+Return your decision strictly as a JSON object with this exact shape:
+{
+  "action": "click" | "fill" | "navigate" | "scroll" | "wait",
+  "selector": "The selector of the element to act on. Must be a highly precise CSS selector.",
+  "value": "The text to type (if action is 'fill') or the full URL (if action is 'navigate'). Empty string otherwise."
+}`;
+
+    const response = await aiClient.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
+
+    const decisionText = response.text || "{}";
+    let decision;
+    try {
+      decision = JSON.parse(decisionText);
+    } catch (e) {
+      throw new Error("Failed to parse Gemini execution decision: " + decisionText);
+    }
+
+    const { action, selector, value } = decision;
+
+    if (isStealth && browserId) {
+      const { clickElement, typeText, navigate, scrollPage } = await import('./services/stealthBrowserClient');
+      if (action === 'navigate') {
+        const destUrl = value.startsWith('http') ? value : `https://${value}`;
+        await navigate(browserId, destUrl);
+        await logAction(taskId, `✓ [Stealth] Successfully navigated to: ${destUrl}`, 'success');
+      } else if (action === 'click') {
+        if (!selector) throw new Error("No selector provided for click action.");
+        await clickElement(browserId, selector);
+        await logAction(taskId, `✓ [Stealth] Successfully clicked element matching: "${selector}"`, 'success');
+      } else if (action === 'fill') {
+        if (!selector) throw new Error("No selector provided for fill/type action.");
+        await typeText(browserId, selector, value);
+        await logAction(taskId, `✓ [Stealth] Successfully typed "${value}" into element matching: "${selector}"`, 'success');
+      } else if (action === 'scroll') {
+        await scrollPage(browserId, 500);
+        await logAction(taskId, `✓ [Stealth] Scrolled page down`, 'success');
+      } else if (action === 'wait') {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await logAction(taskId, `✓ [Stealth] Waited for 2 seconds`, 'success');
+      } else {
+        throw new Error("Unknown action: " + action);
+      }
+    } else if (session && session.page) {
+      const page = session.page;
+      if (action === 'navigate') {
+        const destUrl = value.startsWith('http') ? value : `https://${value}`;
+        await page.goto(destUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await logAction(taskId, `✓ Successfully navigated to: ${destUrl}`, 'success');
+      } else if (action === 'click') {
+        if (!selector) throw new Error("No selector provided for click action.");
+        await page.click(selector, { timeout: 15000 });
+        await logAction(taskId, `✓ Successfully clicked element matching: "${selector}"`, 'success');
+      } else if (action === 'fill') {
+        if (!selector) throw new Error("No selector provided for fill/type action.");
+        await page.fill(selector, value, { timeout: 15000 });
+        await logAction(taskId, `✓ Successfully typed "${value}" into element matching: "${selector}"`, 'success');
+      } else if (action === 'scroll') {
+        await page.evaluate(() => window.scrollBy(0, 500));
+        await logAction(taskId, `✓ Scrolled page down`, 'success');
+      } else if (action === 'wait') {
+        await page.waitForTimeout(2000);
+        await logAction(taskId, `✓ Waited for 2 seconds`, 'success');
+      } else {
+        throw new Error("Unknown action: " + action);
+      }
+    }
+
+    res.json({
+      success: true,
+      actionExecuted: action,
+      selectorUsed: selector,
+      valueUsed: value,
+      message: `Successfully executed: ${action} on ${selector || 'page'}`
+    });
+
+  } catch (err: any) {
+    console.error("[Apply Guided Step] Error:", err);
+    if (req.params.taskId) {
+      await logAction(req.params.taskId, `❌ Guided step execution failed: ${err.message}`, 'error');
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -2555,16 +3825,10 @@ app.delete('/api/task/:taskId', async (req, res) => {
     }
     activeBrowsers.delete(taskId);
     
-    const docRef = db.collection('assix_tasks').doc(taskId);
-    const docSnap = await docRef.get();
-    if (docSnap.exists) {
-      const taskData = docSnap.data();
-      if (taskData && (taskData.status === 'running' || taskData.status === 'paused_captcha')) {
-        await docRef.update({ status: 'stopped' });
-      } else {
-        await docRef.delete();
-      }
-    }
+    // Always completely delete from both collections so that it is actually cleared
+    await db.collection('assix_tasks').doc(taskId).delete();
+    await db.collection('tasks').doc(taskId).delete();
+    
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2646,6 +3910,8 @@ const classifyAutomationIntent = async (message: string): Promise<{ isAutomation
   
   Return ONLY a valid JSON object. Output absolutely zero conversational text.`;
 
+  console.log(`[Classifier] Classifying user chat message: "${message}"`);
+
   try {
     const responseText = await callAI("browser_agent", [
       { role: "system", content: systemPrompt },
@@ -2653,33 +3919,105 @@ const classifyAutomationIntent = async (message: string): Promise<{ isAutomation
     ]);
     const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
     const parsed = JSON.parse(cleaned);
+    console.log(`[Classifier] AI classified: isAutomation=${parsed.isAutomation}, goal="${parsed.goal || ''}"`);
     return {
       isAutomation: !!parsed.isAutomation,
       goal: parsed.goal
     };
   } catch (e) {
-    console.error('Classification error:', e);
+    console.error('[Classifier] AI classification error, running fallback keywords:', e);
     const lower = message.toLowerCase();
     // Vague keywords should not trigger automation directly if they are too short
-    const keywords = ['scrape ', 'automate ', 'go to ', 'extract ', 'crawl '];
+    const keywords = ['scrape', 'automate', 'go to', 'extract', 'crawl', 'search', 'find', 'get leads', 'run', 'start'];
     const hasKeyword = keywords.some(kw => lower.includes(kw));
-    const isVague = lower.split(' ').length < 4;
-    if (hasKeyword && !isVague && !lower.includes('how') && !lower.includes('what') && !lower.includes('why')) {
+    const isVague = lower.split(' ').length < 3;
+    const isQuestion = lower.includes('how') || lower.includes('what') || lower.includes('why') || lower.includes('?');
+    if (hasKeyword && !isVague && !isQuestion) {
+      console.log(`[Classifier] Fallback triggered: isAutomation=true, goal="${message}"`);
       return { isAutomation: true, goal: message };
     }
+    console.log(`[Classifier] Fallback classified: isAutomation=false`);
     return { isAutomation: false };
   }
 };
 
 app.post('/api/console/message', upload.array('files'), async (req, res) => {
   try {
-    const { message, taskId = 'general' } = req.body;
+    const { message, taskId = 'general', useStealth } = req.body;
+    const isStealthParam = useStealth === 'true';
+
+    // Check if the user is asking to continue, resume, or get more leads from the last search
+    const normalizedMsg = message.toLowerCase().trim();
+    const isContinueIntent = normalizedMsg === 'continue' || 
+                             normalizedMsg === 'next' ||
+                             normalizedMsg === 'more' ||
+                             normalizedMsg.includes('continue task') || 
+                             normalizedMsg.includes('continue the task') || 
+                             normalizedMsg.includes('get more') || 
+                             normalizedMsg.includes('next page') || 
+                             normalizedMsg.includes('more leads') || 
+                             normalizedMsg.includes('more results') ||
+                             normalizedMsg.includes('find more') ||
+                             normalizedMsg.includes('scrape more');
+
+    if (isContinueIntent) {
+      const lastTasksSnap = await db.collection('assix_tasks')
+        .orderBy('createdAt', 'desc')
+        .limit(1)
+        .get();
+      
+      if (!lastTasksSnap.empty) {
+        const lastTask = lastTasksSnap.docs[0].data();
+        const q = lastTask.config?.query || lastTask.config?.niche || lastTask.config?.sector || 'B2B Leads';
+        const city = lastTask.config?.city || lastTask.config?.location || '';
+        const count = lastTask.config?.count || 20;
+        const newTaskId = uuidv4();
+
+        await db.collection('assix_tasks').doc(newTaskId).set({
+          taskId: newTaskId,
+          taskType: lastTask.taskType || 'google_maps_scrape',
+          label: `Continuation: ${q} in ${city}`,
+          config: { ...lastTask.config, query: q, city, count },
+          status: 'running',
+          progress: 0,
+          total: count,
+          createdAt: new Date().toISOString()
+        });
+
+        if (lastTask.taskType === 'google_maps_scrape') {
+          runGoogleMapsScrape(newTaskId, { query: q, city, count });
+        } else if (lastTask.taskType === 'pages_jaunes_scrape') {
+          runPagesJaunesScrape(newTaskId, { query: q, city, count });
+        } else {
+          runTask(newTaskId, lastTask.config?.goal || `Continue ${q}`, lastTask.config?.userId || 'system', io);
+        }
+
+        const responseMsg = `🔄 **Continuation Run Initiated!**\n\nI have retrieved your previous search campaign targeting **"${q} in ${city}"**.\n\nI am launching a continuation run (Session ID: \`${newTaskId}\`) to scan deeper and gather additional unique B2B leads. Check out the real-time browser stream in your workspace directory tabs!`;
+
+        // Save user entry
+        await db.collection('assix_tasks').doc(taskId).collection('messages').add({
+          role: 'user',
+          msg: message,
+          timestamp: Date.now()
+        });
+
+        // Save agent response
+        await db.collection('assix_tasks').doc(taskId).collection('messages').add({
+          role: 'agent',
+          msg: responseMsg,
+          timestamp: Date.now()
+        });
+
+        return res.json({ response: responseMsg, launchTaskId: newTaskId });
+      }
+    }
 
     // Check if user is asking to automate or scrape a website
     const classification = await classifyAutomationIntent(message);
     if (classification.isAutomation && classification.goal) {
       const goal = classification.goal;
       const newTaskId = uuidv4();
+      const shouldStealth = isStealthParam || goal.toLowerCase().startsWith('stealth:') || goal.toLowerCase().includes('linkedin') || goal.toLowerCase().includes('leboncoin');
 
       await db.collection('assix_tasks').doc(newTaskId).set({
         taskId: newTaskId,
@@ -2689,13 +4027,16 @@ app.post('/api/console/message', upload.array('files'), async (req, res) => {
         status: 'running',
         progress: 0,
         total: 10,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        useStealth: shouldStealth
       });
 
       // Launch the task in the background
-      runDynamicTask(newTaskId, { goal, context: '' });
+      runDynamicTask(newTaskId, { goal, context: '', useStealth: shouldStealth });
 
-      const responseMsg = `🚀 **Automation Pathway Triggered!**\n\nI classified your request as a browser automation objective: **"${goal}"**.\n\nI have successfully initiated a live cloud browser session on Steel.dev to execute this task. Please watch the live stream viewport!`;
+      const responseMsg = shouldStealth
+        ? `🚀 **Stealth Automation Pathway Triggered!**\n\nI classified your request as a browser automation objective: **"${goal}"**.\n\nI have successfully initiated a background Stealth Browser session to execute this task securely. Please watch the live stream viewport!`
+        : `🚀 **Automation Pathway Triggered!**\n\nI classified your request as a browser automation objective: **"${goal}"**.\n\nI have successfully initiated a live cloud browser session on Steel.dev to execute this task. Please watch the live stream viewport!`;
 
       // Save user entry
       const userEntry = {
@@ -3213,7 +4554,7 @@ async function startServer() {
     }
   }
 
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = 3000;
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Assix Full Stack Automation platform booted on http://localhost:${PORT}`);
   });

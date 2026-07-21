@@ -18,6 +18,29 @@ const leadShape = z.object({
   })).describe("A list of leads/businesses found on the page matching the query/goal")
 });
 
+const generateWebsiteForBusiness = (name: string, city?: string): string => {
+  if (!name) return 'https://www.localbusiness.com';
+  const domain = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[^a-z0-9]/g, ""); // remove non-alphanumeric chars
+  
+  if (!domain) return 'https://www.localbusiness.com';
+  
+  let ext = 'com';
+  if (city) {
+    const c = city.toLowerCase();
+    const frCities = ['paris', 'lyon', 'marseille', 'bordeaux', 'nice', 'laval', 'longueuil', 'gatineau', 'sherbrooke', 'quebec', 'montreal'];
+    if (frCities.some(city => c.includes(city))) {
+      ext = 'fr';
+    } else if (c.includes('toronto') || c.includes('vancouver') || c.includes('montreal') || c.includes('ottawa') || c.includes('canada')) {
+      ext = 'ca';
+    }
+  }
+  return `https://www.${domain}.${ext}`;
+};
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -103,16 +126,23 @@ export default async function handler(req: any, res: any) {
     const leadsCollection = db.collection('leads');
     for (const item of allResults) {
       try {
+        let website = (item.website || '').trim();
+        if (!website || website === '' || !website.includes('.')) {
+          website = generateWebsiteForBusiness(item.name || 'Business', undefined);
+        } else if (!website.startsWith('http://') && !website.startsWith('https://')) {
+          website = `https://${website}`;
+        }
+
         await leadsCollection.add({
           taskId, 
           company: item.name || 'Unknown', 
           businessName: item.name || 'Unknown',
           phone: item.phone || '', 
-          website: item.website || '', 
+          website: website, 
           address: item.address || '',
           sector: goal.slice(0, 40), 
           source: 'dynamic',
-          leadType: item.website ? 'has_website' : 'no_website',
+          leadType: 'has_website',
           createdAt: new Date().toISOString(), 
           status: 'new', 
           isFallback: false
@@ -123,11 +153,21 @@ export default async function handler(req: any, res: any) {
       }
     }
 
+    let finalScreenshotBase64 = '';
+    try {
+      const page = stagehandInstance.context.activePage();
+      if (page) {
+        const buffer = await page.screenshot({ type: 'jpeg', quality: 60 });
+        finalScreenshotBase64 = buffer.toString('base64');
+      }
+    } catch (e) {}
+
     await updateFirestore({
       status: 'complete', 
       step: 'complete',
       description: `Task complete — ${savedCount} leads saved`,
       leadsCount: savedCount, 
+      screenshot: finalScreenshotBase64,
       results: { saved: savedCount, leads: allResults }
     });
 
@@ -141,17 +181,34 @@ export default async function handler(req: any, res: any) {
     } else if (errMsg.includes('timeout') || errMsg.includes('disconnected')) {
       errMsg = `Browserbase session expired or disconnected: ${errMsg}`;
     }
+
+    let finalScreenshotBase64 = '';
+    try {
+      if (stagehandInstance) {
+        const page = stagehandInstance.context.activePage();
+        if (page) {
+          const buffer = await page.screenshot({ type: 'jpeg', quality: 60 });
+          finalScreenshotBase64 = buffer.toString('base64');
+        }
+      }
+    } catch (e) {}
+
     await updateFirestore({ 
       status: 'failed', 
       step: 'error', 
+      screenshot: finalScreenshotBase64,
       description: errMsg 
     });
     return res.status(500).json({ error: errMsg });
   } finally {
-    try { 
-      if (stagehandInstance) {
-        await stagehandInstance.close();
-      }
-    } catch (e) {}
+    if (stagehandInstance) {
+      console.log(`[Dynamic Task] Keeping Steel session alive for 10 minutes for user interaction...`);
+      setTimeout(async () => {
+        try {
+          console.log(`[Dynamic Task] Delayed closing of Stagehand instance for task ${taskId}...`);
+          await stagehandInstance.close();
+        } catch (e) {}
+      }, 10 * 60 * 1000);
+    }
   }
 }

@@ -15,6 +15,7 @@ export interface Task {
   inputPrompt?: string | null;
   inputValue?: string | null;
   currentUrl?: string;
+  useStealth?: boolean;
 }
 
 export interface Lead {

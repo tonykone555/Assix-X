@@ -124,7 +124,7 @@ export const SwipeableTaskItem: React.FC<SwipeableTaskItemProps> = ({
         style={{ width: `${Math.abs(dragOffset)}px`, minWidth: showDelete ? '65px' : '0px' }}
       >
         <div className="flex flex-col items-center justify-center text-white px-2 gap-0.5">
-          <Trash2 size={12} className="animate-pulse" />
+          <Trash2 size={12} />
           {Math.abs(dragOffset) > 45 && (
             <span className="text-[7px] font-bold tracking-widest uppercase">DELETE</span>
           )}

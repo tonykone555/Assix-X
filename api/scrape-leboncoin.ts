@@ -25,6 +25,24 @@ export default async function handler(req: any, res: any) {
 
   let stagehandInstance: any = null;
 
+  const logAction = async (msg: string, type = 'info') => {
+    const entry = {
+      time: new Date().toLocaleTimeString('en-GB'),
+      msg,
+      type,
+      timestamp: Date.now()
+    };
+    try {
+      await db.collection('assix_tasks').doc(taskId).collection('logs').add(entry);
+    } catch (e) {
+      console.warn('Firestore log write failed:', e);
+    }
+    const sendWS = req.app?.get('sendWS');
+    if (sendWS) {
+      sendWS(taskId, { type: 'log', taskId, ...entry });
+    }
+  };
+
   const updateFirestore = async (fields: any) => {
     try {
       await db.collection('tasks').doc(taskId).update(fields);
@@ -51,6 +69,8 @@ export default async function handler(req: any, res: any) {
 
     await db.collection('tasks').doc(taskId).set(initialTask);
     await db.collection('assix_tasks').doc(taskId).set(initialTask);
+    await logAction(`Initializing Leboncoin scraper for "${category}" in "${city}"...`, 'info');
+    await logAction('Launching remote browser session with Steel...', 'info');
 
     const { stagehand, liveViewUrl } = await launchStagehandSession();
     stagehandInstance = stagehand;
@@ -59,6 +79,7 @@ export default async function handler(req: any, res: any) {
       steelDebugUrl: liveViewUrl,
       description: 'Browser session connected.'
     });
+    await logAction('Remote browser session connected successfully. Live viewer ready.', 'success');
 
     const searchUrl = `https://www.leboncoin.fr/recherche?category=${encodeURIComponent(category)}&locations=${encodeURIComponent(city)}`;
     
@@ -66,18 +87,21 @@ export default async function handler(req: any, res: any) {
       step: 'navigating',
       description: `Navigating to: ${searchUrl}`
     });
+    await logAction(`Navigating Chromium browser to: ${searchUrl}`, 'info');
 
     const page = stagehand.context.activePage();
     if (!page) {
       throw new Error("No active page found in Stagehand session");
     }
     await page.goto(searchUrl, { waitUntil: 'load' });
+    await logAction('Successfully loaded Leboncoin search results.', 'success');
 
     // Inform user of progress
     await updateFirestore({
       step: 'extracting',
       description: 'Extracting Leboncoin business/classified listings...'
     });
+    await logAction('Invoking AI Stagehand extractor to identify listings details...', 'info');
 
     const extraction: any = await stagehand.extract(
       `Extract a list of classified listings matching category "${category}" in "${city}", up to ${count || 20} items. Find listing title, price, location, and the listing url.`,
@@ -85,9 +109,12 @@ export default async function handler(req: any, res: any) {
     );
 
     const finalResults = extraction?.listings || [];
+    await logAction(`AI extraction complete. Identified ${finalResults.length} potential listings on page.`, 'success');
 
     let savedCount = 0;
     const leadsCollection = db.collection('leads');
+
+    await logAction('Filtering duplicates and saving new listings to Firestore database...', 'info');
 
     for (const lead of finalResults) {
       const businessName = lead.title || 'Leboncoin Listing';
@@ -98,7 +125,10 @@ export default async function handler(req: any, res: any) {
       if (website) {
         try {
           const exists = await leadsCollection.where('website', '==', website).limit(1).get();
-          if (!exists.empty) continue;
+          if (!exists.empty) {
+            await logAction(`Listing "${businessName}" already exists in lead directory, skipping.`, 'info');
+            continue;
+          }
         } catch {}
       }
 
@@ -122,18 +152,30 @@ export default async function handler(req: any, res: any) {
         });
         savedCount++;
         await updateFirestore({ leadsCount: savedCount });
+        await logAction(`Saved listing: "${businessName}" [Price: ${price || 'N/A'}]`, 'success');
       } catch (addErr: any) {
         console.error('Failed to add Leboncoin lead:', addErr);
       }
     }
+
+    let finalScreenshotBase64 = '';
+    try {
+      const page = stagehandInstance.context.activePage();
+      if (page) {
+        const buffer = await page.screenshot({ type: 'jpeg', quality: 60 });
+        finalScreenshotBase64 = buffer.toString('base64');
+      }
+    } catch (e) {}
 
     await updateFirestore({
       status: 'complete',
       step: 'complete',
       description: `Task complete — ${savedCount} listings saved`,
       leadsCount: savedCount,
+      screenshot: finalScreenshotBase64,
       results: { saved: savedCount, leads: finalResults }
     });
+    await logAction(`✓ Scrape complete! ${savedCount} listings saved successfully.`, 'success');
 
     return res.status(200).json({ success: true, taskId, savedCount });
 
@@ -145,17 +187,35 @@ export default async function handler(req: any, res: any) {
     } else if (errMsg.includes('timeout') || errMsg.includes('disconnected')) {
       errMsg = `Browserbase session expired or disconnected: ${errMsg}`;
     }
+
+    let finalScreenshotBase64 = '';
+    try {
+      if (stagehandInstance) {
+        const page = stagehandInstance.context.activePage();
+        if (page) {
+          const buffer = await page.screenshot({ type: 'jpeg', quality: 60 });
+          finalScreenshotBase64 = buffer.toString('base64');
+        }
+      }
+    } catch (e) {}
+
     await updateFirestore({
       status: 'failed',
       step: 'error',
+      screenshot: finalScreenshotBase64,
       description: errMsg
     });
+    await logAction(`Session failure error: ${errMsg}`, 'error');
     return res.status(500).json({ error: errMsg });
   } finally {
     if (stagehandInstance) {
-      try {
-        await stagehandInstance.close();
-      } catch (e) {}
+      console.log(`[Leboncoin] Keeping Steel session alive for 10 minutes for user interaction...`);
+      setTimeout(async () => {
+        try {
+          console.log(`[Leboncoin] Delayed closing of Stagehand instance for task ${taskId}...`);
+          await stagehandInstance.close();
+        } catch (e) {}
+      }, 10 * 60 * 1000);
     }
   }
 }

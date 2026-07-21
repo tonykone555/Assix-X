@@ -37,6 +37,7 @@ export async function navigate(
   browserId: string, url: string
 ) {
   return mcpCall('navigate', { 
+    instance_id: browserId,
     browser_id: browserId, url 
   });
 }
@@ -45,6 +46,7 @@ export async function getPageContent(
   browserId: string
 ): Promise<string> {
   const result = await mcpCall('get_page_content', { 
+    instance_id: browserId,
     browser_id: browserId 
   });
   return result?.content?.[0]?.text || '';
@@ -54,6 +56,7 @@ export async function takeScreenshot(
   browserId: string
 ): Promise<string> {
   const result = await mcpCall('take_screenshot', { 
+    instance_id: browserId,
     browser_id: browserId 
   });
   return result?.content?.[0]?.data || '';
@@ -64,6 +67,7 @@ export async function clickElement(
   selector: string
 ) {
   return mcpCall('click_element', { 
+    instance_id: browserId,
     browser_id: browserId, selector 
   });
 }
@@ -73,6 +77,7 @@ export async function typeText(
   text: string
 ) {
   return mcpCall('type_text', { 
+    instance_id: browserId,
     browser_id: browserId, text 
   });
 }
@@ -82,12 +87,14 @@ export async function setCookies(
   cookies: object[]
 ) {
   return mcpCall('set_cookies', { 
+    instance_id: browserId,
     browser_id: browserId, cookies 
   });
 }
 
 export async function closeBrowser(browserId: string) {
   return mcpCall('close_browser', { 
+    instance_id: browserId,
     browser_id: browserId 
   });
 }

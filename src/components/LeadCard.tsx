@@ -10,7 +10,8 @@ import {
   MessageSquare, 
   X, 
   Sparkles,
-  Facebook
+  Facebook,
+  Star
 } from 'lucide-react';
 
 interface LeadCardProps {
@@ -113,7 +114,7 @@ export const LeadCard: React.FC<LeadCardProps> = ({
           </div>
 
           {/* Gaps found */}
-          <div className="text-[11px] text-zinc-400 leading-relaxed">
+          <div className="text-[11px] text-zinc-400 leading-relaxed pb-1">
             <strong className="text-zinc-500">Gaps found:</strong>{' '}
             {gapsArray.length > 0 ? (
               <span className="text-red-400 font-medium">{gapsArray.join(', ')}</span>
@@ -122,23 +123,79 @@ export const LeadCard: React.FC<LeadCardProps> = ({
             )}
           </div>
 
-          {/* Contact Details */}
-          <div className="text-[11px] text-zinc-400 font-mono space-y-1">
-            <div className="flex items-center gap-1.5 truncate">
-              <strong className="text-zinc-500 font-sans font-bold">Contact:</strong>
-              {lead.email ? (
-                <span className="text-emerald-400 truncate">{lead.email}</span>
-              ) : lead.phone ? (
-                <button 
-                  onClick={handleCopyPhone}
-                  className="text-indigo-400 hover:underline text-left cursor-pointer"
-                  title="Click to copy phone number"
-                >
-                  {copiedPhone ? 'Copied!' : lead.phone}
-                </button>
-              ) : (
-                <span className="text-zinc-600 italic">None found</span>
-              )}
+          {/* Key B2B Metadata (Address, Website, Phone, Reviews) */}
+          <div className="bg-[#0A0A0C] border border-[#1A1A1F] rounded-md p-3 space-y-2.5 font-sans text-[11px]">
+            {/* Phone */}
+            <div className="flex items-start gap-2">
+              <Phone className="w-3.5 h-3.5 text-[#10B981] mt-0.5 shrink-0" />
+              <div className="flex-1 truncate">
+                <span className="text-zinc-500 font-medium mr-1 uppercase text-[8.5px] tracking-wider block">Phone Number</span>
+                {lead.phone ? (
+                  <button 
+                    onClick={handleCopyPhone}
+                    className="text-zinc-300 hover:text-white hover:underline text-left cursor-pointer font-mono font-medium"
+                    title="Click to copy phone"
+                  >
+                    {copiedPhone ? 'Copied to clipboard!' : lead.phone}
+                  </button>
+                ) : (
+                  <span className="text-zinc-600 italic">Not listed</span>
+                )}
+              </div>
+            </div>
+
+            {/* Website */}
+            <div className="flex items-start gap-2">
+              <Globe className="w-3.5 h-3.5 text-[#10B981] mt-0.5 shrink-0" />
+              <div className="flex-1 truncate">
+                <span className="text-zinc-500 font-medium mr-1 uppercase text-[8.5px] tracking-wider block">Website</span>
+                {lead.website ? (
+                  <a 
+                    href={lead.website} 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    className="text-[#A27B5C] hover:underline font-mono truncate block"
+                  >
+                    {lead.website}
+                  </a>
+                ) : (
+                  <span className="text-zinc-600 italic">No website found</span>
+                )}
+              </div>
+            </div>
+
+            {/* Address */}
+            <div className="flex items-start gap-2">
+              <MapPin className="w-3.5 h-3.5 text-[#10B981] mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <span className="text-zinc-500 font-medium mr-1 uppercase text-[8.5px] tracking-wider block">Address</span>
+                {lead.address ? (
+                  <span className="text-zinc-300 block select-text leading-tight">{lead.address}</span>
+                ) : (
+                  <span className="text-zinc-600 italic">No physical address listed</span>
+                )}
+              </div>
+            </div>
+
+            {/* Rating & Reviews */}
+            <div className="flex items-start gap-2">
+              <Star className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0 fill-amber-500/20" />
+              <div className="flex-1">
+                <span className="text-zinc-500 font-medium mr-1 uppercase text-[8.5px] tracking-wider block">Rating & Reviews</span>
+                <div className="flex items-center gap-1.5 text-zinc-300">
+                  {lead.rating ? (
+                    <span className="font-bold text-amber-400">{lead.rating} ★</span>
+                  ) : (
+                    <span className="text-zinc-500">Unrated</span>
+                  )}
+                  {lead.rating && lead.reviewsCount && <span className="text-zinc-600">·</span>}
+                  {lead.reviewsCount ? (
+                    <span className="text-zinc-400 font-medium">({lead.reviewsCount} reviews)</span>
+                  ) : lead.rating ? (
+                    <span className="text-zinc-500 italic text-[10px]">(reviews hidden)</span>
+                  ) : null}
+                </div>
+              </div>
             </div>
           </div>
 
