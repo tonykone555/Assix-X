@@ -1555,9 +1555,12 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setDiscoverySessions(data || []);
+      } else {
+        const errorText = await res.text();
+        console.error("Failed to fetch discovery sessions:", res.status, errorText);
       }
     } catch (err) {
-      console.error("Failed to fetch discovery sessions:", err);
+      console.error("Failed to fetch discovery sessions (network error):", err);
     }
   };
 
@@ -1567,9 +1570,12 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setSelectedDiscoverySession(data);
+      } else {
+        const errorText = await res.text();
+        console.error("Failed to fetch discovery session details:", res.status, errorText);
       }
     } catch (err) {
-      console.error("Failed to fetch discovery session details:", err);
+      console.error("Failed to fetch discovery session details (network error):", err);
     }
   };
 
@@ -1613,9 +1619,14 @@ export default function App() {
       if (res.ok) {
         showNotification(`Lead stage updated to ${stage}!`);
         fetchSessionDetails(sessionId);
+      } else {
+        const errorText = await res.text();
+        console.error("Failed to update lead stage:", res.status, errorText);
+        showNotification(`Failed to update stage (${res.status}): ${errorText.slice(0, 100)}`);
       }
     } catch (err) {
-      console.error(err);
+      console.error("Failed to update lead stage (network error):", err);
+      showNotification(`Network error: ${err instanceof Error ? err.message : 'unknown'}`);
     }
   };
 
@@ -1764,20 +1775,23 @@ export default function App() {
 
   const fetchConnectionStatus = async () => {
     try {
-      const res = await fetch(`/api/connections/status?userId=${encodeURIComponent(userId)}`);
+      const res = await fetch(`${serverUrl}/api/connections/status?userId=${encodeURIComponent(userId)}`);
       if (res.ok) {
         const data = await res.json();
         setConnectionStatus(data);
+      } else {
+        const errorText = await res.text();
+        console.error("Failed to fetch connection status:", res.status, errorText);
       }
     } catch (err) {
-      console.error("Failed to fetch connection status:", err);
+      console.error("Failed to fetch connection status (network error):", err);
     }
   };
 
   const generateConnectionCode = async () => {
     setConnectionLoading(true);
     try {
-      const res = await fetch(`/api/connections/generate-code`, {
+      const res = await fetch(`${serverUrl}/api/connections/generate-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
@@ -1786,10 +1800,14 @@ export default function App() {
         const data = await res.json();
         setConnectionCode(data.code);
         showNotification("Short-lived connection code generated!");
+      } else {
+        const errorText = await res.text();
+        console.error('Connection code request failed:', res.status, errorText);
+        showNotification(`Failed to generate code (${res.status}): ${errorText.slice(0, 100)}`);
       }
     } catch (err) {
-      console.error(err);
-      showNotification("Failed to generate connection code.");
+      console.error('Connection code request error:', err);
+      showNotification(`Network error: ${err instanceof Error ? err.message : 'unknown'}`);
     } finally {
       setConnectionLoading(false);
     }
@@ -1797,7 +1815,7 @@ export default function App() {
 
   const disconnectBrowser = async () => {
     try {
-      const res = await fetch(`/api/connections/disconnect`, {
+      const res = await fetch(`${serverUrl}/api/connections/disconnect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
@@ -1805,9 +1823,14 @@ export default function App() {
       if (res.ok) {
         showNotification("Browser connection disconnected.");
         fetchConnectionStatus();
+      } else {
+        const errorText = await res.text();
+        console.error('Disconnect browser request failed:', res.status, errorText);
+        showNotification(`Failed to disconnect browser (${res.status}): ${errorText.slice(0, 100)}`);
       }
     } catch (err) {
-      console.error(err);
+      console.error('Disconnect browser request error:', err);
+      showNotification(`Network error: ${err instanceof Error ? err.message : 'unknown'}`);
     }
   };
 
@@ -2284,9 +2307,15 @@ export default function App() {
       if (res.ok) {
         setTasks([]);
         setActiveTask(null);
+        showNotification("All tasks and history deleted successfully.");
+      } else {
+        const errorText = await res.text();
+        console.error("Failed to delete all tasks:", res.status, errorText);
+        showNotification(`Failed to delete tasks (${res.status}): ${errorText.slice(0, 100)}`);
       }
-    } catch (e) {
-      console.error("Failed to delete all tasks:", e);
+    } catch (e: any) {
+      console.error("Failed to delete all tasks (network error):", e);
+      showNotification(`Network error: ${e.message || 'unknown'}`);
     }
   };
 
@@ -2296,9 +2325,15 @@ export default function App() {
       const res = await fetch(`${serverUrl}/api/leads/all`, { method: 'DELETE' });
       if (res.ok) {
         setLeads([]);
+        showNotification("All leads permanently deleted.");
+      } else {
+        const errorText = await res.text();
+        console.error("Failed to delete all leads:", res.status, errorText);
+        showNotification(`Failed to delete leads (${res.status}): ${errorText.slice(0, 100)}`);
       }
-    } catch (e) {
-      console.error("Failed to delete all leads:", e);
+    } catch (e: any) {
+      console.error("Failed to delete all leads (network error):", e);
+      showNotification(`Network error: ${e.message || 'unknown'}`);
     }
   };
 
@@ -2328,10 +2363,13 @@ export default function App() {
         setSearchCount(data.count || 20);
         setIsEditingClassification(false);
       } else {
-        console.error("Classification request failed");
+        const errorText = await res.text();
+        console.error("Classification request failed:", res.status, errorText);
+        showNotification(`Classification failed (${res.status}): ${errorText.slice(0, 100)}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error classifying query:", err);
+      showNotification(`Classification network error: ${err.message || 'unknown'}`);
     } finally {
       setIsClassifying(false);
     }
@@ -2350,9 +2388,14 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setEnrichedSearchInsights(data);
+      } else {
+        const errorText = await res.text();
+        console.error("Failed to enrich search:", res.status, errorText);
+        showNotification(`Enrichment failed (${res.status}): ${errorText.slice(0, 100)}`);
       }
-    } catch (err) {
-      console.error("Failed to enrich search:", err);
+    } catch (err: any) {
+      console.error("Failed to enrich search (network error):", err);
+      showNotification(`Enrichment network error: ${err.message || 'unknown'}`);
     } finally {
       setEnrichingSearch(false);
     }
@@ -2451,9 +2494,14 @@ export default function App() {
       if (res.ok) {
         setChat(prev => [...prev, { role: 'agent', msg: '✨ Search workflow saved to your Saved Searches list successfully!' }]);
         fetchWorkflows();
+      } else {
+        const errorText = await res.text();
+        console.error('Failed to save workflow:', res.status, errorText);
+        showNotification(`Failed to save workflow (${res.status}): ${errorText.slice(0, 100)}`);
       }
     } catch (e: any) {
-      console.error('Failed to save workflow:', e);
+      console.error('Failed to save workflow (network error):', e);
+      showNotification(`Failed to save workflow: ${e.message || 'unknown'}`);
     }
   };
 
@@ -2538,9 +2586,15 @@ export default function App() {
         setInputRequestAlert(false);
         setInputRequestValue('');
         fetchTasks();
+        showNotification("Input submitted successfully!");
+      } else {
+        const errorText = await res.text();
+        console.error('Failed to submit input request:', res.status, errorText);
+        showNotification(`Failed to submit input (${res.status}): ${errorText.slice(0, 100)}`);
       }
-    } catch (err) {
-      console.error('Failed to submit input request:', err);
+    } catch (err: any) {
+      console.error('Failed to submit input request (network error):', err);
+      showNotification(`Failed to submit input: ${err.message || 'unknown'}`);
     } finally {
       setSubmittingInput(false);
     }
@@ -2604,9 +2658,13 @@ export default function App() {
       if (res.ok) {
         const leadsData = await res.json();
         setHistoryLeads(prev => ({ ...prev, [taskId]: leadsData }));
+      } else {
+        const errorText = await res.text();
+        console.error('Failed to load history leads:', res.status, errorText);
+        showNotification(`Failed to load task leads (${res.status})`);
       }
     } catch (e) {
-      console.error('Failed to load history leads:', e);
+      console.error('Failed to load history leads (network error):', e);
     }
   };
 
