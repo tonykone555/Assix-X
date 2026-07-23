@@ -5464,58 +5464,9 @@ async function startServer() {
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Assix Full Stack Automation platform booted on http://localhost:${PORT}`);
     
-    // Start local WhatsApp service in the background
-    try {
-      const { spawn } = require('child_process');
-      const path = require('path');
-      const fs = require('fs');
+  
+  
       
-      const serviceDir = path.join(process.cwd(), 'whatsapp-service');
-      const hasPackageJson = fs.existsSync(path.join(serviceDir, 'package.json'));
-      
-      if (hasPackageJson) {
-        console.log('Starting local WhatsApp service...');
-        const nodeModulesExist = fs.existsSync(path.join(serviceDir, 'node_modules'));
-        
-        const startService = () => {
-          const child = spawn('node', ['server.js'], {
-            cwd: serviceDir,
-            stdio: 'inherit',
-            env: { ...process.env, PORT: '5310' }
-          });
-          
-          child.on('error', (err) => {
-            console.error('Failed to start WhatsApp service child process:', err);
-          });
-          
-          child.on('exit', (code) => {
-            console.log(`WhatsApp service exited with code ${code}. Restarting in 5s...`);
-            setTimeout(startService, 5000);
-          });
-        };
-
-        if (!nodeModulesExist) {
-          console.log('Installing dependencies for WhatsApp service first...');
-          const install = spawn('npm', ['install', '--no-audit', '--no-fund'], {
-            cwd: serviceDir,
-            stdio: 'inherit'
-          });
-          install.on('exit', (code) => {
-            if (code === 0) {
-              console.log('WhatsApp service dependencies installed successfully. Booting service...');
-              startService();
-            } else {
-              console.error(`npm install failed for whatsapp-service with code ${code}`);
-            }
-          });
-        } else {
-          startService();
-        }
-      }
-    } catch (e) {
-      console.error('Error launching background WhatsApp service:', e);
-    }
-  });
 }
 
 startServer();
