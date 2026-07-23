@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { db } from '../firebase-client-wrapper';
 import { launchStagehandSession } from './_lib/stagehandSession';
 import { callAI } from '../services/aiService';
+import { formatPhone } from '../services/firebase';
 
 export const config = { maxDuration: 300 };
 
@@ -226,28 +227,49 @@ export default async function handler(req: any, res: any) {
     });
 
     // Smart scroll on Google Maps (scroll the results feed pane specifically!)
+    // 1. Robust Scrolling & Continuous Crawling with consecutive idle checks and end-of-list signature checks in multiple languages
     await page.evaluate(async (maxLeads: number) => {
       const feed = document.querySelector('div[role="feed"]');
       if (feed) {
+        const endOfListSignatures = [
+          "reached the end", "fin de la liste", "ende der liste", "final de la lista", 
+          "fine dell'elenco", "fim da lista", "no more results", "plus de résultats",
+          "reached the end of the list", "vous êtes arrivé à la fin", "haben das ende erreicht"
+        ];
+
+        const hasReachedEnd = () => {
+          const text = feed.textContent?.toLowerCase() || "";
+          return endOfListSignatures.some(sig => text.includes(sig));
+        };
+
         let lastHeight = feed.scrollHeight;
-        let scrollAttempts = 0;
-        const maxScrollAttempts = Math.min(15, Math.ceil(maxLeads / 3) + 2);
+        let idleCount = 0;
+        const maxIdleAttempts = 5; // up to 5 consecutive attempts without height increase
         
-        while (scrollAttempts < maxScrollAttempts) {
+        while (idleCount < maxIdleAttempts) {
+          // Check unique placement links inside feed
+          const links = feed.querySelectorAll('a[href*="/maps/place/"], a[href*="/place/"]');
+          if (links.length >= maxLeads) {
+            break; 
+          }
+
+          if (hasReachedEnd()) {
+            break; 
+          }
+
           feed.scrollBy(0, 1500);
           await new Promise(r => setTimeout(r, 1500));
           
           const newHeight = feed.scrollHeight;
           if (newHeight === lastHeight) {
-            // Try one more time in case it was slow
+            idleCount++;
+            // Try small scroll nudge
             feed.scrollBy(0, 500);
             await new Promise(r => setTimeout(r, 1000));
-            if (feed.scrollHeight === lastHeight) {
-              break; 
-            }
+          } else {
+            idleCount = 0; // reset
           }
           lastHeight = newHeight;
-          scrollAttempts++;
         }
       } else {
         // Fallback: scroll window
@@ -261,61 +283,165 @@ export default async function handler(req: any, res: any) {
     // Force extra wait for images & elements to finish rendering
     await new Promise(r => setTimeout(r, 2000));
 
-    // Extract raw text specifically from results feed to bypass massive background map coordinates / DOM noise
-    const pageText = await page.evaluate(() => {
+    // 2. Precise Unique Selection of placements links inside the search feed
+    const listingLinks = await page.evaluate(() => {
       const feed = document.querySelector('div[role="feed"]');
-      if (feed) {
-        return feed.textContent || feed.innerHTML || '';
-      }
-      // Fallback: clean innerText
-      const cloned = document.cloneNode(true) as Document;
-      cloned.querySelectorAll('script, style, svg, path, noscript, iframe, link').forEach(el => el.remove());
-      return cloned.body.innerText || '';
-    });
-
-    await logAction(`Extracted clean page payload (${pageText.length} characters). Analysing with Gemini AI...`, 'info');
-    broadcastUpdate('task_progress', {
-      step: 0,
-      description: `Extracted clean page payload (${pageText.length} characters). Analysing with Gemini AI...`
-    });
-
-    let finalResults: any[] = [];
-    const extractionPrompt = `Extract up to ${count || 20} business profiles listed in the Google Maps search results. For each business, extract:
-    - name (exact business/company name)
-    - phone (phone number, digits only e.g. "4165550192")
-    - website (valid website URL, or empty if not present)
-    - rating (decimal rating, e.g. "4.2", or empty if not rated)
-    - address (full physical address, e.g. "123 Main St, ${city || ''}")
-    
-    Format the output strictly as a JSON array matching this schema:
-    [{ "name": "...", "phone": "...", "website": "...", "rating": "...", "address": "..." }]
-    Output ONLY valid JSON. Absolutely no other text or explanation.`;
-
-    try {
-      const response = await callAI("browser_agent", [
-        { role: "system", content: "You are an expert Google Maps B2B data extraction AI. Extract structured business details from the text feed of Google Maps results. Generate a clean JSON array." },
-        { role: "user", content: `${extractionPrompt}\n\nGoogle Maps Page Listings:\n${pageText.slice(0, 55000)}` }
-      ]);
-      const cleaned = response.replace(/```json/g, '').replace(/```/g, '').trim();
-      finalResults = JSON.parse(cleaned);
-      await logAction(`Successfully extracted ${finalResults.length} leads directly from active page text using Gemini.`, 'success');
-    } catch (err: any) {
-      await logAction(`Gemini direct extraction failed: ${err.message}. Falling back to Stagehand extractor...`, 'warning');
+      const container = feed || document.body;
+      const anchors = Array.from(container.querySelectorAll('a[href*="/maps/place/"], a[href*="/place/"]'));
       
-      try {
-        const extraction: any = await stagehand.extract(
-          `Extract a list of business listings matching "${cleanedQuery}" in "${city}" from the search results pane, up to ${count || 20} items. Find company/business name, phone, website, rating, and address.`,
-          GoogleMapsLeadSchema
-        );
-        finalResults = extraction?.leads || [];
-      } catch (stagehandErr: any) {
-        await logAction(`Stagehand extractor failed: ${stagehandErr.message}.`, 'error');
-      }
-    }
+      return anchors.map((a: any, idx) => {
+        // Find business name robustly
+        let name = a.getAttribute('aria-label') || '';
+        if (!name) {
+          const lines = (a.textContent || '').split('\n').map((l: string) => l.trim()).filter(Boolean);
+          name = lines[0] || 'Unknown Business';
+        }
+        return {
+          index: idx,
+          href: a.href,
+          name: name
+        };
+      }).filter(item => item.name && item.name !== 'Unknown Business');
+    });
+
+    await logAction(`Identified ${listingLinks.length} distinct listings. Starting Stale-Proof Browser-Context Clicking...`, 'info');
+
+    const finalResults: any[] = [];
+    const maxToExtract = Math.min(listingLinks.length, count || 20);
 
     broadcastUpdate('task_planned', {
-      totalSteps: finalResults.length
+      totalSteps: maxToExtract
     });
+
+    // 3. Stale-Proof Browser-Context Clicking & Synchronized Click Verifications
+    for (let i = 0; i < maxToExtract; i++) {
+      const listing = listingLinks[i];
+      const clickedName = listing.name;
+
+      await logAction(`Opening detail panel #${i + 1}/${maxToExtract} for "${clickedName}"...`, 'info');
+
+      // Move click execution directly into the browser DOM context
+      const clickSuccess = await page.evaluate((idx) => {
+        const links = Array.from(document.querySelectorAll('a[href*="/maps/place/"], a[href*="/place/"]'));
+        const link = links[idx] as HTMLElement;
+        if (link) {
+          link.click();
+          return true;
+        }
+        return false;
+      }, i).catch(() => false);
+
+      if (!clickSuccess) {
+        await logAction(`Failed to click listing #${i + 1} inside browser context, using basic fallback.`, 'warning');
+        finalResults.push({
+          name: clickedName,
+          address: '',
+          rating: '',
+          phone: '',
+          website: ''
+        });
+        continue;
+      }
+
+      // Synchronized Click Verification: verify the panel's header matches the clicked business name
+      let panelVerified = false;
+      let panelDetails = { phone: '', website: '', address: '', rating: '', name: clickedName };
+
+      for (let attempt = 0; attempt < 8; attempt++) {
+        await page.waitForTimeout(400).catch(() => {});
+
+        const verification = await page.evaluate((expectedName) => {
+          // Detail panel header is typically the h1
+          const h1 = document.querySelector('h1');
+          if (!h1) return { verified: false, activeHeader: '' };
+
+          const activeHeader = h1.textContent?.trim() || '';
+          const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const expectedClean = clean(expectedName);
+          const activeClean = clean(activeHeader);
+
+          const isMatch = activeClean.includes(expectedClean) || expectedClean.includes(activeClean);
+          return { verified: isMatch, activeHeader };
+        }, clickedName).catch(() => ({ verified: false, activeHeader: '' }));
+
+        if (verification.verified) {
+          panelVerified = true;
+          break;
+        }
+      }
+
+      if (panelVerified) {
+        // Robust Extraction from the verified detail panel
+        const extracted = await page.evaluate(() => {
+          let phone = '';
+          let website = '';
+          let address = '';
+          let rating = '';
+
+          // Rating
+          const ratingEl = document.querySelector('div.F7nice span span[aria-hidden="true"]');
+          if (ratingEl) rating = ratingEl.textContent?.trim() || '';
+
+          // Address
+          const addressEl = document.querySelector('button[data-item-id="address"], button[aria-label*="Address"], button[aria-label*="Adresse"]');
+          if (addressEl) {
+            address = addressEl.textContent?.trim() || '';
+          }
+
+          // Phone selector strategy
+          const phoneEl = document.querySelector('button[data-item-id^="phone:tel:"], button[aria-label*="Phone"], button[aria-label*="Téléphone"], button[aria-label*="Telefon"]');
+          if (phoneEl) {
+            const dataId = phoneEl.getAttribute('data-item-id') || '';
+            if (dataId.startsWith('phone:tel:')) {
+              phone = dataId.replace('phone:tel:', '').trim();
+            } else {
+              phone = phoneEl.textContent?.trim() || '';
+            }
+          }
+
+          // Website selector strategy
+          const webEl = document.querySelector('a[data-item-id="authority"], button[aria-label*="Website"], a[aria-label*="Website"], a[aria-label*="Site web"], a[aria-label*="Webseite"]');
+          if (webEl) {
+            website = webEl.getAttribute('href') || webEl.textContent?.trim() || '';
+          }
+
+          // Robust International Extraction: Regex scanner for sequences of 9 to 15 digits
+          if (!phone) {
+            const panelText = document.body.innerText || '';
+            const potentialPhones = panelText.match(/\+?[0-9\s.\-\(\)]{9,25}/g) || [];
+            for (const pot of potentialPhones) {
+              const digits = pot.replace(/\D/g, '');
+              if (digits.length >= 9 && digits.length <= 15) {
+                if (pot.trim().startsWith('+') || pot.trim().startsWith('0') || digits.length >= 10) {
+                  phone = pot.trim();
+                  break;
+                }
+              }
+            }
+          }
+
+          return { phone, website, address, rating };
+        }).catch(() => ({ phone: '', website: '', address: '', rating: '' }));
+
+        panelDetails = { ...panelDetails, ...extracted };
+        await logAction(`Verified and extracted: Phone: ${panelDetails.phone || 'N/A'}, Web: ${panelDetails.website || 'N/A'}`, 'info');
+      } else {
+        await logAction(`Panel header verification mismatch for "${clickedName}", skipping deep extraction.`, 'warning');
+      }
+
+      finalResults.push({
+        name: clickedName,
+        phone: panelDetails.phone,
+        website: panelDetails.website,
+        address: panelDetails.address,
+        rating: panelDetails.rating
+      });
+
+      broadcastUpdate('task_progress', {
+        step: i + 1,
+        description: `Processed lead #${i + 1}/${maxToExtract}: "${clickedName}"`
+      });
+    }
 
     let savedCount = 0;
     const leadsCollection = db.collection('leads');
@@ -326,7 +452,10 @@ export default async function handler(req: any, res: any) {
       const lead = finalResults[i];
       if (!lead.name) continue;
       const businessName = lead.name;
-      const phone = lead.phone || '';
+      
+      // International Phone Formatting
+      const phone = formatPhone(lead.phone || '', city || query || '', lead.address || '');
+      
       let website = (lead.website || '').trim();
       if (!website || website === '' || !website.includes('.')) {
         website = generateWebsiteForBusiness(businessName, city);
@@ -391,7 +520,7 @@ export default async function handler(req: any, res: any) {
       }
     } catch (e) {}
 
-    await updateFirestore({
+    const completionFields: any = {
       status: 'complete',
       step: 'complete',
       description: `Task complete — ${savedCount} leads found`,
@@ -399,16 +528,22 @@ export default async function handler(req: any, res: any) {
       leadsCount: savedCount,
       total: finalResults.length || savedCount,
       progressPct: 100,
-      screenshot: finalScreenshotBase64,
       results: { saved: savedCount, leads: finalResults }
-    });
+    };
+    if (finalScreenshotBase64) {
+      completionFields.screenshot = finalScreenshotBase64;
+    }
+    await updateFirestore(completionFields);
     await logAction(`✓ Scrape complete! ${savedCount} new leads cataloged successfully.`, 'success');
 
-    broadcastUpdate('task_complete', {
+    const completionBroadcast: any = {
       status: 'completed',
-      screenshot: finalScreenshotBase64,
       results: { saved: savedCount, leads: finalResults }
-    });
+    };
+    if (finalScreenshotBase64) {
+      completionBroadcast.screenshot = finalScreenshotBase64;
+    }
+    broadcastUpdate('task_complete', completionBroadcast);
 
     return res.status(200).json({ success: true, taskId, savedCount });
 
@@ -432,19 +567,25 @@ export default async function handler(req: any, res: any) {
       }
     } catch (e) {}
 
-    await updateFirestore({
+    const failureFields: any = {
       status: 'failed',
       step: 'error',
-      screenshot: finalScreenshotBase64,
       description: errMsg
-    });
+    };
+    if (finalScreenshotBase64) {
+      failureFields.screenshot = finalScreenshotBase64;
+    }
+    await updateFirestore(failureFields);
     await logAction(`Session failure error: ${errMsg}`, 'error');
     
-    broadcastUpdate('task_error', {
+    const failureBroadcast: any = {
       status: 'failed',
-      screenshot: finalScreenshotBase64,
       error: errMsg
-    });
+    };
+    if (finalScreenshotBase64) {
+      failureBroadcast.screenshot = finalScreenshotBase64;
+    }
+    broadcastUpdate('task_error', failureBroadcast);
 
     return res.status(500).json({ error: errMsg });
   } finally {

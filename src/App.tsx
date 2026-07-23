@@ -44,6 +44,7 @@ import { io, Socket } from 'socket.io-client';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, query, where, orderBy, limit, onSnapshot, doc } from 'firebase/firestore';
 import { LeadCard } from './components/LeadCard';
+import { WhatsAppBulkSend } from './components/WhatsAppBulkSend';
 import { SwipeableTaskItem } from './components/SwipeableTaskItem';
 import { AgencyTab } from './components/AgencyTab';
 import { 
@@ -121,9 +122,10 @@ interface LiveViewerProps {
   serverUrl?: string;
   useFirestore?: boolean;
   steelDebugUrl?: string;
+  showNotification?: (message: string) => void;
 }
 
-const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, serverUrl = window.location.origin, useFirestore, steelDebugUrl }) => {
+const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, serverUrl = window.location.origin, useFirestore, steelDebugUrl, showNotification }) => {
   const [status, setStatus] = useState<
     'idle' | 'planning' | 'running' | 'intervention' | 'complete' | 'completed' | 'error' | 'failed' | 'reconnecting'
   >('idle');
@@ -140,8 +142,72 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
   const [browserId, setBrowserId] = useState<string>('');
   const [liveView, setLiveView] = useState<string>('');
   const [viewMode, setViewMode] = useState<'screenshot' | 'iframe'>('screenshot');
-  const [fitMode, setFitMode] = useState<'fit' | 'full'>('fit');
+  const [fitMode, setFitMode] = useState<'fit' | 'full'>('full');
   const [zoom, setZoom] = useState<number>(100);
+
+  const handleImageClick = async (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!taskId) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickXRaw = e.clientX - rect.left;
+    const clickYRaw = e.clientY - rect.top;
+    
+    // Use natural image dimensions
+    const imgWidth = e.currentTarget.naturalWidth || 1024;
+    const imgHeight = e.currentTarget.naturalHeight || 1024;
+    
+    const imageRatio = imgWidth / imgHeight;
+    const elementRatio = rect.width / rect.height;
+    
+    let renderedWidth = rect.width;
+    let renderedHeight = rect.height;
+    let leftOffset = 0;
+    let topOffset = 0;
+    
+    if (imageRatio > elementRatio) {
+      // Constrained by width
+      renderedHeight = rect.width / imageRatio;
+      topOffset = (rect.height - renderedHeight) / 2;
+    } else {
+      // Constrained by height
+      renderedWidth = rect.height * imageRatio;
+      leftOffset = (rect.width - renderedWidth) / 2;
+    }
+    
+    const xInImage = clickXRaw - leftOffset;
+    const yInImage = clickYRaw - topOffset;
+    
+    // Bounds check
+    if (xInImage < 0 || xInImage > renderedWidth || yInImage < 0 || yInImage > renderedHeight) {
+      if (showNotification) {
+        showNotification("Click was outside the browser viewport boundary.");
+      }
+      return;
+    }
+    
+    const clickX = Math.round((xInImage / renderedWidth) * imgWidth);
+    const clickY = Math.round((yInImage / renderedHeight) * imgHeight);
+    
+    if (showNotification) {
+      showNotification(`Clicking coordinate (${clickX}, ${clickY}) in browser...`);
+    }
+    
+    try {
+      const res = await fetch(`${serverUrl}/api/task/${taskId}/click`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x: clickX, y: clickY })
+      });
+      if (res.ok) {
+        if (showNotification) showNotification("Click executed successfully.");
+      } else {
+        const errText = await res.text();
+        if (showNotification) showNotification(`Click failed: ${errText}`);
+      }
+    } catch (err: any) {
+      if (showNotification) showNotification(`Click network error: ${err?.message || 'unknown'}`);
+    }
+  };
 
   // AI Copilot States
   const [copilotExpanded, setCopilotExpanded] = useState<boolean>(true);
@@ -271,6 +337,9 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
       const data = await res.json();
       if (data.reply) {
         setCopilotChat(prev => [...prev, { role: 'assistant', text: data.reply }]);
+      }
+      if (data.actionExecuted) {
+        showNotification(`Copilot executed command: ${data.actionExecuted.type} on ${data.actionExecuted.selector || 'page'}`);
       }
       if (data.suggestion) {
         setCopilotRecommendation(data.suggestion);
@@ -904,23 +973,48 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
               )}
             </div>
 
+            {(status === 'complete' || status === 'completed') && (
+              <div style={{
+                background: 'rgba(16, 185, 129, 0.1)',
+                border: '1px solid rgba(16, 185, 129, 0.2)',
+                borderRadius: '6px',
+                padding: '8px 16px',
+                color: '#10B981',
+                fontSize: '11px',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '8px',
+                width: '100%',
+                maxWidth: '400px',
+                justifyContent: 'center'
+              }}>
+                <span style={{ fontSize: '14px' }}>✓</span>
+                <span>SCRAPE COMPLETE — {leadsCount || 0} PROSPECTS CATALOGED</span>
+              </div>
+            )}
+
             <img 
               src={liveView || screenshot} 
+              onClick={handleImageClick}
+              title="Click anywhere on the screen to manually control and click elements in the browser (useful for bypassing CAPTCHAs)!"
               style={{ 
                 width: fitMode === 'fit' ? '100%' : `${zoom}%`, 
                 maxWidth: fitMode === 'fit' ? '100%' : 'none', 
                 maxHeight: fitMode === 'fit' ? 'calc(100% - 60px)' : 'none', 
                 objectFit: 'contain', 
                 borderRadius: '8px', 
-                border: '1px solid #222' 
+                border: '1px solid #222',
+                cursor: taskId ? 'crosshair' : 'default'
               }}
               alt="Live browser view"
             />
             <div style={{ fontSize: '9px', color: '#777', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '450px' }}>
-              <span>Streaming live browser screenshots. No sign-in or cookies required!</span>
+              <span>Streaming live browser. You can click directly on the image to manually click elements (perfect for CAPTCHAs)!</span>
               {liveViewUrl && (
                 <span style={{ color: '#10B981' }}>
-                  Want to control the browser? click <strong>"OPEN SESSION IN NEW TAB"</strong> above!
+                  Want to control the browser in full? click <strong>"OPEN SESSION IN NEW TAB"</strong> above!
                 </span>
               )}
             </div>
@@ -1692,7 +1786,7 @@ export default function App() {
   // Secondary toggle inside Workspace: 'operator' | 'console'
   const [subTab, setSubTab] = useState<'operator' | 'console'>('operator');
 
-  const [executionMode, setExecutionMode] = useState<'auto' | 'live'>('auto');
+  const [executionMode, setExecutionMode] = useState<'auto' | 'live'>('live');
   const [notifications, setNotifications] = useState<{ id: string; message: string }[]>([]);
 
   const showNotification = (message: string) => {
@@ -1713,7 +1807,8 @@ export default function App() {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 
   const [serverUrl, setServerUrl] = useState<string>(() => {
-    let url = (import.meta as any).env.VITE_SERVER_URL || localStorage.getItem('assix_server_url') || window.location.origin;
+    let rawUrl = (import.meta as any).env.VITE_SERVER_URL || localStorage.getItem('assix_server_url') || window.location.origin;
+    let url = typeof rawUrl === 'string' ? rawUrl.trim() : window.location.origin;
     if (url.startsWith('ws://')) {
       url = url.replace('ws://', 'http://');
     } else if (url.startsWith('wss://')) {
@@ -1727,6 +1822,11 @@ export default function App() {
       url = window.location.origin;
     } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
       url = window.location.origin;
+    }
+
+    // Strip trailing slashes to avoid double-slash URL construction
+    if (url.endsWith('/')) {
+      url = url.slice(0, -1);
     }
     return url;
   });
@@ -1761,6 +1861,7 @@ export default function App() {
   const [solvingCaptcha, setSolvingCaptcha] = useState<boolean>(false);
   const [captchaError, setCaptchaError] = useState<string | null>(null);
   const [activeDynamicTaskId, setActiveDynamicTaskId] = useState<string>('');
+  const [localGroqKey, setLocalGroqKey] = useState<string>('');
   
   // Firebase & Browser Use Integration states
   const [firebaseConfig, setFirebaseConfig] = useState<any>(null);
@@ -1962,6 +2063,7 @@ export default function App() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [leadsFilter, setLeadsFilter] = useState<'all' | 'no-website' | 'has-website' | 'facebook_ads' | 'facebook_groups'>('all');
   const [leadsSearch, setLeadsSearch] = useState<string>('');
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [pushingLeadId, setPushingLeadId] = useState<string | null>(null);
   const [batchPushing, setBatchPushing] = useState<boolean>(false);
   const [leadsViewMode, setLeadsViewMode] = useState<'table' | 'cards'>('cards');
@@ -2284,6 +2386,11 @@ export default function App() {
     if (!confirm('Are you sure you want to abort the active task?')) return;
     try {
       await fetch(`${serverUrl}/api/task/${taskId}`, { method: 'DELETE' });
+      if (activeTask?.taskId === taskId) {
+        setActiveTask(null);
+      }
+      setHumanNeededIntervention(null);
+      setInputRequestAlert(false);
       fetchTasks();
     } catch (e) {}
   };
@@ -2726,17 +2833,20 @@ export default function App() {
     }
   };
 
-  const handleConsoleSubmit = async () => {
-    const text = consoleInput.trim();
-    if (!text && attachments.length === 0) return;
+  const handleConsoleSubmit = async (textOverride?: string) => {
+    const isOverride = typeof textOverride === 'string';
+    const text = isOverride ? textOverride.trim() : consoleInput.trim();
+    if (!text && (isOverride ? false : attachments.length === 0)) return;
 
     setIsSending(true);
-    const userMsg: ChatMessage = { role: 'user', msg: text, files: attachments.map(a => a.name) };
+    const userMsg: ChatMessage = { role: 'user', msg: text, files: isOverride ? [] : attachments.map(a => a.name) };
     setChat(prev => [...prev, userMsg]);
-    setConsoleInput('');
-    setAttachments([]);
+    if (!isOverride) {
+      setConsoleInput('');
+      setAttachments([]);
+    }
 
-    appendLog(`[CHATBOT INPUT] User sent prompt: "${text}"${attachments.length > 0 ? ` with files: ${attachments.map(a => a.name).join(', ')}` : ''}`);
+    appendLog(`[CHATBOT INPUT] User sent prompt: "${text}"${!isOverride && attachments.length > 0 ? ` with files: ${attachments.map(a => a.name).join(', ')}` : ''}`);
     setLiveLogOpen(true);
 
     if (text.toLowerCase() === 'new:' || text.toLowerCase() === 'new' || text.toLowerCase() === 'reset' || text.toLowerCase() === 'reset:') {
@@ -2928,6 +3038,30 @@ export default function App() {
     fetchTasks();
     fetchLeads();
     fetchSessions();
+  };
+
+  const handleSaveGroqKey = async (customKey?: string) => {
+    const keyToUse = customKey || localGroqKey;
+    if (!keyToUse || !keyToUse.trim()) {
+      alert("Please enter a valid Groq API key first.");
+      return;
+    }
+    try {
+      const res = await fetch(`${serverUrl}/api/settings/save-groq-key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: keyToUse.trim() })
+      });
+      if (res.ok) {
+        alert("Groq API key configured and activated! Failover model is now active.");
+        setChat(prev => [...prev, { role: 'agent', msg: "🔄 **Groq Failover Activated!**\n\nI have successfully loaded and verified your `GROQ_API_KEY`. Real-time Llama-3.3-70b intelligence has been seamlessly restored for all active campaign generation, chat, and GTM hooks!" }]);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(`Failed to save key: ${data.error || 'Unknown error'}`);
+      }
+    } catch (err: any) {
+      alert(`Network error saving key: ${err?.message || 'unknown'}`);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3526,7 +3660,15 @@ export default function App() {
 
   const fetchBrowserUseTasksFallback = async () => {
     try {
-      const res = await fetch(`${serverUrl}/api/browser-use/tasks?userId=${encodeURIComponent(userId)}`);
+      if (!serverUrl || typeof serverUrl !== 'string' || serverUrl.trim() === '' || serverUrl === 'undefined' || serverUrl === 'null') {
+        return;
+      }
+      let cleanUrl = serverUrl.trim();
+      if (cleanUrl.endsWith('/')) {
+        cleanUrl = cleanUrl.slice(0, -1);
+      }
+      const finalUrl = `${cleanUrl}/api/browser-use/tasks?userId=${encodeURIComponent(userId)}`;
+      const res = await fetch(finalUrl);
       if (res.ok) {
         const list = await res.json();
         setBrowserUseTasks(list);
@@ -4236,36 +4378,15 @@ export default function App() {
                   </span> accuracy
                   <span className="text-zinc-800 select-none">·</span>
                   <span className="text-[#F0ECE4]">{(activeTask.taskType || 'dynamic').replace(/_/g, ' ')}</span>
+                  <span className="text-zinc-800 select-none">·</span>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider bg-[#141414] border border-[#222] text-[#818CF8]">
+                    {activeTask.useStealth ? "STEALTH DRIVER" : "PLAYWRIGHT DRIVER"}
+                  </span>
                 </>
               ) : (
                 <span className="text-zinc-600 italic">No active task selected</span>
               )}
             </div>
-
-            {/* ACTION CAPTCHA BAR OVERLAY */}
-            {captchaAlert && (
-              <div className="bg-[#F59E0B]/5 border-b border-[#F59E0B]/20 py-2.5 px-6 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-3">
-                  <AlertTriangle className="text-[#F59E0B] animate-bounce" size={14} />
-                  <span className="text-[10px] font-bold tracking-widest text-[#F59E0B] uppercase">CRITICAL: CAPTCHA VERIFICATION INTERCEPT REQUISITE</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={handleAutoResolveCaptcha}
-                    disabled={solvingCaptcha}
-                    className="px-4 py-1 bg-[#7C5335] hover:bg-[#A27B5C] text-[#F0ECE4] text-[9px] font-bold tracking-widest uppercase rounded shadow-[0_2px_8px_rgba(124,83,53,0.3)] transition cursor-pointer disabled:opacity-50"
-                  >
-                    {solvingCaptcha ? '🤖 SOLVING...' : '🤖 AUTO-SOLVE WITH AI'}
-                  </button>
-                  <button 
-                    onClick={handleResolveCaptcha}
-                    className="px-4 py-1 bg-[#F59E0B] hover:bg-[#D97706] text-[#080808] text-[9px] font-bold tracking-widest uppercase rounded shadow-[0_2px_8px_rgba(245,158,11,0.3)] transition cursor-pointer"
-                  >
-                    Resolve CAPTCHA
-                  </button>
-                </div>
-              </div>
-            )}
 
             {/* TAB OUTLET CONTENT */}
             <div className="flex-1 flex flex-col overflow-hidden relative">
@@ -4275,7 +4396,7 @@ export default function App() {
                 <div className="flex-1 flex flex-col overflow-hidden p-6 gap-6">
                   
                   {/* Virtual Chrome frame */}
-                  <div className={`flex-1 border relative rounded overflow-hidden flex flex-col bg-[#0F0F0F] select-none ${captchaAlert ? 'border-[#F59E0B]' : 'border-[#1C1C1F]'}`}>
+                  <div className="flex-1 border border-[#1C1C1F] relative rounded overflow-hidden flex flex-col bg-[#0F0F0F] select-none">
                     
                     {/* Header bar */}
                     <div className="px-4 py-2 border-b border-[#1A1A1A] bg-[#090909] flex items-center justify-between shrink-0 text-center select-none">
@@ -4339,6 +4460,7 @@ export default function App() {
                             ws={ws.current} 
                             serverUrl={serverUrl} 
                             useFirestore={true} 
+                            showNotification={showNotification}
                           />
                         ) : true ? (
                           <div className="w-full h-full overflow-y-auto p-6 bg-[#080808] text-[#F5F5F5] flex flex-col items-center justify-center text-center space-y-4 select-none">
@@ -4828,47 +4950,6 @@ export default function App() {
                           )}
                         </div>
                       )}
-
-                      {/* Decisive CAPTCHA viewport block overlay */}
-                      {captchaAlert && captchaScreenshot && (
-                        <div className="absolute inset-0 bg-[#080808EE] z-10 flex flex-col items-center justify-center p-8">
-                          <div className="max-w-md w-full border border-[#F59E0B]/30 rounded-lg bg-[#0F0F0F] p-6 flex flex-col items-center text-center">
-                            <ShieldAlert size={28} className="text-[#F59E0B] mb-3 animate-bounce" />
-                            <h4 className="text-xs font-bold tracking-widest text-[#F59E0B] uppercase">AGENT INTERCEPTED BY CAPTCHA</h4>
-                            <p className="text-[10px] text-[#52525B] max-w-xs mt-1 mb-4">Please solve the challenge below on the visual projection or let our Gemini-powered AI Auto-Solver click it for you.</p>
-                            
-                            <div className="w-full h-48 bg-[#080808] border border-[#2A2A2A] rounded overflow-hidden flex items-center justify-center mb-4 relative">
-                              <img src={captchaScreenshot} alt="Stuck in CAPTCHA challenge screen" className="max-w-full max-h-full object-contain" />
-                              {solvingCaptcha && (
-                                <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center text-[#F59E0B] gap-2">
-                                  <div className="w-6 h-6 border-2 border-[#F59E0B] border-t-transparent rounded-full animate-spin" />
-                                  <span className="text-[9px] font-bold uppercase tracking-wider">AI Solvator Working...</span>
-                                </div>
-                              )}
-                            </div>
-
-                            {captchaError && (
-                              <p className="text-[10px] text-rose-400 mb-3 bg-rose-950/20 px-2.5 py-1 rounded border border-rose-900/30 w-full text-center">{captchaError}</p>
-                            )}
-
-                            <div className="flex gap-2 w-full">
-                              <button 
-                                onClick={handleAutoResolveCaptcha}
-                                disabled={solvingCaptcha}
-                                className="flex-1 py-2 bg-[#7C5335] hover:bg-[#A27B5C] text-[#F0ECE4] text-[10px] font-bold tracking-widest uppercase rounded shadow-[0_4px_12px_rgba(124,83,53,0.25)] transition active:scale-95 cursor-pointer disabled:opacity-50"
-                              >
-                                {solvingCaptcha ? 'SOLVING...' : '🤖 RUN AI SOLVER'}
-                              </button>
-                              <button 
-                                onClick={handleResolveCaptcha}
-                                className="flex-1 py-2 bg-[#F59E0B] hover:bg-[#D97706] text-[#080808] text-[10px] font-bold tracking-widest uppercase rounded shadow-[0_4px_12px_rgba(245,158,11,0.25)] transition active:scale-95 cursor-pointer"
-                              >
-                                RESOLVE & RESUME
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
 
                     {/* Footer hud bar inside projection frame */}
@@ -4975,6 +5056,75 @@ export default function App() {
                               </div>
                             )}
                             <div className="whitespace-pre-wrap select-text">{msg.msg}</div>
+                            {(msg.role === 'agent' || msg.role === 'assistant') && (msg.msg.includes('Sandbox Mode') || msg.msg.includes('Quota Exhausted')) && (
+                              <div className="mt-4 p-4 border border-dashed border-[#7C5335]/30 bg-[#141416] rounded-lg space-y-4 max-w-full text-left text-[#D4D4D8] font-sans">
+                                <div className="flex items-center gap-2 pb-1.5 border-b border-[#242427]">
+                                  <span className="text-[#22c55e]">🟢</span>
+                                  <span className="text-xs font-bold tracking-wider uppercase text-white font-sans">Option A: Save & Activate Groq API Key</span>
+                                </div>
+                                <div className="space-y-2">
+                                  <p className="text-[11px] text-zinc-400">
+                                    Restore full real-time AI intelligence by providing a Groq API Key (`gsk_...`) below. This will bypass the exhausted Gemini daily quota!
+                                  </p>
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="password"
+                                      placeholder="gsk_..."
+                                      value={localGroqKey}
+                                      onChange={(e) => setLocalGroqKey(e.target.value)}
+                                      className="flex-1 px-2.5 py-1.5 text-xs bg-zinc-900 border border-zinc-750 text-white rounded focus:outline-none focus:border-[#7C5335]"
+                                    />
+                                    <button
+                                      onClick={() => handleSaveGroqKey()}
+                                      className="px-3 py-1.5 bg-[#7C5335] text-white text-xs font-semibold rounded hover:bg-[#694226] transition cursor-pointer"
+                                    >
+                                      Save & Activate
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 pt-1 pb-1.5 border-b border-[#242427]">
+                                  <span className="text-[#3b82f6]">🔵</span>
+                                  <span className="text-xs font-bold tracking-wider uppercase text-white font-sans">Option B: Start Extraction Campaigns (One-Click)</span>
+                                </div>
+                                <div className="space-y-2">
+                                  <p className="text-[11px] text-zinc-400">
+                                    No key required! Run browser campaigns locally via our zero-quota-dependent extraction engine. Click a campaign below to launch it instantly:
+                                  </p>
+                                  <div className="grid grid-cols-1 gap-2">
+                                    <button
+                                      onClick={() => handleConsoleSubmit("run search dentists in Toronto")}
+                                      className="flex items-center justify-between px-3 py-2 bg-zinc-900 hover:bg-[#1a1a1c] border border-zinc-850 hover:border-zinc-700 text-left rounded text-xs transition text-white group cursor-pointer"
+                                    >
+                                      <span className="flex items-center gap-2 font-medium">
+                                        🦷 Dentists in Toronto
+                                      </span>
+                                      <span className="text-[10px] text-zinc-500 group-hover:text-[#7C5335] font-bold">Launch Campaign →</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleConsoleSubmit("scrape cafes in Vancouver")}
+                                      className="flex items-center justify-between px-3 py-2 bg-zinc-900 hover:bg-[#1a1a1c] border border-zinc-850 hover:border-zinc-700 text-left rounded text-xs transition text-white group cursor-pointer"
+                                    >
+                                      <span className="flex items-center gap-2 font-medium">
+                                        ☕ Cafes in Vancouver
+                                      </span>
+                                      <span className="text-[10px] text-zinc-500 group-hover:text-[#7C5335] font-bold">Launch Campaign →</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleConsoleSubmit("start Google Maps campaign for lawyers in Montreal")}
+                                      className="flex items-center justify-between px-3 py-2 bg-zinc-900 hover:bg-[#1a1a1c] border border-zinc-850 hover:border-zinc-700 text-left rounded text-xs transition text-white group cursor-pointer"
+                                    >
+                                      <span className="flex items-center gap-2 font-medium">
+                                        ⚖️ Lawyers in Montreal
+                                      </span>
+                                      <span className="text-[10px] text-zinc-500 group-hover:text-[#7C5335] font-bold">Launch Campaign →</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           {msg.files && msg.files.length > 0 && (
@@ -5762,6 +5912,16 @@ export default function App() {
                     />
                   </div>
 
+                  {/* WhatsApp Bulk Messaging Panel */}
+                  {selectedLeadIds.length > 0 && (
+                    <div className="mb-6 shrink-0">
+                      <WhatsAppBulkSend 
+                        selectedLeads={leads.filter(l => selectedLeadIds.includes(l.leadId))} 
+                        serverUrl={serverUrl}
+                      />
+                    </div>
+                  )}
+
                   <div className="flex-1 overflow-y-auto min-h-0">
                     {filteredLeads.length === 0 ? (
                       <div className="py-20 text-center text-[#52525B] text-xs font-semibold select-none uppercase tracking-widest bg-[#0A0A0A] border border-[#1A1A1A] rounded">No target records matched query filters.</div>
@@ -5770,6 +5930,27 @@ export default function App() {
                         <table className="w-full text-[11px] text-left border-collapse select-text">
                           <thead className="bg-[#0E0E10] border-b border-[#1A1A1A] text-[8px] text-[#52525B] tracking-widest uppercase font-bold select-none">
                             <tr>
+                              <th className="px-4 py-3 text-center w-12 select-none">
+                                <input 
+                                  type="checkbox"
+                                  checked={filteredLeads.length > 0 && filteredLeads.every(l => selectedLeadIds.includes(l.leadId))}
+                                  onChange={() => {
+                                    const allSelected = filteredLeads.every(l => selectedLeadIds.includes(l.leadId));
+                                    if (allSelected) {
+                                      // Deselect all filtered leads
+                                      const filteredIds = filteredLeads.map(l => l.leadId);
+                                      setSelectedLeadIds(prev => prev.filter(id => !filteredIds.includes(id)));
+                                    } else {
+                                      // Select all filtered leads
+                                      setSelectedLeadIds(prev => {
+                                        const newIds = filteredLeads.map(l => l.leadId).filter(Boolean);
+                                        return Array.from(new Set([...prev, ...newIds]));
+                                      });
+                                    }
+                                  }}
+                                  className="bg-zinc-900 border-zinc-700 rounded text-[#7C5335] focus:ring-[#7C5335] w-3.5 h-3.5 cursor-pointer"
+                                />
+                              </th>
                               <th className="px-6 py-3 font-bold uppercase tracking-wider">Business / Firm</th>
                               <th className="px-6 py-3 font-bold uppercase tracking-wider">Phone</th>
                               <th className="px-6 py-3 font-bold uppercase tracking-wider">Email</th>
@@ -5781,7 +5962,23 @@ export default function App() {
                           </thead>
                           <tbody className="divide-y divide-[#1A1A1A] font-sans">
                             {filteredLeads.map((lead, idx) => (
-                              <tr key={lead.leadId || `lead-row-${idx}`} className="hover:bg-[#0E0E11]/45 transition">
+                              <tr 
+                                key={lead.leadId || `lead-row-${idx}`} 
+                                className={`hover:bg-[#0E0E11]/45 transition ${selectedLeadIds.includes(lead.leadId) ? 'bg-[#7C5335]/5 border-l border-l-[#7C5335]' : ''}`}
+                              >
+                                <td className="px-4 py-3.5 text-center select-none w-12">
+                                  <input 
+                                    type="checkbox"
+                                    checked={selectedLeadIds.includes(lead.leadId)}
+                                    onChange={() => {
+                                      const id = lead.leadId;
+                                      setSelectedLeadIds(prev => 
+                                        prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+                                      );
+                                    }}
+                                    className="bg-zinc-900 border-zinc-700 rounded text-[#7C5335] focus:ring-[#7C5335] w-3.5 h-3.5 cursor-pointer"
+                                  />
+                                </td>
                                 <td className="px-6 py-3.5 font-bold text-[#F5F5F5]">
                                   <div className="flex flex-col">
                                     <span>{lead.businessName}</span>
@@ -5850,6 +6047,12 @@ export default function App() {
                             isPushing={pushingLeadId === lead.leadId} 
                             serverUrl={serverUrl}
                             onSkip={handleSkipLead}
+                            selected={selectedLeadIds.includes(lead.leadId)}
+                            onSelectToggle={(id) => {
+                              setSelectedLeadIds(prev => 
+                                prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+                              );
+                            }}
                           />
                         ))}
                       </div>
@@ -7993,10 +8196,7 @@ export default function App() {
               <div className="flex items-center justify-end gap-2.5 pt-2 select-none">
                 <button 
                   type="button"
-                  onClick={() => {
-                    handleStopTask(humanNeededIntervention.taskId);
-                    setHumanNeededIntervention(null);
-                  }}
+                  onClick={() => handleStopTask(humanNeededIntervention.taskId)}
                   className="px-4 py-1.5 border border-[#1C1C1F] hover:border-red-500/30 hover:bg-red-500/10 text-[#52525B] hover:text-red-400 text-[9px] font-bold tracking-widest uppercase rounded transition cursor-pointer"
                 >
                   ABORT TASK

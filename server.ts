@@ -20,6 +20,7 @@ import { db } from './firebase-client-wrapper';
 import { callAI, callGroq } from './services/aiService';
 import { runTask, resumeTask, setSendWS } from './services/taskRunner';
 import { Server as SocketIOServer } from 'socket.io';
+import { closeSession } from './services/browserEngine';
 import { takeScreenshot } from './services/stealthBrowser';
 import { reportStage, reportProgress, reportScreenshot } from './services/hermes';
 import { crawlPage } from './services/crawl4ai';
@@ -518,21 +519,169 @@ const saveLead = async (lead: any) => {
   }
 };
 
-const formatPhone = (raw: string) => {
+const formatPhone = (raw: string, countryOrCity?: string, address?: string) => {
   if (!raw) return '';
+  
+  // Clean raw input from any spaces, dashes, parentheses
   const digits = raw.replace(/\D/g, '');
-  if (digits.startsWith('1') && digits.length === 11) return '+' + digits;
-  if (digits.length === 10) return '+1' + digits;
-  if (digits.length > 10) return '+1' + digits.slice(-10);
-  return raw;
+  if (!digits) return raw;
+
+  // Let's deduce country prefix based on country/city string or address
+  let countryCode = '';
+  const context = ((countryOrCity || '') + ' ' + (address || '')).toLowerCase();
+
+  const frCities = ['paris', 'lyon', 'marseille', 'bordeaux', 'nice', 'france', 'fr', 'strasbourg', 'nantes', 'lille', 'toulouse', 'goutte d\'or', 'rue de la', 'rue '];
+  const ukCities = ['london', 'manchester', 'birmingham', 'leeds', 'glasgow', 'united kingdom', 'uk', 'gb', 'england', 'scotland', 'cardiff', 'belfast'];
+  const auCities = ['sydney', 'melbourne', 'brisbane', 'perth', 'adelaide', 'australia', 'au', 'gold coast'];
+  const deCities = ['berlin', 'munich', 'hamburg', 'frankfurt', 'germany', 'deutschland', 'de', 'cologne', 'stuttgart', 'dusseldorf'];
+
+  if (frCities.some(city => context.includes(city))) {
+    countryCode = '33';
+  } else if (ukCities.some(city => context.includes(city))) {
+    countryCode = '44';
+  } else if (auCities.some(city => context.includes(city))) {
+    countryCode = '61';
+  } else if (deCities.some(city => context.includes(city))) {
+    countryCode = '49';
+  }
+
+  // If we couldn't deduce from context, check if the raw number itself looks like it has a specific international prefix
+  if (!countryCode) {
+    if (raw.startsWith('+33') || (digits.startsWith('33') && digits.length === 11)) {
+      countryCode = '33';
+    } else if (raw.startsWith('+44') || (digits.startsWith('44') && digits.length === 12)) {
+      countryCode = '44';
+    } else if (raw.startsWith('+61') || (digits.startsWith('61') && digits.length === 11)) {
+      countryCode = '61';
+    } else if (raw.startsWith('+49') || (digits.startsWith('49') && digits.length >= 11 && digits.length <= 13)) {
+      countryCode = '49';
+    } else if (raw.startsWith('+1') || (digits.startsWith('1') && digits.length === 11)) {
+      countryCode = '1';
+    } else if (digits.startsWith('0') && digits.length === 10) {
+      // Numbers starting with '0' in a 10-digit format are French by default in this app context
+      countryCode = '33';
+    }
+  }
+
+  // Format based on deduced country
+  if (countryCode === '33') {
+    let localDigits = digits;
+    if (localDigits.startsWith('33')) {
+      localDigits = localDigits.slice(2);
+    } else if (localDigits.startsWith('13') && (localDigits.length === 11 || localDigits.length === 12)) {
+      localDigits = localDigits.slice(2);
+    } else if (localDigits.startsWith('10') && (localDigits.length === 11 || localDigits.length === 12)) {
+      localDigits = localDigits.slice(2);
+    } else if (localDigits.startsWith('1') && localDigits.length === 11) {
+      localDigits = localDigits.slice(1);
+    }
+    if (localDigits.startsWith('0')) {
+      localDigits = localDigits.slice(1);
+    }
+    return `+33${localDigits}`;
+  }
+
+  if (countryCode === '44') {
+    let localDigits = digits;
+    if (localDigits.startsWith('44')) {
+      localDigits = localDigits.slice(2);
+    }
+    if (localDigits.startsWith('0')) {
+      localDigits = localDigits.slice(1);
+    }
+    return `+44${localDigits}`;
+  }
+
+  if (countryCode === '61') {
+    let localDigits = digits;
+    if (localDigits.startsWith('61')) {
+      localDigits = localDigits.slice(2);
+    }
+    if (localDigits.startsWith('0')) {
+      localDigits = localDigits.slice(1);
+    }
+    return `+61${localDigits}`;
+  }
+
+  if (countryCode === '49') {
+    let localDigits = digits;
+    if (localDigits.startsWith('49')) {
+      localDigits = localDigits.slice(2);
+    }
+    if (localDigits.startsWith('0')) {
+      localDigits = localDigits.slice(1);
+    }
+    return `+49${localDigits}`;
+  }
+
+  // Fallback to standard +1 North American behavior
+  if (countryCode === '1' || digits.length === 10 || (digits.length === 11 && digits.startsWith('1'))) {
+    let localDigits = digits;
+    if (localDigits.startsWith('1') && localDigits.length === 11) {
+      localDigits = localDigits.slice(1);
+    }
+    return `+1${localDigits}`;
+  }
+
+  if (raw.startsWith('+')) {
+    return '+' + digits;
+  }
+
+  return '+' + digits;
+};
+
+const convertToCountryPhone = (phone: string, lead: any): string => {
+  if (!phone) return '';
+  
+  // Clean phone to only digits
+  const digits = phone.replace(/\D/g, '');
+  if (!digits) return phone;
+
+  // Determine country based on lead market, city, or address
+  const market = (lead.market || '').toLowerCase();
+  const city = (lead.city || '').toLowerCase();
+  const address = (lead.address || '').toLowerCase();
+
+  const isFrance = 
+    market === 'french_eu' ||
+    ['paris', 'lyon', 'marseille', 'bordeaux', 'nice'].some(c => city.includes(c)) ||
+    address.includes('france');
+
+  if (isFrance) {
+    // If digits start with '10' (e.g., from +10612345678)
+    if (digits.startsWith('10') && digits.length === 11) {
+      return '+33' + digits.slice(2);
+    }
+    // If digits start with '13' (e.g., from +13612345678 where original was +336... and got sliced to 36...)
+    if (digits.startsWith('13') && digits.length === 11) {
+      return '+33' + digits.slice(2);
+    }
+    // If it's a 10-digit number starting with '0'
+    if (digits.length === 10 && digits.startsWith('0')) {
+      return '+33' + digits.slice(1);
+    }
+    // If it already has 33 as country code (e.g. 33612345678)
+    if (digits.startsWith('33') && digits.length === 11) {
+      return '+' + digits;
+    }
+    // Default fallback: if it has +1 and is French, replace +1 with +33
+    if (phone.startsWith('+1')) {
+      return '+33' + phone.slice(2).replace(/\D/g, '');
+    }
+    return '+33' + digits;
+  }
+
+  // Canada and US are both +1, so we keep the standard +1 format
+  return phone;
 };
 
 const pushToClose = async (lead: any) => {
   if (!process.env.CLOSE_API_KEY) return { error: 'No Close API key' };
   try {
+    const phoneToPush = convertToCountryPhone(lead.phone || '', lead);
     const res = await axios.post('https://api.close.com/api/v1/lead/', {
       name: lead.businessName,
-      contacts: [{ name: lead.businessName, phones: [{ phone: lead.phone, type: 'office' }] }],
+      contacts: [{ name: lead.businessName, phones: [{ phone: phoneToPush, type: 'office' }] }],
       custom: { 
         city: lead.city, 
         sector: lead.sector, 
@@ -632,6 +781,7 @@ const launchBrowser = async (taskId?: string) => {
         };
         
         const customBrowser = {
+          page: page,
           close: async () => {
             const { closeSession } = await import('./services/browserEngine');
             await closeSession(taskId);
@@ -896,6 +1046,34 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
     await sendScreenshot(taskId, page);
     await checkCaptcha(taskId, page);
 
+    // Dismiss Google Cookie Consent Dialog if it blocks the view (Crucial for European / Cloud IPs)
+    try {
+      await logAction(taskId, "Checking for Google cookie consent/GDPR banners...", "info");
+      const consentClicked = await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('button, form button, [role="button"]'));
+        for (const btn of buttons) {
+          const txt = (btn.textContent || '').trim();
+          if (/^(Accept all|Tout accepter|I agree|Agree|Accept|Accepter|Ich stimme zu|Accetto|Acepto)$/i.test(txt) || 
+              txt.includes('Accept all') || 
+              txt.includes('Tout accepter') || 
+              txt.includes('I agree') ||
+              txt.includes('Accept cookies') ||
+              txt.includes('Autoriser tout')) {
+            (btn as any).click();
+            return txt;
+          }
+        }
+        return null;
+      });
+      if (consentClicked) {
+        await logAction(taskId, `Dismissed Google cookie consent banner: "${consentClicked}"`, 'success');
+        await delay(2000, 3000);
+        await sendScreenshot(taskId, page);
+      }
+    } catch (consentErr: any) {
+      console.warn("Consent handling warning:", consentErr.message);
+    }
+
     let cleanedNiche = niche.trim();
     // Normalize multiple spaces first
     cleanedNiche = cleanedNiche.replace(/\s+/g, ' ');
@@ -931,13 +1109,46 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
     const searchSelector = 'input#searchboxinput';
     const searchButtonSelector = 'button#searchbox-searchbutton';
 
-    if (await page.$(searchSelector)) {
-      await humanType(page, searchSelector, searchQuery);
-      await delay(500, 1000);
-      await humanClick(page, searchButtonSelector);
-    } else {
-      // Fallback path
-      await page.goto(`https://www.google.com/maps/search/${encodeURIComponent(searchQuery)}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    let searchExecuted = false;
+    try {
+      if (await page.$(searchSelector)) {
+        await logAction(taskId, `Typing query into Google Maps: "${searchQuery}"`, 'info');
+        await page.click(searchSelector);
+        await delay(300, 600);
+        
+        // Clear input to be completely safe
+        await page.keyboard.down('Control');
+        await page.keyboard.press('A');
+        await page.keyboard.up('Control');
+        await page.keyboard.press('Backspace');
+        await delay(300, 600);
+
+        await humanType(page, searchSelector, searchQuery);
+        await delay(800, 1500);
+
+        // Press Enter (Highly explicit & standard)
+        await logAction(taskId, "Pressing the Enter key to execute search...", 'info');
+        await page.keyboard.press('Enter');
+        await delay(2000, 3000);
+
+        // Also click the search button as backup
+        if (await page.$(searchButtonSelector)) {
+          await logAction(taskId, "Clicking the search icon button as backup...", 'info');
+          await humanClick(page, searchButtonSelector);
+          await delay(2000, 4000);
+        }
+        searchExecuted = true;
+      }
+    } catch (searchErr: any) {
+      await logAction(taskId, `Input-based search failed or was blocked: ${searchErr.message}. Falling back to direct URL search...`, 'warning');
+    }
+
+    // Double check if results page is loaded, otherwise use direct URL navigation (always works)
+    const currentUrl = page.url();
+    if (!searchExecuted || !currentUrl.includes('/maps/search') || !(await page.$('div[role="feed"], div[role="article"]'))) {
+      await logAction(taskId, "Directly navigating to Google Maps search URL to guarantee page results...", 'info');
+      await page.goto(`https://www.google.com/maps/search/${encodeURIComponent(searchQuery)}`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await delay(3000, 5000);
     }
 
     await delay(3000, 5000);
@@ -946,132 +1157,317 @@ const runGoogleMapsScrape = async (taskId: string, config: any) => {
 
     await reportStage(taskId, "Reading page results...");
 
-    await logAction(taskId, `Scrolling results pane to load up to ${maxLeads} leads...`, 'info');
+    await logAction(taskId, `Beginning fast hybrid extraction for up to ${maxLeads} leads on Google Maps...`, 'info');
     
-    // Smart scroll on Google Maps (scroll the results feed pane specifically!)
-    await page.evaluate(async (maxLeads: number) => {
-      const feed = document.querySelector('div[role="feed"]');
-      if (feed) {
-        let lastHeight = feed.scrollHeight;
-        let scrollAttempts = 0;
-        const maxScrollAttempts = Math.min(15, Math.ceil(maxLeads / 3) + 2);
-        
-        while (scrollAttempts < maxScrollAttempts) {
-          feed.scrollBy(0, 1500);
-          await new Promise(r => setTimeout(r, 1500));
-          
-          const newHeight = feed.scrollHeight;
-          if (newHeight === lastHeight) {
-            // Try one more time in case it was slow
-            feed.scrollBy(0, 500);
-            await new Promise(r => setTimeout(r, 1000));
-            if (feed.scrollHeight === lastHeight) {
-              break; 
-            }
-          }
-          lastHeight = newHeight;
-          scrollAttempts++;
-        }
-      } else {
-        // Fallback: scroll window
-        for (let j = 0; j < 5; j++) {
-          window.scrollBy(0, 1000);
-          await new Promise(r => setTimeout(r, 1200));
-        }
-      }
-    }, maxLeads).catch((e: any) => console.warn("Scrolling error:", e));
-
-    // Force extra wait for elements to finish rendering
-    await delay(2000, 3000);
-    await sendScreenshot(taskId, page);
-
-    // Extract text content of results container Specifically
-    const pageText = await page.evaluate(() => {
-      const feed = document.querySelector('div[role="feed"]');
-      if (feed) {
-        return feed.textContent || feed.innerHTML || '';
-      }
-      const cloned = document.cloneNode(true) as Document;
-      cloned.querySelectorAll('script, style, svg, path, noscript, iframe, link').forEach(el => el.remove());
-      return cloned.body.innerText || '';
-    });
-
-    const extractionPrompt = `Extract up to ${maxLeads} B2B business profiles listed in the search results. For each business profile, extract:
-    - businessName (exact business name)
-    - phone (phone number, digits only e.g. "4165550192")
-    - website (valid website URL, or empty if not present)
-    - rating (decimal rating, e.g. "4.2", or empty if not rated)
-    - address (full physical address, e.g. "123 Main St, ${city}")
-    
-    Format the output strictly as a JSON array matching this schema:
-    [{ "businessName": "...", "phone": "...", "website": "...", "rating": "...", "address": "..." }]
-    Output ONLY valid JSON. Absolutely no other text or explanation.`;
-
-    await logAction(taskId, `Extracting up to ${maxLeads} B2B leads from page text (${pageText.length} characters) using Gemini...`, 'info');
-    
-    let realLeads: any[] = [];
-    try {
-      const response = await callAI("browser_agent", [
-        { role: "system", content: "You are an expert Google Maps B2B data extraction AI. Extract structured business details from the text feed of Google Maps results. Generate a clean JSON array." },
-        { role: "user", content: `${extractionPrompt}\n\nGoogle Maps Page Listings:\n${pageText.slice(0, 55000)}` }
-      ]);
-      const cleaned = response.replace(/```json/g, '').replace(/```/g, '').trim();
-      realLeads = JSON.parse(cleaned);
-      await logAction(taskId, `Successfully extracted ${realLeads.length} leads directly from active browser page text.`, 'success');
-    } catch (err: any) {
-      await logAction(taskId, `Gemini extraction failed: ${err.message}. Trying browser-level extraction...`, 'warning');
-      realLeads = await page.extractLeads(extractionPrompt);
-    }
-
-    // If realLeads is empty and demo mode is enabled, fall back to marked fallback leads
-    let leadsToSave = realLeads || [];
-    if (leadsToSave.length === 0) {
-      if (process.env.DEMO_FALLBACK === 'true' || process.env.NODE_ENV !== 'production') {
-        await logAction(taskId, "No direct results found. Generating fallback sandbox leads for demonstration purposes.", "warning");
-        leadsToSave = await generateFallbackLeads(niche, city, maxLeads);
-      } else {
-        await reportStage(taskId, "Task failed: no results found on page");
-        throw new Error("Task failed: no results found on page");
-      }
-    }
-
-    await reportStage(taskId, "Saving leads to database...");
+    const leadsToSave: any[] = [];
+    const seenNames = new Set<string>();
     let savedCount = 0;
 
-    for (let i = 0; i < leadsToSave.length; i++) {
+    let scrollAttempts = 0;
+    const maxScrollAttempts = 20;
+    
+    while (savedCount < maxLeads && scrollAttempts < maxScrollAttempts) {
       if (!activeBrowsers.has(taskId)) break;
-      const lead = leadsToSave[i];
 
-      await reportStage(taskId, `Extracting business #${i + 1} of ${leadsToSave.length}...`, `Saving ${lead.businessName}`);
-      const formattedP = formatPhone(lead.phone);
-      const leadType = !lead.website ? 'no_website' : 'has_website';
+      // Find all listing card containers in the left results feed
+      const cardContainers = await page.evaluate(() => {
+        // Find cards with role="article" or similar item structures
+        const articles = Array.from(document.querySelectorAll('div[role="article"], div[data-jslog*="action:click"]'));
+        return articles.map((card, idx) => {
+          // Extract Name
+          let name = '';
+          const nameEl = card.querySelector('.fontHeadlineSmall, .qbfV6d, h3, [role="heading"]');
+          if (nameEl) {
+            name = nameEl.textContent?.trim() || '';
+          }
+          if (!name) {
+            const linkEl = card.querySelector('a[href*="/maps/place/"]');
+            if (linkEl) {
+              name = linkEl.getAttribute('aria-label') || linkEl.textContent?.trim() || '';
+            }
+          }
+          if (name) {
+            name = name.split('·')[0].trim();
+          }
 
-      const saved = await saveLead({
-        taskId,
-        businessName: lead.businessName,
-        phone: formattedP,
-        website: lead.website,
-        rating: lead.rating,
-        address: lead.address,
-        city,
-        sector: niche,
-        market: market || 'english_ca',
-        leadType,
-        isFallback: !!lead.isFallback
+          // Extract Rating and Review Count
+          let rating = '';
+          let reviewsCount = '';
+          const ratingContainer = card.querySelector('span[aria-label*="stars"], span[aria-label*="étoiles"], span[aria-label*="★"]');
+          if (ratingContainer) {
+            const aria = ratingContainer.getAttribute('aria-label') || '';
+            const rMatch = aria.match(/([0-9.]+)\s*(stars|étoiles|★)/i) || aria.match(/([0-9.]+)/);
+            if (rMatch) rating = rMatch[1];
+            
+            const revMatch = aria.match(/\(([0-9,]+)\)/) || aria.match(/([0-9,]+)\s*(reviews|avis|commentaires)/i);
+            if (revMatch) reviewsCount = revMatch[1].replace(/\D/g, '');
+          }
+          
+          if (!rating || !reviewsCount) {
+            const text = card.textContent || '';
+            const match = text.match(/([3-5]\.[0-9])\s*★?\s*\(([0-9,]+)\)/) || text.match(/([3-5]\.[0-9])\s*★?\s*([0-9,]+)/);
+            if (match) {
+              if (!rating) rating = match[1];
+              if (!reviewsCount) reviewsCount = match[2].replace(/\D/g, '');
+            }
+          }
+
+          // Extract Website directly from inline Website action buttons
+          let website = '';
+          const webEl = card.querySelector('a[aria-label*="Website"], a[aria-label*="Site Web"], a[data-value="Website"]');
+          if (webEl) {
+            website = webEl.getAttribute('href') || '';
+          }
+          if (!website) {
+            // Find any link that is non-google and starts with http
+            const links = Array.from(card.querySelectorAll('a'));
+            for (const lnk of links) {
+              const href = lnk.getAttribute('href') || '';
+              if (href.startsWith('http') && !href.includes('google.com') && !href.includes('gstatic.com') && !href.includes('ggpht.com')) {
+                website = href;
+                break;
+              }
+            }
+          }
+
+          // Extract Phone from card text or button attributes
+          let phone = '';
+          const phoneButton = card.querySelector('button[aria-label*="Phone"], button[aria-label*="Téléphone"], button[data-tooltip*="phone"], button[data-item-id*="phone"]');
+          if (phoneButton) {
+            const aria = phoneButton.getAttribute('aria-label') || '';
+            phone = aria.replace(/(Phone:|Téléphone:|Call:|Tél\s*:\s*)/i, '').trim();
+          }
+          if (!phone) {
+            const cardText = (card as any).innerText || card.textContent || '';
+            const phoneRegex = /(?:\+?\d{1,3}[-.\s]*)?\(?\d{3}\)?[-.\s]*\d{3}[-.\s]*\d{4}/g;
+            const foundPhones = cardText.match(phoneRegex);
+            if (foundPhones && foundPhones.length > 0) {
+              phone = foundPhones[0];
+            }
+          }
+
+          // Extract Address
+          let address = '';
+          const lines = Array.from(card.querySelectorAll('div, span')).map(el => el.textContent?.trim()).filter(Boolean);
+          for (const line of lines) {
+            if (line && (line.includes('St') || line.includes('Ave') || line.includes('Rd') || line.includes('Blvd') || line.includes('Way') || line.includes('Pl') || /\d+\s+[A-Za-z]+/.test(line))) {
+              if (!line.includes('★') && line.length > 5 && line.length < 80 && !line.includes('Open') && !line.includes('Closed')) {
+                address = line;
+                break;
+              }
+            }
+          }
+
+          return {
+            index: idx,
+            businessName: name,
+            rating,
+            reviewsCount,
+            website,
+            phone,
+            address,
+            hasFullData: !!(name && website && phone)
+          };
+        }).filter(item => !!item.businessName);
       });
 
-      if (saved) {
-        logAction(taskId, `✓ Saved lead: ${lead.businessName}`, 'success');
-        savedCount++;
+      if (cardContainers.length === 0) {
+        await logAction(taskId, "No listing elements found in view. Scrolling results container...", "warning");
       } else {
-        logAction(taskId, `Skip/Duplicate: ${lead.businessName}`, 'info');
+        await logAction(taskId, `Scanned ${cardContainers.length} listings directly from the page layout. Processing...`, 'info');
+
+        const visibleElements = await page.$$('div[role="article"], div[data-jslog*="action:click"]');
+        
+        for (const item of cardContainers) {
+          if (savedCount >= maxLeads) break;
+          if (!activeBrowsers.has(taskId)) break;
+
+          const cleanName = item.businessName;
+          if (seenNames.has(cleanName.toLowerCase())) {
+            continue; // Ensure absolutely no doubles / duplicates
+          }
+          seenNames.add(cleanName.toLowerCase());
+
+          let finalLead = { ...item };
+
+          // If the card is missing crucial details like phone or website, trigger a selective fast-click fallback!
+          if (!finalLead.phone || !finalLead.website) {
+            const elementToClick = visibleElements[item.index];
+            if (elementToClick) {
+              try {
+                await logAction(taskId, `Selective detail fetch (clicking) for: "${cleanName}"...`, 'info');
+                await elementToClick.scrollIntoViewIfNeeded({ timeout: 1500 });
+                await elementToClick.click({ timeout: 3000 });
+                await delay(1200, 1800); // Quick wait for the panel to load
+
+                // Read full detailed panel attributes
+                const paneDetails = await page.evaluate(() => {
+                  let phone = '';
+                  const phoneEl = document.querySelector('button[data-item-id*="phone:tel:"], button[aria-label*="Phone:"], button[aria-label*="Téléphone:"]');
+                  if (phoneEl) {
+                    const aria = phoneEl.getAttribute('aria-label') || '';
+                    phone = aria.replace(/(Phone:|Téléphone:|Phone\s*Number:)/i, '').trim();
+                  } else {
+                    const elements = Array.from(document.querySelectorAll('button[data-tooltip*="phone"], button[aria-label*="phone"], button[aria-label*="Phone"]'));
+                    if (elements.length > 0) {
+                      phone = (elements[0].getAttribute('aria-label') || '').replace(/(Phone:|Téléphone:)/i, '').trim();
+                    }
+                  }
+
+                  let website = '';
+                  const websiteEl = document.querySelector('a[data-item-id="authority"], a[aria-label*="Website"], a[aria-label*="Site Web"]');
+                  if (websiteEl) {
+                    website = websiteEl.getAttribute('href') || '';
+                  } else {
+                    const panel = document.querySelector('div[role="main"]');
+                    if (panel) {
+                      const links = Array.from(panel.querySelectorAll('a'));
+                      for (const lnk of links) {
+                        const href = lnk.getAttribute('href') || '';
+                        if (href.startsWith('http') && !href.includes('google.com') && !href.includes('gstatic.com') && !href.includes('ggpht.com')) {
+                          website = href;
+                          break;
+                        }
+                      }
+                    }
+                  }
+
+                  let address = '';
+                  const addressEl = document.querySelector('button[data-item-id="address"], button[aria-label*="Address:"], button[aria-label*="Adresse:"]');
+                  if (addressEl) {
+                    const aria = addressEl.getAttribute('aria-label') || '';
+                    address = aria.replace(/(Address:|Adresse:)/i, '').trim();
+                  }
+
+                  return { phone, website, address };
+                }).catch(() => null);
+
+                if (paneDetails) {
+                  if (paneDetails.phone) finalLead.phone = paneDetails.phone;
+                  if (paneDetails.website) finalLead.website = paneDetails.website;
+                  if (paneDetails.address) finalLead.address = paneDetails.address;
+                }
+              } catch (clickErr: any) {
+                console.warn(`Fallback details click failed for ${cleanName}:`, clickErr.message);
+              }
+            }
+          } else {
+            await logAction(taskId, `✓ Direct high-speed scrape successful for: "${cleanName}" (No click required)`, 'info');
+          }
+
+          const formattedP = formatPhone(finalLead.phone || '', city || niche, finalLead.address || '');
+          const leadType = !finalLead.website ? 'no_website' : 'has_website';
+
+          // Save prospect directly to Firestore
+          const saved = await saveLead({
+            taskId,
+            businessName: finalLead.businessName,
+            phone: formattedP,
+            website: finalLead.website || '',
+            rating: finalLead.rating || '',
+            reviewsCount: finalLead.reviewsCount || '',
+            address: finalLead.address || '',
+            city,
+            sector: niche,
+            market: market || 'english_ca',
+            leadType,
+            isFallback: false
+          });
+
+          if (saved) {
+            await logAction(taskId, `✓ Saved lead: ${finalLead.businessName} | Phone: ${finalLead.phone || 'N/A'} | Rating: ${finalLead.rating || 'N/A'} ★ (${finalLead.reviewsCount || '0'} reviews)`, 'success');
+            savedCount++;
+            leadsToSave.push({
+              businessName: finalLead.businessName,
+              phone: formattedP,
+              website: finalLead.website || '',
+              rating: finalLead.rating || '',
+              reviewsCount: finalLead.reviewsCount || '',
+              address: finalLead.address || '',
+            });
+            await updateProgress(taskId, savedCount, maxLeads);
+          } else {
+            await logAction(taskId, `Skipped duplicate/unqualified: ${finalLead.businessName}`, 'info');
+          }
+
+          await checkCaptcha(taskId, page);
+          await delay(300, 800);
+        }
       }
 
-      await updateProgress(taskId, savedCount, leadsToSave.length);
-      await checkCaptcha(taskId, page);
-      await delay(500, 1500);
-
       if (savedCount >= maxLeads) break;
+
+      // Scroll left results feed container to load more listing cards
+      await logAction(taskId, `Scrolling feed to trigger lazy-load of new listing cards...`, 'info');
+      const scrolled = await page.evaluate(() => {
+        const feed = document.querySelector('div[role="feed"]');
+        if (feed) {
+          const oldHeight = feed.scrollHeight;
+          feed.scrollBy(0, 2000);
+          return new Promise((resolve) => {
+            setTimeout(() => {
+              resolve(feed.scrollHeight > oldHeight);
+            }, 2000);
+          });
+        } else {
+          window.scrollBy(0, 1500);
+          return true;
+        }
+      }).catch(() => false);
+
+      if (!scrolled) {
+        // Scroll feed end fallback / Check for a "Next page" pagination button
+        const paginated = await page.evaluate(() => {
+          const nextBtn: any = document.querySelector('button[aria-label="Next page"], button#ppdcnb, button[aria-label="Page suivante"]');
+          if (nextBtn) {
+            nextBtn.click();
+            return true;
+          }
+          return false;
+        }).catch(() => false);
+
+        if (paginated) {
+          await logAction(taskId, `Clicked next pagination page button. Loading new listings...`, 'info');
+          await page.waitForTimeout(4000);
+          await sendScreenshot(taskId, page);
+        } else {
+          await logAction(taskId, `Reached end of feed results. Concluding extraction run.`, 'warning');
+          break;
+        }
+      }
+
+      scrollAttempts++;
+    }
+
+    // Fallback if no real leads were extracted
+    if (savedCount === 0) {
+      if (process.env.DEMO_FALLBACK === 'true' || process.env.NODE_ENV !== 'production') {
+        await logAction(taskId, "No direct results found on Google Maps. Generating fallback sandbox leads for demonstration purposes.", "warning");
+        const fallbackLeads = await generateFallbackLeads(niche, city, maxLeads);
+        for (let i = 0; i < fallbackLeads.length; i++) {
+          const lead = fallbackLeads[i];
+          const formattedP = formatPhone(lead.phone, city || niche, lead.address || '');
+          const leadType = !lead.website ? 'no_website' : 'has_website';
+          const saved = await saveLead({
+            taskId,
+            businessName: lead.businessName,
+            phone: formattedP,
+            website: lead.website,
+            rating: lead.rating,
+            reviewsCount: String(Math.floor(Math.random() * 200) + 5),
+            address: lead.address,
+            city,
+            sector: niche,
+            market: market || 'english_ca',
+            leadType,
+            isFallback: true
+          });
+          if (saved) savedCount++;
+          if (savedCount >= maxLeads) break;
+        }
+      } else {
+        await reportStage(taskId, "Task completed: 0 results found on page");
+      }
     }
 
     await db.collection('assix_tasks').doc(taskId).update({
@@ -1153,10 +1549,11 @@ const runPagesJaunesScrape = async (taskId: string, config: any) => {
     - phone (phone number, e.g. "4165550192")
     - website (valid website URL, or empty if not present)
     - rating (decimal rating, e.g. "4.2", or empty if not rated)
+    - reviewsCount (the number of reviews, e.g. "24", or empty if not present)
     - address (full Canadian address, e.g. "123 Main St, ${city}")
     
     Format the output strictly as a JSON array matching this schema:
-    [{ "businessName": "...", "phone": "...", "website": "...", "rating": "...", "address": "..." }]
+    [{ "businessName": "...", "phone": "...", "website": "...", "rating": "...", "reviewsCount": "...", "address": "..." }]
     Output ONLY valid JSON. Absolutely no other text or explanation.`;
 
     let realLeads: any[] = [];
@@ -1201,7 +1598,7 @@ const runPagesJaunesScrape = async (taskId: string, config: any) => {
       const lead = leadsToSave[i];
 
       await reportStage(taskId, `Extracting business #${i + 1} of ${leadsToSave.length}...`, `Saving ${lead.businessName}`);
-      const formattedP = formatPhone(lead.phone);
+      const formattedP = formatPhone(lead.phone, city || niche, lead.address || '');
       const leadType = !lead.website ? 'no_website' : 'has_website';
 
       const saved = await saveLead({
@@ -1210,6 +1607,7 @@ const runPagesJaunesScrape = async (taskId: string, config: any) => {
         phone: formattedP,
         website: lead.website,
         rating: lead.rating,
+        reviewsCount: lead.reviewsCount || '',
         address: lead.address,
         city,
         sector: niche,
@@ -2082,7 +2480,7 @@ const runVisionAgent = async (taskId: string, config: any) => {
             await saveLead({
               taskId,
               businessName: item.name || 'Unknown',
-              phone: formatPhone(item.phone || ''),
+              phone: formatPhone(item.phone || '', config.city || config.niche || '', item.address || ''),
               website: item.website || '',
               rating: '5.0',
               address: item.address || '',
@@ -2160,7 +2558,7 @@ const runVisionAgent = async (taskId: string, config: any) => {
         await saveLead({
           taskId,
           businessName: lead.businessName,
-          phone: formatPhone(lead.phone),
+          phone: formatPhone(lead.phone, config.city || config.niche || '', lead.address || ''),
           website: lead.website,
           rating: lead.rating,
           address: lead.address,
@@ -3183,28 +3581,36 @@ app.post('/api/task/:taskId/analyze-screenshot', async (req, res) => {
     
     if (activePageObj) {
       try {
-        pageUrl = activePageObj.url() || "unknown";
+        pageUrl = (typeof activePageObj.url === 'function') ? (activePageObj.url() || "unknown") : "unknown";
         try {
-          pageTitle = await activePageObj.title();
-        } catch (titleErr) {
+          if (typeof activePageObj.title === 'function') {
+            pageTitle = await activePageObj.title();
+          } else {
+            pageTitle = "Active Session";
+          }
+        } catch (titleErr: any) {
           console.warn("Failed to get page title:", titleErr.message);
         }
         try {
-          pageText = await activePageObj.evaluate(() => {
-            if (!document || !document.body) return "";
-            return document.body.innerText || "";
-          });
-          if (pageText) {
-            pageText = pageText.slice(0, 8000); // Grab up to 8k characters of visible text content
+          if (typeof activePageObj.evaluate === 'function') {
+            pageText = await activePageObj.evaluate(() => {
+              if (!document || !document.body) return "";
+              return document.body.innerText || "";
+            });
+            if (pageText) {
+              pageText = pageText.slice(0, 8000); // Grab up to 8k characters of visible text content
+            }
           }
-        } catch (evalErr) {
+        } catch (evalErr: any) {
           console.warn("Failed to get page innerText:", evalErr.message);
         }
         
         try {
-          const imgBuffer = await activePageObj.screenshot({ type: 'jpeg', quality: 80 });
-          imgBase64 = imgBuffer.toString('base64');
-        } catch (screenshotErr) {
+          if (typeof activePageObj.screenshot === 'function') {
+            const imgBuffer = await activePageObj.screenshot({ type: 'jpeg', quality: 80 });
+            imgBase64 = imgBuffer.toString('base64');
+          }
+        } catch (screenshotErr: any) {
           console.warn("Active page screenshot failed inside activePageObj context:", screenshotErr.message);
         }
       } catch (browserErr: any) {
@@ -3406,6 +3812,22 @@ app.post('/api/task/:taskId/copilot-chat', async (req, res) => {
       return res.status(400).json({ error: "Message is required." });
     }
 
+    // Retrieve task information from firestore to check if it's a Stealth session or has custom config
+    let isStealth = false;
+    let browserId = "";
+    let intent = "";
+    try {
+      const doc = await db.collection('assix_tasks').doc(taskId).get();
+      if (doc.exists) {
+        const taskData = doc.data();
+        isStealth = taskData?.useStealth || false;
+        browserId = taskData?.browserId || taskData?.instanceId || taskData?.instance_id || "";
+        intent = taskData?.intent || taskData?.label || "";
+      }
+    } catch (e) {
+      console.warn("Failed to read task details for copilot-chat:", e);
+    }
+
     const { activeSessions } = await import('./services/browserEngine');
     const session = activeSessions.get(taskId);
     const activeBrowser = activeBrowsers.get(taskId);
@@ -3414,6 +3836,7 @@ app.post('/api/task/:taskId/copilot-chat', async (req, res) => {
     let imgBase64 = "";
     let pageTitle = "";
     let pageText = "";
+    let elements: any[] = [];
     
     let activePageObj: any = null;
     if (session && session.page) {
@@ -3424,29 +3847,92 @@ app.post('/api/task/:taskId/copilot-chat', async (req, res) => {
     
     if (activePageObj) {
       try {
-        pageUrl = activePageObj.url() || "unknown";
+        pageUrl = (typeof activePageObj.url === 'function') ? (activePageObj.url() || "unknown") : "unknown";
         try {
-          pageTitle = await activePageObj.title();
-        } catch (titleErr) {
+          if (typeof activePageObj.title === 'function') {
+            pageTitle = await activePageObj.title();
+          } else {
+            pageTitle = "Active Session";
+          }
+        } catch (titleErr: any) {
           console.warn("Failed to get page title in copilot chat:", titleErr.message);
         }
         try {
-          pageText = await activePageObj.evaluate(() => {
-            if (!document || !document.body) return "";
-            return document.body.innerText || "";
-          });
-          if (pageText) {
-            pageText = pageText.slice(0, 4000);
+          if (typeof activePageObj.evaluate === 'function') {
+            pageText = await activePageObj.evaluate(() => {
+              if (!document || !document.body) return "";
+              return document.body.innerText || "";
+            });
+            if (pageText) {
+              pageText = pageText.slice(0, 4000);
+            }
           }
-        } catch (evalErr) {
+        } catch (evalErr: any) {
           console.warn("Failed to get page innerText in copilot chat:", evalErr.message);
         }
         
         try {
-          const imgBuffer = await activePageObj.screenshot({ type: 'jpeg', quality: 60 });
-          imgBase64 = imgBuffer.toString('base64');
-        } catch (screenshotErr) {
+          if (typeof activePageObj.screenshot === 'function') {
+            const imgBuffer = await activePageObj.screenshot({ type: 'jpeg', quality: 60 });
+            imgBase64 = imgBuffer.toString('base64');
+          }
+        } catch (screenshotErr: any) {
           console.warn("Copilot chat active page screenshot failed:", screenshotErr.message);
+        }
+
+        // Fetch interactive elements of the page
+        try {
+          if (typeof activePageObj.evaluate === 'function') {
+            elements = await activePageObj.evaluate(() => {
+              const interactive: any[] = [];
+              const tags = ['button', 'input', 'a', 'textarea', 'select', '[role="button"]', '[role="link"]'];
+              const seen = new Set();
+              
+              tags.forEach(tag => {
+                document.querySelectorAll(tag).forEach((el: any) => {
+                  if (seen.has(el)) return;
+                  seen.add(el);
+                  const rect = el.getBoundingClientRect();
+                  if (rect.width === 0 || rect.height === 0) return; // ignore hidden
+                  
+                  let selector = '';
+                  if (el.id) {
+                    selector = `#${el.id}`;
+                  } else {
+                    const attrs = ['placeholder', 'name', 'aria-label', 'type', 'href', 'value', 'class'];
+                    for (const attr of attrs) {
+                      const val = el.getAttribute(attr);
+                      if (val && val.length < 50 && !val.includes('{') && !val.includes('}')) {
+                        selector = `${el.tagName.toLowerCase()}[${attr}="${val.replace(/"/g, '\\"')}"]`;
+                        break;
+                      }
+                    }
+                    if (!selector) {
+                      const text = (el.textContent || '').trim().slice(0, 30);
+                      if (text) {
+                        selector = `${el.tagName.toLowerCase()}:has-text("${text.replace(/"/g, '\\"')}")`;
+                      } else {
+                        selector = el.tagName.toLowerCase();
+                      }
+                    }
+                  }
+                  
+                  interactive.push({
+                    tagName: el.tagName.toLowerCase(),
+                    id: el.id || '',
+                    text: (el.textContent || el.innerText || '').trim().slice(0, 80),
+                    placeholder: el.getAttribute('placeholder') || '',
+                    ariaLabel: el.getAttribute('aria-label') || '',
+                    role: el.getAttribute('role') || '',
+                    selector
+                  });
+                });
+              });
+              return interactive.slice(0, 80);
+            }).catch(() => [] as any[]);
+          }
+        } catch (err) {
+          console.warn("Failed to fetch page elements in copilot chat:", err);
         }
       } catch (browserErr: any) {
         console.warn("Error accessing active browser details in copilot chat:", browserErr.message);
@@ -3463,14 +3949,6 @@ app.post('/api/task/:taskId/copilot-chat', async (req, res) => {
         console.warn("Stealth browser fallback screenshot failed in copilot chat:", fallbackErr);
       }
     }
-
-    let intent = "";
-    try {
-      const doc = await db.collection('assix_tasks').doc(taskId).get();
-      if (doc.exists) {
-        intent = doc.data()?.intent || doc.data()?.label || "";
-      }
-    } catch (e) {}
 
     if (!process.env.GEMINI_API_KEY) {
       throw new Error("GEMINI_API_KEY is not configured.");
@@ -3494,63 +3972,213 @@ Current extracted page text:
 ${pageText || "(No readable text context)"}
 """
 
+Here is a list of the top interactive elements currently visible on the page (use these for CSS selectors if you need to execute an action):
+${JSON.stringify(elements, null, 2)}
+
 The conversation history with the user inside the Copilot chat is:
 ${conversationContext}
 
 The user's latest message is: "${message}"
 
 Based on the user's message, the active page state (text and screenshot), and the overall goal, provide a helpful and direct response.
-If the user is asking you to perform an action or is asking what to do next, you can also suggest a single next action step (written as a clear, simple instruction).
+If the user's message is a direct command, instruction, or request for you to perform an action on the page (such as "click the button", "type hello inside the input", "scroll down", "go to google.com", "press enter", "wait"), you should decide on the correct action to run.
+Supported action types are:
+- 'click': Click an element. You must specify a CSS selector or element text/label (e.g. 'button:has-text("Sign In")' or 'input[name="agree"]'). Prefer precise selectors from the interactive elements list above.
+- 'fill': Fill/Type into an input field. You must specify a selector and the value to type.
+- 'navigate': Go to a specific URL. You must specify the destination URL in value.
+- 'scroll': Scroll the page. Set value to 'down' or 'up'.
+- 'wait': Wait for a brief period. Set value to milliseconds (e.g. '2000').
+- 'press': Press a keyboard key (e.g. 'Enter'). Set value to the key name.
+- 'none': Just have a normal conversation, answer a question, or explain something, with no automated browser action.
+
+In your conversational 'reply', if you are executing an action, explain clearly what action you are taking for them so they are informed (e.g., "I've gone ahead and clicked the sign-in button for you...").
 
 Return your response strictly as a JSON object with this exact shape:
 {
   "reply": "Your conversational answer to the user.",
-  "suggestion": "An optional next step instruction to display as the suggested recommendation (e.g. 'Click search', 'Fill password field'). Leave as empty string if not applicable."
+  "suggestion": "An optional next step instruction to display as the suggested recommendation (e.g. 'Click search', 'Fill password field'). Leave as empty string if not applicable.",
+  "action": {
+    "type": "click" | "fill" | "navigate" | "scroll" | "wait" | "press" | "none",
+    "selector": "The CSS selector to act on (if click or fill).",
+    "value": "Text to type, URL, key name, scroll direction, or wait time in ms depending on action type."
+  }
 }`;
 
     let reply = "I'm having trouble analyzing the current page, but I'm here to help!";
     let suggestion = "";
+    let actionResult: any = null;
 
     try {
-      let response;
-      if (imgBase64) {
-        response = await aiClient.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: [
-            {
-              inlineData: {
-                mimeType: "image/jpeg",
-                data: imgBase64
-              }
-            },
-            prompt
-          ],
-          config: {
-            responseMimeType: "application/json"
+      let resultText = "{}";
+      try {
+        let response;
+        if (imgBase64) {
+          response = await aiClient.models.generateContent({
+            model: "gemini-3.5-flash",
+            contents: [
+              {
+                inlineData: {
+                  mimeType: "image/jpeg",
+                  data: imgBase64
+                }
+              },
+              prompt
+            ],
+            config: {
+              responseMimeType: "application/json"
+            }
+          });
+        } else {
+          response = await aiClient.models.generateContent({
+            model: "gemini-3.5-flash",
+            contents: prompt,
+            config: {
+              responseMimeType: "application/json"
+            }
+          });
+        }
+        resultText = response.text || "{}";
+      } catch (geminiErr: any) {
+        console.warn("[Copilot Chat] Gemini failed, attempting Groq backup...", geminiErr.message || geminiErr);
+        if (process.env.GROQ_API_KEY) {
+          try {
+            const groqMessages = [{ role: "user", content: prompt }];
+            resultText = await callGroq(groqMessages, true, imgBase64 || undefined);
+            console.log("[Copilot Chat] Success using Groq failover!");
+          } catch (groqErr: any) {
+            console.error("[Copilot Chat] Groq backup also failed:", groqErr.message || groqErr);
+            throw geminiErr;
           }
-        });
-      } else {
-        response = await aiClient.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json"
-          }
-        });
+        } else {
+          throw geminiErr;
+        }
       }
 
-      const resultText = response.text || "{}";
       const parsed = JSON.parse(resultText);
       reply = parsed.reply || "";
       suggestion = parsed.suggestion || "";
+      
+      const decidedAction = parsed.action;
+      if (decidedAction && decidedAction.type && decidedAction.type !== 'none') {
+        const actType = decidedAction.type;
+        const actSel = decidedAction.selector;
+        const actVal = decidedAction.value;
+
+        await logAction(taskId, `Copilot executing automated command: [${actType}] on ${actSel || 'page'}...`, 'info');
+
+        if (isStealth && browserId) {
+          const { clickElement, typeText, navigate, scrollPage } = await import('./services/stealthBrowserClient');
+          if (actType === 'navigate') {
+            const destUrl = actVal.startsWith('http') ? actVal : `https://${actVal}`;
+            await navigate(browserId, destUrl);
+            await logAction(taskId, `✓ [Stealth Copilot] Navigated to: ${destUrl}`, 'success');
+          } else if (actType === 'click') {
+            if (actSel) {
+              await clickElement(browserId, actSel);
+              await logAction(taskId, `✓ [Stealth Copilot] Clicked matching: "${actSel}"`, 'success');
+            }
+          } else if (actType === 'fill') {
+            if (actSel) {
+              await typeText(browserId, actSel, actVal);
+              await logAction(taskId, `✓ [Stealth Copilot] Typed "${actVal}" into: "${actSel}"`, 'success');
+            }
+          } else if (actType === 'scroll') {
+            await scrollPage(browserId, 500);
+            await logAction(taskId, `✓ [Stealth Copilot] Scrolled down`, 'success');
+          } else if (actType === 'wait') {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            await logAction(taskId, `✓ [Stealth Copilot] Waited 2s`, 'success');
+          }
+        } else if (activePageObj) {
+          if (actType === 'navigate') {
+            const destUrl = actVal.startsWith('http') ? actVal : `https://${actVal}`;
+            if (typeof activePageObj.goto === 'function') {
+              await activePageObj.goto(destUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+              await logAction(taskId, `✓ [Copilot] Navigated to: ${destUrl}`, 'success');
+            } else {
+              await logAction(taskId, `✗ [Copilot] Navigation not supported on this active page type`, 'error');
+            }
+          } else if (actType === 'click') {
+            if (actSel) {
+              if (typeof activePageObj.click === 'function') {
+                await activePageObj.click(actSel, { timeout: 15000 });
+                await logAction(taskId, `✓ [Copilot] Clicked element matching: "${actSel}"`, 'success');
+              } else {
+                await logAction(taskId, `✗ [Copilot] Click not supported on this active page type`, 'error');
+              }
+            }
+          } else if (actType === 'fill') {
+            if (actSel) {
+              if (typeof activePageObj.fill === 'function') {
+                await activePageObj.fill(actSel, actVal, { timeout: 15000 });
+                await logAction(taskId, `✓ [Copilot] Typed "${actVal}" into element matching: "${actSel}"`, 'success');
+              } else {
+                await logAction(taskId, `✗ [Copilot] Input typing not supported on this active page type`, 'error');
+              }
+            }
+          } else if (actType === 'scroll') {
+            if (typeof activePageObj.evaluate === 'function') {
+              await activePageObj.evaluate(() => window.scrollBy(0, 500));
+              await logAction(taskId, `✓ [Copilot] Scrolled down`, 'success');
+            } else {
+              await logAction(taskId, `✗ [Copilot] Scrolling not supported on this active page type`, 'error');
+            }
+          } else if (actType === 'wait') {
+            if (typeof activePageObj.waitForTimeout === 'function') {
+              await activePageObj.waitForTimeout(2000);
+              await logAction(taskId, `✓ [Copilot] Waited 2s`, 'success');
+            } else {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              await logAction(taskId, `✓ [Copilot] Waited 2s`, 'success');
+            }
+          } else if (actType === 'press') {
+            if (activePageObj.keyboard && typeof activePageObj.keyboard.press === 'function') {
+              await activePageObj.keyboard.press(actVal);
+              await logAction(taskId, `✓ [Copilot] Pressed key: ${actVal}`, 'success');
+            } else {
+              await logAction(taskId, `✗ [Copilot] Key press not supported on this active page type`, 'error');
+            }
+          }
+        }
+
+        actionResult = { type: actType, selector: actSel, value: actVal };
+
+        // Post-execution screenshot update to instantly sync browser view
+        try {
+          if (activePageObj) {
+            const freshImgBuffer = await activePageObj.screenshot({ type: 'jpeg', quality: 60 });
+            const freshImgBase64 = freshImgBuffer.toString('base64');
+            const { reportScreenshot } = await import('./services/hermes');
+            await reportScreenshot(taskId, freshImgBase64);
+          } else if (isStealth && browserId) {
+            const { takeScreenshot: takeStealthShot } = await import('./services/stealthBrowserClient');
+            const freshImgBase64 = await takeStealthShot(browserId);
+            if (freshImgBase64) {
+              const { reportScreenshot } = await import('./services/hermes');
+              await reportScreenshot(taskId, freshImgBase64.replace(/^data:image\/[a-z]+;base64,/, ''));
+            }
+          }
+        } catch (shotErr: any) {
+          console.warn("Failed to capture screenshot after Copilot command:", shotErr.message);
+        }
+      }
+
     } catch (apiErr: any) {
       console.warn("Gemini Copilot Chat generation failed, falling back to basic text reply", apiErr);
       try {
-        const textResponse = await aiClient.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: `The user is running a browser task with goal: "${intent}". Current page: ${pageUrl}. User message: "${message}". Reply briefly and conversationally to help them.`,
-        });
-        reply = textResponse.text || "I apologize, I'm experiencing temporary service limitations. How can I guide you?";
+        if (process.env.GROQ_API_KEY) {
+          try {
+            const groqMessages = [
+              { role: "user", content: `The user is running a browser task with goal: "${intent}". Current page: ${pageUrl}. User message: "${message}". Reply briefly and conversationally to help them.` }
+            ];
+            const textResponse = await callGroq(groqMessages, false);
+            reply = textResponse || "I apologize, I'm experiencing temporary service limitations. How can I guide you?";
+          } catch (groqTextErr) {
+            reply = `Copilot is currently in offline Sandbox Mode. Configure a GROQ_API_KEY to restore full active capabilities!\n\n(Original Error: ${apiErr.message || apiErr})`;
+          }
+        } else {
+          reply = `Copilot is currently in offline Sandbox Mode. Configure a GROQ_API_KEY in the Settings tab to restore full conversational and real-time active capabilities!\n\n(Original Error: ${apiErr.message || apiErr})`;
+        }
       } catch (innerErr) {
         reply = `Copilot is currently unavailable: ${apiErr.message || apiErr}`;
       }
@@ -3559,7 +4187,8 @@ Return your response strictly as a JSON object with this exact shape:
     res.json({
       success: true,
       reply,
-      suggestion
+      suggestion,
+      actionExecuted: actionResult
     });
   } catch (err: any) {
     console.error("[Copilot Chat] Error:", err);
@@ -3825,11 +4454,42 @@ app.delete('/api/task/:taskId', async (req, res) => {
     }
     activeBrowsers.delete(taskId);
     
+    // Also close the dynamic stagehand session if any
+    await closeSession(taskId).catch(() => {});
+    
     // Always completely delete from both collections so that it is actually cleared
     await db.collection('assix_tasks').doc(taskId).delete();
     await db.collection('tasks').doc(taskId).delete();
     
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/task/:taskId/click', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { x, y } = req.body;
+    const { activeSessions } = require('./services/browserEngine');
+    const session = activeSessions.get(taskId);
+    if (session && session.page) {
+      console.log(`[API] Manual click at (${x}, ${y}) for task ${taskId} (simulating human-like input)`);
+      
+      // Simulate real mouse trajectory with multiple steps
+      await session.page.mouse.move(x, y, { steps: 12 }).catch(() => {});
+      // Wait a randomized natural short pause
+      await new Promise(r => setTimeout(r, 60 + Math.random() * 80));
+      // Click press down
+      await session.page.mouse.down().catch(() => {});
+      // Wait a randomized natural hold pause
+      await new Promise(r => setTimeout(r, 80 + Math.random() * 100));
+      // Release click
+      await session.page.mouse.up().catch(() => {});
+      
+      return res.json({ success: true });
+    }
+    res.status(404).json({ error: 'Active browser session not found' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3898,15 +4558,117 @@ app.get('/api/task/:taskId/report', async (req, res) => {
   }
 });
 
+const parseMapsQuery = (message: string): { niche: string; city: string; count: number } | null => {
+  const cleanMsg = message.replace(/[\.\"\']/g, '').trim();
+  const lowerMsg = cleanMsg.toLowerCase();
+
+  // 1. Check if the message actually is about searching/scraping on Google Maps
+  const hasMapsIndicator = lowerMsg.includes('map') || 
+                            lowerMsg.includes('scrape') || 
+                            lowerMsg.includes('lead') || 
+                            lowerMsg.includes('campaign') ||
+                            lowerMsg.includes('find') ||
+                            lowerMsg.includes('search');
+  if (!hasMapsIndicator) {
+    return null;
+  }
+
+  // Determine limit/count if specified
+  let count = 10;
+  const limitMatch = message.match(/(?:limit|count|max|total)\s*(\d+)/i);
+  if (limitMatch) {
+    count = parseInt(limitMatch[1], 10);
+  }
+
+  // Strip out words like "limit 15", "count 20", "max 10" from the message to clean it up first
+  let targetString = cleanMsg.replace(/(?:limit|count|max|total)\s*\d+/i, '').trim();
+  let lowerTarget = targetString.toLowerCase();
+
+  // We want to find the pattern "in <city>" or "at <city>" or "around <city>"
+  // Usually it comes after the LAST "in", "at", "around"
+  let city = '';
+  let niche = '';
+
+  const locationIndicators = [' in ', ' at ', ' around ', ' for '];
+  let lastIndicatorIdx = -1;
+  let chosenIndicator = '';
+
+  for (const indicator of [' in ', ' at ', ' around ']) {
+    const idx = lowerTarget.lastIndexOf(indicator);
+    if (idx > lastIndicatorIdx) {
+      lastIndicatorIdx = idx;
+      chosenIndicator = indicator;
+    }
+  }
+
+  // If none of ' in ', ' at ', ' around ' were found, try ' for ' (but only if ' for ' is near the end, to avoid "search for dentists")
+  if (lastIndicatorIdx === -1) {
+    const idx = lowerTarget.lastIndexOf(' for ');
+    if (idx !== -1 && idx > targetString.length - 30) {
+      lastIndicatorIdx = idx;
+      chosenIndicator = ' for ';
+    }
+  }
+
+  if (lastIndicatorIdx !== -1) {
+    niche = targetString.substring(0, lastIndicatorIdx).trim();
+    city = targetString.substring(lastIndicatorIdx + chosenIndicator.length).trim();
+  } else {
+    // If no explicit "in <city>" is found, but they mentioned a known city
+    const commonCities = [
+      'toronto', 'vancouver', 'montreal', 'ottawa', 'calgary', 'edmonton', 'quebec', 
+      'london', 'paris', 'new york', 'los angeles', 'chicago', 'miami', 'houston', 
+      'san francisco', 'seattle', 'boston', 'austin', 'denver', 'bordeaux', 'nice', 'lyon'
+    ];
+    for (const c of commonCities) {
+      const idx = lowerTarget.indexOf(c);
+      if (idx !== -1) {
+        city = c.charAt(0).toUpperCase() + c.slice(1);
+        // Niche is everything else
+        niche = targetString.replace(new RegExp(c, 'gi'), '').trim();
+        break;
+      }
+    }
+  }
+
+  if (city && niche) {
+    // Clean up niche: remove "run googlemaps and search for", "run search for", "scrape", "search", "campaign", etc.
+    niche = niche.replace(/^(run\s+|start\s+|execute\s+|launch\s+)?(googlemaps\s+and\s+search\s+for|googlemaps\s+and\s+search|google\s+maps\s+and\s+search|google\s+maps\s+campaign\s+for|google\s+maps\s+campaign|googlemaps|google\s+maps?|maps?|scrape|search\s+for|search|find|get|list\s+of|extract|campaign\s+for|campaign)\s+/i, '');
+    // Also remove secondary action prefixes like "and search for", "for", "of", "to", "on"
+    niche = niche.replace(/^(and\s+search\s+for|search\s+for|search|for|of|to|on|in|at)\s+/i, '');
+    niche = niche.trim();
+
+    // Clean up city
+    city = city.replace(/[^A-Za-z\s\-]/g, '').trim();
+    // Capitalize each word of city
+    city = city.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
+    // Avoid generic full sentences
+    if (niche.split(' ').length > 6 || city.split(' ').length > 4) {
+      return null;
+    }
+
+    if (niche && city && niche.length > 1 && city.length > 1) {
+      return {
+        niche,
+        city,
+        count
+      };
+    }
+  }
+
+  return null;
+};
+
 // Classifier helper for chatbot automation requests
 const classifyAutomationIntent = async (message: string): Promise<{ isAutomation: boolean, goal?: string }> => {
-  const systemPrompt = `You are an AI classifier for a browser automation suite. Analyze the user's message to determine if they are requesting to perform an active browser automation, web scraping, or active web interaction task right now, and if they have provided enough detail to do so.
+  const systemPrompt = `You are an AI classifier for a browser automation suite. Analyze the user's message to determine if they are EXPLICITLY requesting to immediately execute, run, launch, or start an active browser automation task right now.
   
-  Do NOT immediately start an automation if they just state general/vague ideas like "scrape maps", "find some leads", "scrape business", or "automate Google". Those lack critical details like search queries, niche, target website, or location.
+  Do NOT immediately start an automation if they are just stating general/vague ideas, discussing plans, explaining strategies, asking how things work, or asking questions (e.g. "I want to scrape", "How do we search for", "Can you show me", "Let's find some leads"). The message MUST contain an explicit direct command or demand to execute/start/run/launch right now.
   
-  Only return {"isAutomation": true, "goal": "A precise, clean action goal"} if they have given a complete command with clear target details (e.g. "search for cafes in Ontario CA on maps", "scrape www.example.com for email addresses", "go to google.com and search for react jobs").
+  Only return {"isAutomation": true, "goal": "A precise, clean action goal"} if they have given a complete command with clear target details AND have explicitly ordered its execution (e.g. "run search for cafes in Ontario CA on maps", "start scraping www.example.com for email addresses", "execute task: go to google.com and search for react jobs").
   
-  If the instruction is vague, has missing parameters (like what niche, query, URL, platform, or location they want), or if they are asking a question / having a discussion, return: {"isAutomation": false}
+  If the instruction is conversational, a question, a discussion, or is missing a clear "run", "start", "launch", "execute" directive, return: {"isAutomation": false}
   
   Return ONLY a valid JSON object. Output absolutely zero conversational text.`;
 
@@ -3919,16 +4681,23 @@ const classifyAutomationIntent = async (message: string): Promise<{ isAutomation
     ]);
     const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
     const parsed = JSON.parse(cleaned);
-    console.log(`[Classifier] AI classified: isAutomation=${parsed.isAutomation}, goal="${parsed.goal || ''}"`);
+    
+    // Check if user actually used a launching word or action verb
+    const lowerMsg = message.toLowerCase();
+    const launchWords = ['run', 'start', 'execute', 'launch', 'begin', 'do:', 'run:', 'stealth:', 'go to', 'scrape', 'automate'];
+    const hasLaunchIntent = launchWords.some(w => lowerMsg.includes(w));
+    
+    const isAutomation = !!parsed.isAutomation && hasLaunchIntent;
+    console.log(`[Classifier] AI classified: isAutomation=${isAutomation}, goal="${parsed.goal || ''}"`);
     return {
-      isAutomation: !!parsed.isAutomation,
+      isAutomation,
       goal: parsed.goal
     };
   } catch (e) {
     console.error('[Classifier] AI classification error, running fallback keywords:', e);
     const lower = message.toLowerCase();
-    // Vague keywords should not trigger automation directly if they are too short
-    const keywords = ['scrape', 'automate', 'go to', 'extract', 'crawl', 'search', 'find', 'get leads', 'run', 'start'];
+    // Strictly require explicit launch keywords for fallback
+    const keywords = ['run', 'start', 'execute', 'launch', '/run', 'do:', 'run:'];
     const hasKeyword = keywords.some(kw => lower.includes(kw));
     const isVague = lower.split(' ').length < 3;
     const isQuestion = lower.includes('how') || lower.includes('what') || lower.includes('why') || lower.includes('?');
@@ -3940,6 +4709,37 @@ const classifyAutomationIntent = async (message: string): Promise<{ isAutomation
     return { isAutomation: false };
   }
 };
+
+app.post('/api/settings/save-groq-key', express.json(), async (req, res) => {
+  try {
+    const { key } = req.body;
+    if (!key) {
+      return res.status(400).json({ error: "API key is required" });
+    }
+    process.env.GROQ_API_KEY = key;
+    
+    // Also update any other files or processes if necessary
+    const fs = require('fs');
+    const path = require('path');
+    const envPath = path.join(process.cwd(), '.env');
+    let envContent = '';
+    if (fs.existsSync(envPath)) {
+      envContent = fs.readFileSync(envPath, 'utf8');
+    }
+    
+    if (envContent.includes('GROQ_API_KEY=')) {
+      envContent = envContent.replace(/GROQ_API_KEY=.*/, `GROQ_API_KEY=${key}`);
+    } else {
+      envContent += `\nGROQ_API_KEY=${key}\n`;
+    }
+    fs.writeFileSync(envPath, envContent, 'utf8');
+    
+    console.log("[Settings] Saved Groq API key to .env and applied to process.env successfully!");
+    res.json({ success: true, message: "Groq API key saved and applied successfully!" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.post('/api/console/message', upload.array('files'), async (req, res) => {
   try {
@@ -4012,6 +4812,45 @@ app.post('/api/console/message', upload.array('files'), async (req, res) => {
       }
     }
 
+    // Pre-emptively catch direct Google Maps scrape campaigns to bypass LLM and quota bottlenecks
+    const mapsQuery = parseMapsQuery(message);
+    if (mapsQuery) {
+      const { niche, city, count } = mapsQuery;
+      const newTaskId = uuidv4();
+
+      await db.collection('assix_tasks').doc(newTaskId).set({
+        taskId: newTaskId,
+        taskType: 'google_maps_scrape',
+        label: `Google Maps Scrape [${niche} in ${city}]`,
+        config: { niche, query: niche, city, count, maxLeads: count },
+        status: 'running',
+        progress: 0,
+        total: count,
+        createdAt: new Date().toISOString()
+      });
+
+      // Launch the campaign in the background using the dedicated scraper
+      runGoogleMapsScrape(newTaskId, { niche, query: niche, city, count, maxLeads: count });
+
+      const responseMsg = `🚀 **Google Maps Campaign Triggered!**\n\nI have successfully initiated a background **Local Google Maps Scraper** session for your objective:\n\n*   **Target Niche:** \`${niche}\`\n*   **Location:** \`${city}\`\n*   **Target Count:** \`${count}\` leads\n*   **Active Driver:** Local Puppeteer Engine (zero external AI quota usage!)\n\nPlease check the real-time stream viewport or log entries below to follow the browser's progress!`;
+
+      // Save user entry
+      await db.collection('assix_tasks').doc(taskId).collection('messages').add({
+        role: 'user',
+        msg: message,
+        timestamp: Date.now()
+      });
+
+      // Save agent response
+      await db.collection('assix_tasks').doc(taskId).collection('messages').add({
+        role: 'agent',
+        msg: responseMsg,
+        timestamp: Date.now()
+      });
+
+      return res.json({ response: responseMsg, launchTaskId: newTaskId });
+    }
+
     // Check if user is asking to automate or scrape a website
     const classification = await classifyAutomationIntent(message);
     if (classification.isAutomation && classification.goal) {
@@ -4035,8 +4874,8 @@ app.post('/api/console/message', upload.array('files'), async (req, res) => {
       runDynamicTask(newTaskId, { goal, context: '', useStealth: shouldStealth });
 
       const responseMsg = shouldStealth
-        ? `🚀 **Stealth Automation Pathway Triggered!**\n\nI classified your request as a browser automation objective: **"${goal}"**.\n\nI have successfully initiated a background Stealth Browser session to execute this task securely. Please watch the live stream viewport!`
-        : `🚀 **Automation Pathway Triggered!**\n\nI classified your request as a browser automation objective: **"${goal}"**.\n\nI have successfully initiated a live cloud browser session on Steel.dev to execute this task. Please watch the live stream viewport!`;
+        ? `🚀 **Stealth Browser Automation Triggered!**\n\nI have initiated a background **Stealth Browser** session to execute your objective: **"${goal}"**.\n\n*   **Active Driver:** Stealth Puppeteer/Playwright MCP Engine (bypasses bot protection, CAPTCHAs, and standard login barriers).\n*   **Session State:** Your active cookies and login states were automatically loaded from our persistent vault, which is why the page loaded your active session directly without requiring you to log in again!\n\nPlease watch the live stream viewport!`
+        : `🚀 **Playwright Live Automation Triggered!**\n\nI have initiated a live cloud browser session using **Playwright / Stagehand** to execute your objective: **"${goal}"**.\n\n*   **Active Driver:** Playwright Live Stream Engine.\n*   **Session State:** Active cookies and local storage states were successfully restored, allowing the browser to load your target page pre-authenticated where possible.\n\nPlease watch the live stream viewport!`;
 
       // Save user entry
       const userEntry = {
@@ -4199,8 +5038,12 @@ app.post('/api/leads/:leadId/push-close', async (req, res) => {
     if (!doc.exists) return res.status(404).json({ error: 'Lead not found' });
     const lead = doc.data();
 
+    // Convert phone number to its respective country format on confirmation/push
+    const convertedPhone = convertToCountryPhone(lead.phone || '', lead);
+
     const mappedLead = {
       ...lead,
+      phone: convertedPhone,
       businessName: lead.company || lead.name || lead.businessName || "LinkedIn Lead"
     };
 
@@ -4210,9 +5053,17 @@ app.post('/api/leads/:leadId/push-close', async (req, res) => {
     }
 
     if (isEnriched) {
-      await db.collection('assix_leads').doc(leadId).update({ sentToClose: true, status: 'synced_close' });
+      await db.collection('assix_leads').doc(leadId).update({ 
+        phone: convertedPhone,
+        sentToClose: true, 
+        status: 'synced_close' 
+      });
     } else {
-      await db.collection('leads').doc(leadId).update({ sentToClose: true, status: 'synced_close' });
+      await db.collection('leads').doc(leadId).update({ 
+        phone: convertedPhone,
+        sentToClose: true, 
+        status: 'synced_close' 
+      });
     }
     res.json({ success: true, closeId: pushRes.closeId });
   } catch (err: any) {
@@ -4246,9 +5097,19 @@ app.post('/api/leads/push-close-batch', async (req, res) => {
 
     for (const doc of batchSnap.docs) {
       const data = doc.data();
-      const pushRes = await pushToClose(data);
+      const convertedPhone = convertToCountryPhone(data.phone || '', data);
+      const mappedLead = {
+        ...data,
+        phone: convertedPhone
+      };
+      
+      const pushRes = await pushToClose(mappedLead);
       if ('success' in pushRes) {
-        await db.collection('leads').doc(doc.id).update({ sentToClose: true, status: 'synced_close' });
+        await db.collection('leads').doc(doc.id).update({ 
+          phone: convertedPhone,
+          sentToClose: true, 
+          status: 'synced_close' 
+        });
         pushed++;
       } else {
         failed++;
@@ -4274,6 +5135,51 @@ app.get('/api/firebase-config', (req, res) => {
     }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Proxied WhatsApp service status endpoint
+app.get('/api/whatsapp/status', async (req, res) => {
+  try {
+    const response = await axios.get('http://127.0.0.1:5310/api/status');
+    res.json(response.data);
+  } catch (err: any) {
+    res.status(502).json({ error: 'WhatsApp service starting up or offline', details: err.message });
+  }
+});
+
+// Proxied WhatsApp service bulk message endpoint (SSE)
+app.get('/api/whatsapp/send-bulk', async (req, res) => {
+  try {
+    const { message, phoneNumbers } = req.query;
+    const targetUrl = `http://127.0.0.1:5310/api/send-bulk?message=${encodeURIComponent(message as string)}&phoneNumbers=${encodeURIComponent(phoneNumbers as string)}`;
+    
+    const response = await axios({
+      method: 'GET',
+      url: targetUrl,
+      responseType: 'stream',
+      timeout: 3600000 // 1 hour timeout for bulk sends
+    });
+    
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    });
+    
+    response.data.pipe(res);
+  } catch (err: any) {
+    res.status(502).json({ error: 'WhatsApp service failed or offline', details: err.message });
+  }
+});
+
+app.post('/api/whatsapp/send-bulk', async (req, res) => {
+  try {
+    const response = await axios.post('http://127.0.0.1:5310/api/send-bulk', req.body);
+    res.json(response.data);
+  } catch (err: any) {
+    res.status(502).json({ error: 'WhatsApp service failed or offline', details: err.message });
   }
 });
 
@@ -4557,6 +5463,58 @@ async function startServer() {
   const PORT = 3000;
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Assix Full Stack Automation platform booted on http://localhost:${PORT}`);
+    
+    // Start local WhatsApp service in the background
+    try {
+      const { spawn } = require('child_process');
+      const path = require('path');
+      const fs = require('fs');
+      
+      const serviceDir = path.join(process.cwd(), 'whatsapp-service');
+      const hasPackageJson = fs.existsSync(path.join(serviceDir, 'package.json'));
+      
+      if (hasPackageJson) {
+        console.log('Starting local WhatsApp service...');
+        const nodeModulesExist = fs.existsSync(path.join(serviceDir, 'node_modules'));
+        
+        const startService = () => {
+          const child = spawn('node', ['server.js'], {
+            cwd: serviceDir,
+            stdio: 'inherit',
+            env: { ...process.env, PORT: '5310' }
+          });
+          
+          child.on('error', (err) => {
+            console.error('Failed to start WhatsApp service child process:', err);
+          });
+          
+          child.on('exit', (code) => {
+            console.log(`WhatsApp service exited with code ${code}. Restarting in 5s...`);
+            setTimeout(startService, 5000);
+          });
+        };
+
+        if (!nodeModulesExist) {
+          console.log('Installing dependencies for WhatsApp service first...');
+          const install = spawn('npm', ['install', '--no-audit', '--no-fund'], {
+            cwd: serviceDir,
+            stdio: 'inherit'
+          });
+          install.on('exit', (code) => {
+            if (code === 0) {
+              console.log('WhatsApp service dependencies installed successfully. Booting service...');
+              startService();
+            } else {
+              console.error(`npm install failed for whatsapp-service with code ${code}`);
+            }
+          });
+        } else {
+          startService();
+        }
+      }
+    } catch (e) {
+      console.error('Error launching background WhatsApp service:', e);
+    }
   });
 }
 

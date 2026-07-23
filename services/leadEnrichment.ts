@@ -70,7 +70,7 @@ async function googleSearchEmail(name: string, city: string): Promise<string | n
   const browserId = await spawnBrowser();
   try {
     const query = encodeURIComponent(`"${name}" "${city}" email contact`);
-    await navigate(browserId, `https://www.google.com/search?q=${query}`);
+    await navigate(browserId, `https://duckduckgo.com/?q=${query}`);
     await new Promise(r => setTimeout(r, 2000));
     const content = await getPageContent(browserId);
     const match = content.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
@@ -252,7 +252,7 @@ async function enrichLocalLead(
     const browserId = await spawnBrowser();
     try {
       const query = encodeURIComponent(`"${lead.name}" website`);
-      await navigate(browserId, `https://www.google.com/search?q=${query}`);
+      await navigate(browserId, `https://duckduckgo.com/?q=${query}`);
       await new Promise(r => setTimeout(r, 2000));
       const content = await getPageContent(browserId);
       const match = content.match(/https?:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
@@ -332,7 +332,7 @@ async function enrichEcomOrSaasLead(
     const browserId = await spawnBrowser();
     try {
       const query = encodeURIComponent(`"${lead.name}" LinkedIn company`);
-      await navigate(browserId, `https://www.google.com/search?q=${query}`);
+      await navigate(browserId, `https://duckduckgo.com/?q=${query}`);
       await new Promise(r => setTimeout(r, 2000));
       const content = await getPageContent(browserId);
       const match = content.match(/https?:\/\/(www\.)?linkedin\.com\/company\/[a-zA-Z0-9_-]+/);

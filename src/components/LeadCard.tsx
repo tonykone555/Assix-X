@@ -20,13 +20,17 @@ interface LeadCardProps {
   isPushing: boolean;
   serverUrl?: string;
   onSkip?: (leadId: string) => void;
+  selected?: boolean;
+  onSelectToggle?: (leadId: string) => void;
 }
 
 export const LeadCard: React.FC<LeadCardProps> = ({ 
   lead, 
   onPushLead, 
   isPushing, 
-  onSkip 
+  onSkip,
+  selected = false,
+  onSelectToggle
 }) => {
   const [copiedPhone, setCopiedPhone] = useState(false);
 
@@ -61,11 +65,19 @@ export const LeadCard: React.FC<LeadCardProps> = ({
       : [];
 
   return (
-    <div className="bg-[#0F0F11] border border-[#1C1C1F] hover:border-[#10B981]/50 rounded-lg overflow-hidden transition-all duration-300 flex flex-col h-full group shadow-md relative">
+    <div className={`bg-[#0F0F11] border rounded-lg overflow-hidden transition-all duration-300 flex flex-col h-full group shadow-md relative ${selected ? 'border-[#7C5335] ring-1 ring-[#7C5335]/30' : 'border-[#1C1C1F] hover:border-[#10B981]/50'}`}>
       
       {/* CARD TOP INFO ROW */}
       <div className="p-4 border-b border-[#1C1C1F] flex items-center justify-between gap-3 bg-[#0A0A0C]/55">
         <div className="flex items-center gap-2.5 truncate">
+          {onSelectToggle && (
+            <input 
+              type="checkbox"
+              checked={selected}
+              onChange={() => onSelectToggle(lead.leadId)}
+              className="mr-1 bg-zinc-900 border-zinc-700 rounded text-[#7C5335] focus:ring-[#7C5335] w-3.5 h-3.5 cursor-pointer"
+            />
+          )}
           {faviconUrl ? (
             <img 
               src={faviconUrl} 

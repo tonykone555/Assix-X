@@ -105,7 +105,8 @@ export async function runStealthAutomation(
       promptContent += `Step ${stepCount}/${maxSteps}. Current page text: ${pageText}\n` +
         `Decide the single next action. Respond ONLY with JSON:\n` +
         `{"action": "click"|"type"|"stuck"|"done", "selector": "css selector if needed", "text": "text to type if needed", "reasoning": "why", "obstacle": "description of what's blocking, only if action is stuck"}\n` +
-        `Use "done" only when the task is genuinely complete.`;
+        `Use "done" only when the task is genuinely complete.\n` +
+        `IMPORTANT: Do NOT set action to "done" immediately after clicking on a single business/item card. The goal is to find or scrape multiple items. If on an item detail card/page, extract the info and click BACK or click another element to scan the next listing.`;
 
       const aiDecision = await callAI("browser_agent", [{
         role: "user",

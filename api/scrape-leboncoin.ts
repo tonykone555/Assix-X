@@ -167,14 +167,17 @@ export default async function handler(req: any, res: any) {
       }
     } catch (e) {}
 
-    await updateFirestore({
+    const completionFields: any = {
       status: 'complete',
       step: 'complete',
       description: `Task complete — ${savedCount} listings saved`,
       leadsCount: savedCount,
-      screenshot: finalScreenshotBase64,
       results: { saved: savedCount, leads: finalResults }
-    });
+    };
+    if (finalScreenshotBase64) {
+      completionFields.screenshot = finalScreenshotBase64;
+    }
+    await updateFirestore(completionFields);
     await logAction(`✓ Scrape complete! ${savedCount} listings saved successfully.`, 'success');
 
     return res.status(200).json({ success: true, taskId, savedCount });
@@ -199,12 +202,15 @@ export default async function handler(req: any, res: any) {
       }
     } catch (e) {}
 
-    await updateFirestore({
+    const failureFields: any = {
       status: 'failed',
       step: 'error',
-      screenshot: finalScreenshotBase64,
       description: errMsg
-    });
+    };
+    if (finalScreenshotBase64) {
+      failureFields.screenshot = finalScreenshotBase64;
+    }
+    await updateFirestore(failureFields);
     await logAction(`Session failure error: ${errMsg}`, 'error');
     return res.status(500).json({ error: errMsg });
   } finally {

@@ -1,5 +1,7 @@
 import { chromium, Browser, BrowserContext, Page } from "playwright";
 import Steel from "steel-sdk";
+import * as fs from "fs";
+import * as path from "path";
 
 interface Session {
   browser: Browser;
@@ -20,57 +22,78 @@ export async function createStagehandSession(taskId: string) {
     return { page: existing.page, sessionId: taskId, liveViewUrl: existing.liveViewUrl };
   }
 
-  const apiKey = process.env.STEEL_API_KEY;
-  if (apiKey) {
-    console.log(`[browserEngine] STEEL_API_KEY is configured. Launching Steel session...`);
-    try {
-      const steel = new Steel({ steelAPIKey: apiKey });
-      const session = await steel.sessions.create();
-      const liveViewUrl = session.sessionViewerUrl || "";
-      console.log(`[browserEngine] Steel session created. ID: ${session.id}. LiveView URL: ${liveViewUrl}`);
-
-      const browser = await chromium.connectOverCDP(`${session.websocketUrl}&apiKey=${apiKey}`);
-      const contexts = browser.contexts();
-      let context = contexts[0];
-      if (!context) {
-        context = await browser.newContext({
-          viewport: { width: 1024, height: 1024 },
-          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          locale: 'en-US',
-          timezoneId: 'America/New_York',
-          extraHTTPHeaders: {
-            'Accept-Language': 'en-US,en;q=0.9',
-          },
-        });
-      }
-      
-      await context.addInitScript(() => {
-        try {
-          Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined,
-          });
-        } catch (e) {}
-      });
-
-      const pages = context.pages();
-      let page = pages[0];
-      if (!page) {
-        page = await context.newPage();
-      }
-
-      activeSessions.set(taskId, { browser, context, page, createdAt: Date.now(), liveViewUrl });
-
-      // Auto-cleanup after timeout
-      setTimeout(() => {
-        if (activeSessions.has(taskId)) closeSession(taskId).catch(() => {});
-      }, SESSION_TIMEOUT_MS);
-
-      return { page, sessionId: taskId, liveViewUrl };
-    } catch (err: any) {
-      console.error(`[browserEngine] Failed to initialize Steel remote session: ${err.message}. Falling back to local browser.`);
+  if (activeSessions.size >= MAX_SESSIONS) {
+    // Close the oldest session to make room
+    let oldestId = '';
+    let oldestTime = Infinity;
+    for (const [id, s] of activeSessions.entries()) {
+      if (s.createdAt < oldestTime) { oldestTime = s.createdAt; oldestId = id; }
+    }
+    if (oldestId) {
+      await closeSession(oldestId).catch(() => {});
     }
   }
 
+  // 1. Primary: Local Playwright Browser
+  try {
+    console.log(`[browserEngine] Initializing local Playwright browser as primary driver...`);
+    const browser = await chromium.launch({
+      headless: true,
+      timeout: 60000,
+    });
+
+    const sessionDir = path.join(process.cwd(), "sessions");
+    if (!fs.existsSync(sessionDir)) {
+      fs.mkdirSync(sessionDir, { recursive: true });
+    }
+    const storageStatePath = path.join(sessionDir, "storage_state_default.json");
+
+    const contextOptions: any = {
+      viewport: { width: 1024, height: 1024 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    };
+
+    if (fs.existsSync(storageStatePath)) {
+      console.log(`[browserEngine] Loading existing storage state from ${storageStatePath}`);
+      contextOptions.storageState = storageStatePath;
+    }
+
+    const context = await browser.newContext(contextOptions);
+
+    // Bypass automated/bot detection (such as Google "unusual activity" stops)
+    await context.addInitScript(() => {
+      try {
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => undefined,
+        });
+      } catch (e) {}
+    });
+
+    const page = await context.newPage();
+
+    activeSessions.set(taskId, { browser, context, page, createdAt: Date.now() });
+
+    // Auto-cleanup after timeout
+    setTimeout(() => {
+      if (activeSessions.has(taskId)) closeSession(taskId).catch(() => {});
+    }, SESSION_TIMEOUT_MS);
+
+    console.log(`[browserEngine] Local Playwright session created successfully.`);
+    return { page, sessionId: taskId };
+  } catch (localErr: any) {
+    console.error(`[browserEngine] Local Playwright launch failed: ${localErr.message}. Checking fallbacks...`);
+    const browserServiceUrl = process.env.BROWSER_SERVICE_URL;
+    if (!browserServiceUrl) {
+      throw new Error(`Local Playwright launch failed: ${localErr.message}`);
+    }
+  }
+
+  // 3. Tertiary Fallback: Remote microservice browser-service
   const browserServiceUrl = process.env.BROWSER_SERVICE_URL;
 
   if (browserServiceUrl) {
@@ -186,50 +209,7 @@ export async function createStagehandSession(taskId: string) {
     return { page: mockPage as unknown as Page, sessionId: taskId };
   }
 
-  if (activeSessions.size >= MAX_SESSIONS) {
-    // Close the oldest session to make room
-    let oldestId = '';
-    let oldestTime = Infinity;
-    for (const [id, s] of activeSessions.entries()) {
-      if (s.createdAt < oldestTime) { oldestTime = s.createdAt; oldestId = id; }
-    }
-    if (oldestId) await closeSession(oldestId);
-  }
-
-  const browser = await chromium.launch({
-    headless: true,
-    timeout: 60000,
-  });
-
-  const context = await browser.newContext({
-    viewport: { width: 1024, height: 1024 },
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    locale: 'en-US',
-    timezoneId: 'America/New_York',
-    extraHTTPHeaders: {
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-  });
-
-  // Bypass automated/bot detection (such as Google "unusual activity" stops)
-  await context.addInitScript(() => {
-    try {
-      Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined,
-      });
-    } catch (e) {}
-  });
-
-  const page = await context.newPage();
-
-  activeSessions.set(taskId, { browser, context, page, createdAt: Date.now() });
-
-  // Auto-cleanup after timeout
-  setTimeout(() => {
-    if (activeSessions.has(taskId)) closeSession(taskId).catch(() => {});
-  }, SESSION_TIMEOUT_MS);
-
-  return { page, sessionId: taskId };
+  throw new Error("No browser launcher or fallback available.");
 }
 
 export function registerPendingResume(taskId: string): Promise<any> {
@@ -264,11 +244,42 @@ export async function closeSession(taskId: string) {
   const session = activeSessions.get(taskId);
   if (session) {
     try {
+      if (session.context) {
+        const sessionDir = path.join(process.cwd(), "sessions");
+        if (!fs.existsSync(sessionDir)) {
+          fs.mkdirSync(sessionDir, { recursive: true });
+        }
+        const storageStatePath = path.join(sessionDir, "storage_state_default.json");
+        console.log(`[browserEngine] Saving current storage state to ${storageStatePath} before closing session`);
+        await session.context.storageState({ path: storageStatePath });
+      }
+    } catch (e: any) {
+      console.warn(`[browserEngine] Failed to save storage state on session close:`, e.message);
+    }
+
+    try {
       await session.browser.close();
     } catch (e) {
       console.warn(`Failed to close browser session for task ${taskId}:`, e);
     }
   }
   activeSessions.delete(taskId);
+}
+
+export async function saveSessionState(taskId: string) {
+  const session = activeSessions.get(taskId);
+  if (session && session.context) {
+    try {
+      const sessionDir = path.join(process.cwd(), "sessions");
+      if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(sessionDir, { recursive: true });
+      }
+      const storageStatePath = path.join(sessionDir, "storage_state_default.json");
+      console.log(`[browserEngine] Proactively saving storage state to ${storageStatePath}`);
+      await session.context.storageState({ path: storageStatePath });
+    } catch (e: any) {
+      console.warn(`[browserEngine] Failed to proactively save storage state:`, e.message);
+    }
+  }
 }
 
