@@ -1,0 +1,126 @@
+export interface Task {
+  taskId: string;
+  taskType: string;
+  label?: string;
+  config: any;
+  status: 'running' | 'paused_captcha' | 'paused_input' | 'complete' | 'stopped' | 'error' | 'queued';
+  progress: number;
+  total: number;
+  progressPct?: number;
+  report?: string;
+  results?: any[];
+  createdAt?: string;
+  completedAt?: string;
+  liveViewUrl?: string;
+  inputPrompt?: string | null;
+  inputValue?: string | null;
+  currentUrl?: string;
+  useStealth?: boolean;
+}
+
+export interface Lead {
+  leadId: string;
+  taskId?: string;
+  businessName: string;
+  name?: string;
+  phone: string;
+  secondaryPhone?: string;
+  website: string;
+  rating?: string;
+  address?: string;
+  city?: string;
+  sector?: string;
+  market?: string;
+  leadType: 'no_website' | 'has_website' | string;
+  sentToClose?: boolean;
+  status?: string;
+  createdAt?: string;
+  email?: string;
+  linkedinUrl?: string;
+  source?: string;
+  gapScore?: number;
+  headline?: string;
+  reviewsCount?: number;
+  hasWhatsapp?: boolean;
+  isWhatsapp?: boolean;
+  whatsappNumber?: string;
+  photos?: string[];
+  reviews?: any[];
+  googleReviews?: any[];
+  userUploadedImages?: string[];
+  siteData?: any;
+  pitch?: string;
+  notes?: string;
+  siren?: string;
+  siret?: string;
+  contactName?: string;
+  nafCode?: string;
+  socialLinks?: any;
+  websiteAudit?: any;
+  uniqueness?: string;
+  enriched?: boolean;
+}
+
+export interface LogEntry {
+  time: string;
+  msg: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  timestamp: number;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'agent' | 'assistant' | 'log';
+  msg: string;
+  files?: string[];
+  taskId?: string;
+  streaming?: boolean;
+}
+
+export interface Session {
+  platform: string;
+  savedAt: string;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  path: string;
+  systemPrompt?: string;
+}
+
+export interface BusinessContext {
+  goal: string;
+  type: string;
+  target: string;
+  problem: string;
+  price: string;
+  markets: string[];
+}
+
+export interface Segment {
+  name: string;
+  fitScore: number;
+  why: string;
+  painSignal: string;
+  searchQuery: string;
+  tool: string;
+  channel: string;
+  day1Message: string;
+  day3Message: string;
+  day7Message: string;
+  expectedResponseRate: string;
+  dailyLimit: number;
+}
+
+export interface GTMPlan {
+  context: BusinessContext;
+  selectedAgents: string[];
+  segments: Segment[];
+  growthExperiments: string[];
+  fastestPath: string;
+  contentIdeas: string[];
+  valueProposition: string;
+  toolsNeeded: string[];
+  generatedAt: string;
+}
+

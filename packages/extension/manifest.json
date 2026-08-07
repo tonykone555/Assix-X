@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Assix Browser Auto Companion",
+  "version": "1.0.0",
+  "description": "Chrome extension to automate scraping workflows and sync lead data to the Assix Service Engine console.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}

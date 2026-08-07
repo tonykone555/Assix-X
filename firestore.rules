@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Secure Match Rules for UGC Video Generator
+    match /assix_ugc_videos/{videoId} {
+      allow read, write: if true;
+    }
+
+    // Secure Match Rules for YouTube Clips & Hooks
+    match /assix_youtube_clips/{clipId} {
+      allow read, write: if true;
+    }
+
+    // Default catch-all rules
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
