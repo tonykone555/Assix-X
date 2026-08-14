@@ -341,28 +341,40 @@ export async function sendColdEmail(
       throw new Error('SMTP Configuration incomplete. Please specify Host, Username, and Password in System Settings.');
     }
 
+    const cleanPass = (config.smtpPass || '').replace(/\s+/g, '');
+    const isSecurePort = Number(config.smtpPort) === 465;
+
     const transporter = nodemailer.createTransport({
       host: config.smtpHost,
-      port: config.smtpPort || 587,
-      secure: Boolean(config.smtpSecure), // true for 465, false for 587
+      port: Number(config.smtpPort) || 587,
+      secure: isSecurePort, // true for 465, false for 587
       auth: {
-        user: config.smtpUser,
-        pass: config.smtpPass,
+        user: (config.smtpUser || '').trim(),
+        pass: cleanPass,
       },
       tls: {
         rejectUnauthorized: false
       }
     });
 
-    const info = await transporter.sendMail({
-      from: fromAddress,
-      to: toEmail,
-      subject,
-      text: bodyText,
-      html: bodyHtml,
-    });
+    try {
+      const info = await transporter.sendMail({
+        from: fromAddress,
+        to: toEmail,
+        subject,
+        text: bodyText,
+        html: bodyHtml,
+      });
 
-    return { success: true, messageId: info.messageId, provider: 'smtp' };
+      return { success: true, messageId: info.messageId, provider: 'smtp' };
+    } catch (err: any) {
+      console.error('[SMTP Send Error]:', err);
+      let errorMsg = err.message || 'SMTP Authentication Failed';
+      if (errorMsg.includes('Invalid login') || errorMsg.includes('535') || errorMsg.includes('Username and Password not accepted') || errorMsg.includes('BadCredentials')) {
+        errorMsg = 'Gmail Authentication Failed: Please use a 16-character Google App Password (not your main Google password). Make sure 2-Step Verification is enabled on your Google Account.';
+      }
+      throw new Error(errorMsg);
+    }
   }
 
   // 2. Resend API

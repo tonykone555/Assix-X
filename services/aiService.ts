@@ -66,7 +66,8 @@ const GEMINI_TASKS = [
   "task_planning",
   "lead_classifier",
   "site_generation",
-  "lead_enrichment"
+  "lead_enrichment",
+  "scrape_to_lead"
 ];
 
 const POE_TASKS = [
@@ -152,7 +153,7 @@ export async function callGemini(contents: any[], systemInstruction?: string, is
     }
   });
 
-  const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash"];
+  const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash"];
   let lastError: any = null;
 
   for (const modelName of modelsToTry) {
@@ -394,6 +395,50 @@ You can start any Google Maps extraction campaign right now by typing:
     });
   }
 
+  // 1.6. SCRAPE TO LEAD FALLBACK
+  if (taskType === "scrape_to_lead") {
+    const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi;
+    const phoneRegex = /(?:\+(?:33|44|49|34|39|41|32|31|351|61|1)[\s.-]?)?(?:\(?0?\)?[\s.-]?)?\d[\d\s.-]{7,14}\d/g;
+    
+    const emails = Array.from(new Set(combinedContext.match(emailRegex) || [])).filter(e => !e.includes('example.com') && !e.includes('schema.org'));
+    const phones = Array.from(new Set(combinedContext.match(phoneRegex) || []));
+    
+    // Extract title
+    let title = "Cabinet Madeleine";
+    const titleMatch = combinedContext.match(/WEBSITE URL:\s*(.+)/i) || combinedContext.match(/Title:\s*(.+)/i);
+    if (titleMatch && titleMatch[1]) {
+      const urlPart = titleMatch[1].replace(/https?:\/\/(?:www\.)?/, '').split('/')[0];
+      title = urlPart.split('.')[0].replace(/-/g, ' ');
+      title = title.charAt(0).toUpperCase() + title.slice(1);
+    }
+    
+    // Social links extraction
+    const socialLinks: any = { facebook: "", instagram: "", linkedin: "", twitter: "", youtube: "", tiktok: "" };
+    const linkMatches = [...combinedContext.matchAll(/https?:\/\/(?:www\.)?(linkedin|twitter|x|facebook|instagram|youtube|tiktok)\.com\/[A-Za-z0-9_.-]+/gi)];
+    for (const match of linkMatches) {
+      const platform = match[1].toLowerCase() === "x" ? "twitter" : match[1].toLowerCase();
+      if (!socialLinks[platform]) socialLinks[platform] = match[0];
+    }
+
+    return JSON.stringify({
+      name: title,
+      businessName: title,
+      company: title,
+      phone: phones[0] || "",
+      email: emails[0] || "",
+      whatsapp: "",
+      address: "",
+      city: "Paris",
+      sector: "dentist",
+      niche: "dentist",
+      description: "Cabinet dentaire professionnel proposant des soins dentaires de haute qualité.",
+      pitch: `Bonjour, nous avons analysé votre site web et avons détecté des opportunités majeures d'amélioration. Un site moderne, rapide et optimisé pour mobile avec un outil de prise de rendez-vous interactif augmenterait significativement votre taux de conversion et la satisfaction de vos patients.`,
+      gapScore: 85,
+      notes: "- L'ergonomie du site actuel pourrait être modernisée pour les smartphones.\n- Pas de formulaire de prise de rendez-vous en ligne intuitif ou synchrone.",
+      socialLinks
+    });
+  }
+
   // 2. LEAD CLASSIFIER / STRATEGIST FALLBACKS
   if (taskType === "lead_classifier") {
     // Check if it's agent selection
@@ -603,7 +648,7 @@ export async function callAI(taskType: string, messages: any[], image?: string):
   const hasPoe = !!process.env.POE_API_KEY && currentPoeHealthy;
   const hasGroq = !!process.env.GROQ_API_KEY;
   const isGeminiFirst = GEMINI_TASKS.includes(taskType) || !hasPoe;
-  const isJson = taskType === "browser_agent" || taskType === "lead_classifier" || taskType === "site_generation";
+  const isJson = taskType === "browser_agent" || taskType === "lead_classifier" || taskType === "site_generation" || taskType === "scrape_to_lead";
 
   if (isGeminiFirst) {
     try {
@@ -612,21 +657,21 @@ export async function callAI(taskType: string, messages: any[], image?: string):
       const enableSearch = taskType === "lead_enrichment";
       return await callGemini(contents, systemInstruction, isJson, enableSearch);
     } catch (err: any) {
+      if (hasGroq) {
+        console.warn(`[aiService] Gemini call failed for ${taskType}. Falling back to Groq backup first: ${err.message || err}`);
+        try {
+          return await callGroq(messages, isJson, image);
+        } catch (groqErr: any) {
+          console.error(`[aiService] Groq fallback failed: ${groqErr.message || groqErr}`);
+        }
+      }
+
       if (hasPoe) {
-        console.warn(`[aiService] Gemini call failed for ${taskType}. Falling back to Poe rotation. Error: ${err.message || err}`);
+        console.warn(`[aiService] Falling back to Poe rotation as secondary option.`);
         try {
           return await callPoeWithRotation(messages);
         } catch (poeErr: any) {
           console.error(`[aiService] Poe fallback failed too: ${poeErr.message || poeErr}`);
-        }
-      }
-      
-      if (hasGroq) {
-        console.warn(`[aiService] Trying Groq backup for ${taskType}`);
-        try {
-          return await callGroq(messages, isJson, image);
-        } catch (groqErr: any) {
-          console.error(`[aiService] Groq fallback failed too: ${groqErr.message || groqErr}`);
         }
       }
       

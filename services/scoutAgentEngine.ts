@@ -17,85 +17,69 @@ export interface ScoutResearchResult {
   synthesizedSummary?: string;
 }
 
+import { searchWebDDG } from './jinaReaderService';
+
 /**
- * 1. Jina Reader Engine (r.jina.ai)
- * Converts any live web URL into clean markdown using Jina's LLM-friendly reader service.
+ * 1. Web Reader Engine (Direct Scrape)
+ * Converts any live web URL into clean text/markdown without third-party proxies.
  */
 export async function jinaReadUrl(url: string, customOptions: { targetSelector?: string; removeImages?: boolean } = {}): Promise<{ success: boolean; markdown: string; title?: string; error?: string }> {
   try {
     const targetUrl = url.startsWith('http') ? url : `https://${url}`;
-    const jinaEndpoint = `https://r.jina.ai/${targetUrl}`;
 
-    const headers: Record<string, string> = {
-      'Accept': 'application/json',
-      'X-No-Cache': 'true'
-    };
-
-    if (process.env.JINA_API_KEY) {
-      headers['Authorization'] = `Bearer ${process.env.JINA_API_KEY}`;
-    }
-
-    if (customOptions.targetSelector) {
-      headers['X-Target-Selector'] = customOptions.targetSelector;
-    }
-
-    const response = await fetch(jinaEndpoint, {
+    const response = await fetch(targetUrl, {
       method: 'GET',
-      headers,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      },
       timeout: 20000
     });
 
     if (!response.ok) {
-      // Fallback to raw text fetch if JSON fails
-      const rawRes = await fetch(jinaEndpoint, { headers: { 'User-Agent': 'Mozilla/5.0 ScoutAgent/1.0' }, timeout: 15000 });
-      const rawText = await rawRes.text();
       return {
-        success: true,
-        markdown: rawText.slice(0, 50000)
+        success: false,
+        markdown: '',
+        error: `HTTP ${response.status} ${response.statusText}`
       };
     }
 
-    const data = (await response.json()) as any;
-    const content = data.data?.content || data.content || JSON.stringify(data);
-    const title = data.data?.title || data.title || '';
+    const html = await response.text();
+    const cleanText = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ');
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].trim() : targetUrl;
 
     return {
       success: true,
       title,
-      markdown: content.slice(0, 50000)
+      markdown: cleanText.slice(0, 50000)
     };
   } catch (err: any) {
-    console.error('[ScoutAgent - Jina Reader Error]:', err.message);
+    console.error('[ScoutAgent - Web Reader Error]:', err.message);
     return {
       success: false,
       markdown: '',
-      error: err.message || 'Failed to read URL via Jina'
+      error: err.message || 'Failed to read URL'
     };
   }
 }
 
 /**
- * 2. Exa Semantic Search Engine
- * Deep semantic search across web documents and company databases via Exa API.
+ * 2. Exa / Web Semantic Search Engine
  */
 export async function exaSemanticSearch(query: string, options: { numResults?: number; includeDomains?: string[]; excludeDomains?: string[]; category?: string } = {}): Promise<{ success: boolean; results: any[]; error?: string }> {
   try {
     const apiKey = process.env.EXA_API_KEY;
     if (!apiKey) {
-      // Fallback: If Exa API key is not present, use Jina Search or duckduckgo / google fallback
-      const jinaSearchUrl = `https://s.jina.ai/${encodeURIComponent(query)}`;
-      const res = await fetch(jinaSearchUrl, { headers: { 'Accept': 'application/json' }, timeout: 15000 });
-      if (res.ok) {
-        const json = (await res.ok ? res.json() : {}) as any;
-        const results = (json.data || []).map((item: any) => ({
-          title: item.title,
-          url: item.url,
-          snippet: item.content || item.description,
-          score: item.score || 0.9
-        }));
-        return { success: true, results };
-      }
-      return { success: true, results: [] };
+      // Direct Web Search Fallback
+      const ddgResults = await searchWebDDG(query);
+      const results = ddgResults.map(item => ({
+        title: item.title,
+        url: item.url,
+        snippet: item.description || item.content,
+        score: 0.9
+      }));
+      return { success: true, results };
     }
 
     const body: any = {
@@ -283,72 +267,24 @@ export async function githubScanRepo(repoOwnerAndName: string, action: 'summary'
  */
 export async function overpassQueryPois(params: { amenity?: string; city?: string; lat?: number; lon?: number; radiusMeters?: number; limit?: number }): Promise<{ success: boolean; pois: any[]; count: number; error?: string }> {
   try {
-    const { amenity = 'restaurant', city, lat, lon, radiusMeters = 5000, limit = 25 } = params;
+    const { amenity = 'restaurant', city = 'London', limit = 25 } = params;
 
-    let locationFilter = '';
-    if (lat && lon) {
-      locationFilter = `(around:${radiusMeters},${lat},${lon})`;
-    } else if (city) {
-      locationFilter = `(area.searchArea)`;
-    } else {
-      locationFilter = `(around:10000,51.5074,-0.1278)`; // Default London
-    }
+    const { searchDuckDuckGoForLocalBusinesses } = await import('./fastGoogleMapsScraper');
+    const rawResults = await searchDuckDuckGoForLocalBusinesses(amenity, city, limit);
 
-    const areaHeader = city ? `area["name"="${city}"]->.searchArea;` : '';
-
-    const overpassQuery = `
-      [out:json][timeout:25];
-      ${areaHeader}
-      (
-        node["amenity"="${amenity}"]${locationFilter};
-        way["amenity"="${amenity}"]${locationFilter};
-        node["shop"="${amenity}"]${locationFilter};
-        way["shop"="${amenity}"]${locationFilter};
-      );
-      out body ${limit};
-      >;
-      out skel qt;
-    `;
-
-    const response = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `data=${encodeURIComponent(overpassQuery)}`,
-      timeout: 25000
-    });
-
-    if (!response.ok) {
-      throw new Error(`Overpass API error status ${response.status}`);
-    }
-
-    const data = (await response.json()) as any;
-    const elements = data.elements || [];
-
-    const pois = elements
-      .filter((el: any) => el.tags && (el.tags.name || el.tags.brand))
-      .slice(0, limit)
-      .map((el: any) => {
-        const tags = el.tags || {};
-        return {
-          id: el.id,
-          name: tags.name || tags.brand || 'Local Business',
-          amenity: tags.amenity || tags.shop || amenity,
-          phone: tags.phone || tags['contact:phone'] || tags['phone:mobile'] || null,
-          website: tags.website || tags['contact:website'] || tags.url || null,
-          email: tags.email || tags['contact:email'] || null,
-          address: [
-            tags['addr:housenumber'],
-            tags['addr:street'],
-            tags['addr:postcode'],
-            tags['addr:city'] || city
-          ].filter(Boolean).join(', ') || null,
-          lat: el.lat || el.center?.lat || null,
-          lon: el.lon || el.center?.lon || null,
-          openingHours: tags.opening_hours || null,
-          cuisine: tags.cuisine || null,
-          osmUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`
-        };
-      });
+    const pois = rawResults.map((item, idx) => ({
+      id: `poi_web_${Date.now()}_${idx}`,
+      name: item.name || 'Local Business',
+      amenity: amenity,
+      phone: item.phone || null,
+      website: item.website || null,
+      email: null,
+      address: item.address || city,
+      lat: null,
+      lon: null,
+      openingHours: null,
+      cuisine: null
+    }));
 
     return {
       success: true,
@@ -356,7 +292,7 @@ export async function overpassQueryPois(params: { amenity?: string; city?: strin
       pois
     };
   } catch (err: any) {
-    console.error('[ScoutAgent - Overpass POI Error]:', err.message);
+    console.error('[ScoutAgent - Local Business Search Error]:', err.message);
     return { success: false, count: 0, pois: [], error: err.message };
   }
 }
@@ -400,9 +336,8 @@ export async function scrapeSocialContent(platform: 'reddit' | 'twitter' | 'inst
     }
 
     if (platform === 'twitter') {
-      // Use Jina Reader or Nitter instance for zero-auth Twitter/X profile / topic extraction
-      const nitterUrl = `https://r.jina.ai/https://x.com/${queryOrUrl.replace('@', '')}`;
-      const jinaRes = await jinaReadUrl(nitterUrl);
+      const twitterUrl = `https://x.com/${queryOrUrl.replace('@', '')}`;
+      const jinaRes = await jinaReadUrl(twitterUrl);
       return {
         success: jinaRes.success,
         items: [
@@ -428,7 +363,7 @@ export async function scrapeSocialContent(platform: 'reddit' | 'twitter' | 'inst
 
 /**
  * Autonomous Multi-Tool Scout Agent Orchestrator
- * Synthesizes data across Jina, Exa, yt-dlp, GitHub, Overpass POIs, and Reddit into a unified research dossier!
+ * Synthesizes data across Direct Web Scraper, Exa, yt-dlp, GitHub, Overpass POIs, and Reddit into a unified research dossier!
  */
 export async function runScoutAutonomousAgent(objective: string, depth: 'fast' | 'deep' = 'fast'): Promise<ScoutResearchResult> {
   const timestamp = new Date().toISOString();
@@ -447,10 +382,10 @@ export async function runScoutAutonomousAgent(objective: string, depth: 'fast' |
 
   const tasks: Promise<void>[] = [];
 
-  // 1. Direct URL handling via Jina Reader
+  // 1. Direct URL handling via Direct Web Reader
   if (isUrl && !isYoutube && !isGithub) {
     tasks.push((async () => {
-      sourcesUsed.push('Jina Reader (r.jina.ai)');
+      sourcesUsed.push('Direct Web Reader Engine');
       const res = await jinaReadUrl(objective);
       if (res.success) jinaWebMarkdown = res.markdown;
     })());
@@ -485,7 +420,7 @@ export async function runScoutAutonomousAgent(objective: string, depth: 'fast' |
     // Check if query looks like local business search
     if (/restaurant|cafe|coffee|dentist|plumber|gym|hotel|salon|shop|bar/i.test(objective)) {
       tasks.push((async () => {
-        sourcesUsed.push('OpenStreetMap Overpass Turbo Engine');
+        sourcesUsed.push('DuckDuckGo Local Business Search Engine');
         const match = objective.match(/in\s+([a-zA-Z\s]+)$/i);
         const city = match ? match[1].trim() : 'London';
         const amenity = objective.split(' ')[0].toLowerCase();

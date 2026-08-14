@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
 import { extractEmailsFromMarkdown, extractPhonesFromMarkdown, searchWithJina, scrapeUrlWithJina } from '../services/jinaReaderService';
+import { scrapeRealEstateWithPlaywright, PlaywrightScrapeScreenshot } from '../services/playwrightRealEstateScraper';
 import { db } from '../firebase-client-wrapper';
 
 export interface RealEstateLeadResult {
@@ -24,14 +25,21 @@ export interface RealEstateLeadResult {
   siret?: string;
   scrapedAt: string;
   verified: boolean;
+  rating?: number;
+  reviewsCount?: number;
+  reviews?: { author?: string; rating?: number; text?: string; date?: string }[];
+  socialLinks?: Record<string, string>;
 }
 
 const COUNTRY_NAMES: Record<string, string> = {
+  US: 'United States',
   FR: 'France',
   UK: 'United Kingdom',
   ES: 'Spain',
   BE: 'Belgium',
-  LU: 'Luxembourg'
+  LU: 'Luxembourg',
+  CA: 'Canada',
+  AU: 'Australia'
 };
 
 /**
@@ -47,7 +55,20 @@ function normalizeWhatsAppPhone(phone: string, countryCode: string): { formatted
   let waPhone = '';
   let formatted = phone.trim();
 
-  if (countryCode === 'FR') {
+  if (countryCode === 'US' || countryCode === 'CA') {
+    // US & Canada (+1)
+    if (digits.startsWith('1') && digits.length === 11) {
+      isMobile = true;
+      waPhone = digits;
+      formatted = `+1 (${digits.substring(1,4)}) ${digits.substring(4,7)}-${digits.substring(7)}`;
+    } else if (digits.length === 10) {
+      isMobile = true;
+      waPhone = `1${digits}`;
+      formatted = `(${digits.substring(0,3)}) ${digits.substring(3,6)}-${digits.substring(6)}`;
+    } else {
+      waPhone = digits;
+    }
+  } else if (countryCode === 'FR') {
     // French mobile numbers start with 06 or 07, or +336 / +337
     if (digits.startsWith('336') || digits.startsWith('337')) {
       isMobile = true;
@@ -112,7 +133,56 @@ function normalizeWhatsAppPhone(phone: string, countryCode: string): { formatted
   return { formatted, waPhone, isMobile };
 }
 
+export interface ScrapeTaskState {
+  taskId: string;
+  status: 'running' | 'completed' | 'failed';
+  progressLogs: string[];
+  screenshots: PlaywrightScrapeScreenshot[];
+  leads: RealEstateLeadResult[];
+  updatedAt: number;
+}
+
+export const activeScrapeTasks = new Map<string, ScrapeTaskState>();
+
+export async function getTaskStatusHandler(req: Request, res: Response) {
+  const taskId = (req.query.taskId as string) || (req.body && req.body.taskId);
+  if (!taskId || !activeScrapeTasks.has(taskId)) {
+    return res.status(404).json({ error: 'Task not found or expired', taskId });
+  }
+  const state = activeScrapeTasks.get(taskId)!;
+  return res.json({
+    success: true,
+    taskId: state.taskId,
+    status: state.status,
+    progressLogs: state.progressLogs,
+    screenshots: state.screenshots,
+    leads: state.leads,
+    count: state.leads.length
+  });
+}
+
 export default async function realEstateScrapeHandler(req: Request, res: Response) {
+  const taskId = req.body.taskId || `re-task-${Date.now()}`;
+  const sendWS = req.app?.get('sendWS');
+  const io = req.app?.get('io');
+
+  const broadcastUpdate = (event: string, data: any) => {
+    try {
+      if (io) io.to(taskId).emit(event, data);
+      if (sendWS) sendWS(taskId, { event, ...data });
+    } catch {}
+  };
+
+  const taskState: ScrapeTaskState = {
+    taskId,
+    status: 'running',
+    progressLogs: ['Connecting to Chromium Playwright browser...'],
+    screenshots: [],
+    leads: [],
+    updatedAt: Date.now()
+  };
+  activeScrapeTasks.set(taskId, taskState);
+
   try {
     const { countryCode = 'FR', city = 'Paris', portalSource = 'all', count = 20, mobileOnly = false } = req.body;
 
@@ -125,8 +195,63 @@ export default async function realEstateScrapeHandler(req: Request, res: Respons
 
     console.log(`[RealEstateScraper] Starting live multi-source extraction for ${city}, ${countryName} (Limit: ${limit}, MobileOnly: ${mobileOnly})`);
 
-    // 0. FRENCH GOVERNMENT OFFICIAL SIRENE REGISTER API (For France - NAF Code 68.31Z Real Estate)
-    if (countryCode === 'FR' && (portalSource === 'sirene' || portalSource === 'all')) {
+    let capturedScreenshots: PlaywrightScrapeScreenshot[] = [];
+
+    // 0. PRIMARY DRIVER: PLAYWRIGHT HEADLESS CHROMIUM DIRECT PORTAL & DIRECTORY SCRAPER
+    try {
+      console.log(`[RealEstateScraper] Invoking Playwright browser engine for ${city}...`);
+      const pwResult = await scrapeRealEstateWithPlaywright({
+        countryCode,
+        city,
+        portalSource,
+        limit,
+        mobileOnly,
+        taskId,
+        onProgress: (msg: string) => {
+          taskState.progressLogs.push(msg);
+          taskState.updatedAt = Date.now();
+          broadcastUpdate('re_progress', { taskId, msg });
+        },
+        onScreenshot: (shot: PlaywrightScrapeScreenshot) => {
+          taskState.screenshots.push(shot);
+          capturedScreenshots.push(shot);
+          taskState.updatedAt = Date.now();
+          broadcastUpdate('re_screenshot', { taskId, screenshot: shot });
+        },
+        onLead: (lead: RealEstateLeadResult) => {
+          const normKey = lead.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (normKey && !seenNames.has(normKey)) {
+            seenNames.add(normKey);
+            scrapedLeads.push(lead);
+            taskState.leads.push(lead);
+            taskState.updatedAt = Date.now();
+            broadcastUpdate('re_lead', { taskId, lead });
+          }
+        }
+      });
+
+      if (pwResult.screenshots && pwResult.screenshots.length > 0) {
+        capturedScreenshots = pwResult.screenshots;
+        taskState.screenshots = pwResult.screenshots;
+      }
+
+      if (pwResult.leads && pwResult.leads.length > 0) {
+        for (const pwLead of pwResult.leads) {
+          if (scrapedLeads.length >= limit) break;
+          const normKey = pwLead.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (normKey && !seenNames.has(normKey)) {
+            seenNames.add(normKey);
+            scrapedLeads.push(pwLead);
+            taskState.leads.push(pwLead);
+          }
+        }
+      }
+    } catch (pwErr: any) {
+      console.warn('[RealEstateScraper] Playwright scraper note:', pwErr.message);
+    }
+
+    // 1. FRENCH GOVERNMENT OFFICIAL SIRENE REGISTER API (For France - NAF Code 68.31Z Real Estate)
+    if (scrapedLeads.length < limit && countryCode === 'FR' && (portalSource === 'sirene' || portalSource === 'all')) {
       try {
         const { enrichLeadContactInfoFast } = await import('../services/fastGoogleMapsScraper');
         const gouvUrl = `https://recherche-entreprises.api.gouv.fr/search?q=immobilier+${encodeURIComponent(city)}&code_naf=68.31Z&etat_administratif=A&per_page=${Math.min(limit, 50)}`;
@@ -193,6 +318,26 @@ export default async function realEstateScrapeHandler(req: Request, res: Respons
       try {
         const apiKey = process.env.JINA_API_KEY;
         let siteQueries: { query: string; portalName: string }[] = [];
+
+        if (portalSource === 'brokerage_roster' || portalSource === 'remax' || portalSource === 'all') {
+          siteQueries.push({ query: `site:remax.com OR site:remax.fr OR site:remax.es ${city} "real estate agent" OR "roster" OR "conseiller"`, portalName: 'RE/MAX Roster Directory' });
+        }
+        if (portalSource === 'brokerage_roster' || portalSource === 'kellerwilliams' || portalSource === 'all') {
+          siteQueries.push({ query: `site:kw.com OR site:kwfrance.com ${city} "agent" OR "roster" OR "team"`, portalName: 'Keller Williams Roster' });
+        }
+        if (portalSource === 'brokerage_roster' || portalSource === 'century21' || portalSource === 'all') {
+          siteQueries.push({ query: `site:century21.com OR site:century21.fr ${city} "real estate agent" OR "conseiller"`, portalName: 'Century 21 Agent Roster' });
+        }
+        if (portalSource === 'brokerage_roster' || portalSource === 'coldwellbanker' || portalSource === 'all') {
+          siteQueries.push({ query: `site:coldwellbanker.com OR site:coldwellbanker.fr ${city} "agents" OR "roster"`, portalName: 'Coldwell Banker Team Roster' });
+        }
+        if (portalSource === 'brokerage_roster' || portalSource === 'exp' || portalSource === 'all') {
+          siteQueries.push({ query: `site:exprealty.com ${city} "agent" OR "roster"`, portalName: 'eXp Realty Agents Directory' });
+        }
+        if (portalSource === 'brokerage_roster' || portalSource === 'all') {
+          siteQueries.push({ query: `"our agents" OR "our team" OR "team roster" OR "meet the team" "real estate" ${city} "phone" "email"`, portalName: 'Local Brokerage /our-agents Roster' });
+          siteQueries.push({ query: `"notre equipe" OR "nos conseillers" "agence immobiliere" ${city} "telephone" "email"`, portalName: 'Local Agency Team Roster' });
+        }
 
         if (portalSource === 'iad' || portalSource === 'all') {
           siteQueries.push({ query: `site:iadfrance.fr/conseiller/ ${city}`, portalName: 'IAD France' });
@@ -327,73 +472,6 @@ export default async function realEstateScrapeHandler(req: Request, res: Respons
       }
     }
 
-    // 1. OPENSTREETMAP NOMINATIM LIVE DIRECTORY SCRAPE
-    try {
-      const osmQuery = `agence immobiliere ${city} ${countryName}`;
-      const osmUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(osmQuery)}&format=json&addressdetails=1&extratags=1&limit=${limit * 2}`;
-      
-      const osmRes = await axios.get(osmUrl, {
-        headers: { 'User-Agent': 'AssixRealEstateBot/2.0 (contact@assix.io)' },
-        timeout: 4000
-      });
-
-      if (Array.isArray(osmRes.data)) {
-        for (const item of osmRes.data) {
-          if (scrapedLeads.length >= limit) break;
-          const extra = item.extratags || {};
-          const addr = item.address || {};
-
-          let rawName = item.name || extra.name || extra.operator || (item.display_name ? item.display_name.split(',')[0] : '');
-          if (!rawName || rawName.length < 3) continue;
-
-          // Clean agency name
-          const normName = rawName.trim();
-          if (seenNames.has(normName.toLowerCase())) continue;
-
-          let rawPhone = extra.phone || extra['contact:phone'] || extra['phone:mobile'] || extra.mobile || '';
-          let website = extra.website || extra['contact:website'] || extra.url || '';
-          let email = extra.email || extra['contact:email'] || '';
-
-          const street = addr.road || addr.pedestrian || addr.suburb || '';
-          const houseNum = addr.house_number || '';
-          const foundCity = addr.city || addr.town || addr.village || city;
-          const postcode = addr.postcode || '';
-          const fullAddress = [houseNum, street, foundCity, postcode].filter(Boolean).join(', ') || item.display_name || city;
-
-          const phoneInfo = normalizeWhatsAppPhone(rawPhone, countryCode);
-
-          if (mobileOnly && phoneInfo.formatted && !phoneInfo.isMobile) {
-            continue;
-          }
-
-          seenNames.add(normName.toLowerCase());
-          if (phoneInfo.waPhone) seenPhones.add(phoneInfo.waPhone);
-
-          scrapedLeads.push({
-            id: `re_live_osm_${Date.now()}_${scrapedLeads.length}`,
-            name: normName,
-            agency: extra.brand || extra.operator || normName.includes('IAD') ? 'IAD France' : normName.includes('Safti') ? 'Safti' : normName.includes('Century') ? 'Century 21' : normName.includes('Orpi') ? 'Orpi' : 'Agence Immobilière Local',
-            country: countryName,
-            countryCode,
-            city: foundCity,
-            phone: phoneInfo.formatted || rawPhone || 'Contact Direct',
-            whatsappPhone: phoneInfo.waPhone,
-            isMobile: phoneInfo.isMobile,
-            email: email || undefined,
-            website: website || undefined,
-            address: fullAddress,
-            portalSource: 'OpenStreetMap Live Directory',
-            listingsCount: Math.floor(8 + Math.random() * 25),
-            selected: true,
-            scrapedAt: new Date().toLocaleDateString(),
-            verified: Boolean(phoneInfo.waPhone || email)
-          });
-        }
-      }
-    } catch (osmErr: any) {
-      console.warn('[RealEstateScraper] OSM live scrape note:', osmErr.message);
-    }
-
     // 2. LIVE JINA AI SEARCH SCRAPE FOR REAL AGENTS & MANDATAIRES
     if (scrapedLeads.length < limit) {
       try {
@@ -508,7 +586,6 @@ export default async function realEstateScrapeHandler(req: Request, res: Respons
     }
 
     // Save task run doc to assix_tasks so it appears in Sourcing Runs history
-    const taskId = req.body.taskId || `real-estate-${Date.now()}`;
     try {
       await db.collection('assix_tasks').doc(taskId).set({
         taskId,
@@ -558,17 +635,27 @@ export default async function realEstateScrapeHandler(req: Request, res: Respons
       }
     }
 
+    taskState.status = 'completed';
+    taskState.updatedAt = Date.now();
+    broadcastUpdate('re_complete', { taskId, count: scrapedLeads.length });
+
     return res.json({
       success: true,
       taskId,
       count: scrapedLeads.length,
       city,
       country: countryName,
-      leads: scrapedLeads
+      leads: scrapedLeads,
+      screenshots: capturedScreenshots,
+      executionMethod: 'Playwright Headless Chromium Engine'
     });
 
   } catch (error: any) {
     console.error('[RealEstateScraper] Handler Error:', error);
+    taskState.status = 'failed';
+    taskState.updatedAt = Date.now();
+    broadcastUpdate('re_error', { taskId, error: error.message });
+
     return res.status(500).json({
       error: error.message || 'Failed to execute real estate scrape'
     });

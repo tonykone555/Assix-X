@@ -828,6 +828,9 @@ export function buildPremiumDynamicTemplate(lead, content, niche = 'traiteur') {
   const lang = currentContent.language || detectLanguage(lead);
   const displayCity = extractCity(lead) || lead.city || (lang === 'fr' ? 'votre ville' : 'your area');
   const brandName = lead.name || lead.companyName || lead.company || lead.businessName || (lang === 'fr' ? 'Notre Entreprise' : 'Our Business');
+  const websiteDomain = lead.website ? lead.website.replace(/https?:\/\/|www\./g, '').split('/')[0] : '';
+  const faviconUrl = websiteDomain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(websiteDomain)}&sz=128` : null;
+  const siteLogoUrl = lead.logo || lead.avatar || lead.profilePic || lead.photo || faviconUrl;
 
   const rawConfig = NICHE_CONFIGS[activeNiche] || NICHE_CONFIGS[nicheKey] || NICHE_CONFIGS.restaurant || NICHE_CONFIGS.artisan;
   const config = (typeof rawConfig.getLangConfig === 'function') 
@@ -1143,7 +1146,10 @@ export function buildPremiumDynamicTemplate(lead, content, niche = 'traiteur') {
 <body>
 
 <nav>
-  <div class="nav-logo">${brandName}</div>
+  <div class="nav-logo" style="display: flex; align-items: center; gap: 10px;">
+    ${siteLogoUrl ? `<img src="${siteLogoUrl}" alt="${brandName}" style="height: 32px; width: 32px; object-fit: contain; border-radius: 6px; background: #FFF; padding: 2px;" onerror="this.style.display='none';">` : ''}
+    <span>${brandName}</span>
+  </div>
   <div class="nav-links">
     <a href="#about">${lang === 'fr' ? 'À PROPOS' : 'ABOUT'}</a>
     <a href="#services">${lang === 'fr' ? 'SERVICES' : 'SERVICES'}</a>

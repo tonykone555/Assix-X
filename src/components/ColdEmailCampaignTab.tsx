@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Mail, Send, Sparkles, RefreshCw, Settings, FileText,
   Copy, Inbox, Plus, Search, Star, Trash2, CornerUpLeft,
   Wand2, Check, AlertCircle, HelpCircle, ExternalLink, ShieldCheck, Key,
   Zap, Users, Globe, Clock, Play, CheckCircle2, XCircle, CheckSquare, Square, Layers, Rocket,
-  Eye, Edit3, Sliders, RotateCcw, Smartphone, Monitor, Code
+  Eye, Edit3, Sliders, RotateCcw, Smartphone, Monitor, Code, StopCircle
 } from 'lucide-react';
-import { buildNicheHtmlEmail, NICHE_EMAIL_TEMPLATES, NicheType } from '../../services/nicheEmailTemplates';
+import { buildNicheHtmlEmail, getNicheIntroText, formatBusinessName, NICHE_EMAIL_TEMPLATES, NicheType } from '../../services/nicheEmailTemplates';
+import { AccountantOnboardingModal } from './AccountantOnboardingModal';
 
 interface ColdEmailCampaignTabProps {
   isLight?: boolean;
@@ -55,6 +56,8 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
   const [showGmailGuide, setShowGmailGuide] = useState<boolean>(true);
 
   const [isSendingTest, setIsSendingTest] = useState<boolean>(false);
+  const [testCountdown, setTestCountdown] = useState<number | null>(null);
+  const cancelTestSendRef = useRef<boolean>(false);
 
   // Bulk Email Campaign Modal & Dispatch State
   const [showBulkModal, setShowBulkModal] = useState<boolean>(false);
@@ -65,6 +68,19 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
   const [sendIntervalSec, setSendIntervalSec] = useState<number>(2);
   const [campaignTitle, setCampaignTitle] = useState<string>('Niche Email Campaign');
   const [isBulkRunning, setIsBulkRunning] = useState<boolean>(false);
+  const cancelBulkRef = useRef<boolean>(false);
+
+  const handleCancelBulkCampaign = () => {
+    cancelBulkRef.current = true;
+    showNotification('Cancelling email campaign sending...');
+  };
+
+  const handleCancelTestSend = () => {
+    cancelTestSendRef.current = true;
+    setTestCountdown(null);
+    setIsSendingTest(false);
+    showNotification('Email sending cancelled!');
+  };
   const [bulkProgress, setBulkProgress] = useState<{ total: number; current: number; sent: number; failed: number }>({
     total: 0,
     current: 0,
@@ -86,14 +102,58 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
   const [previewLeadId, setPreviewLeadId] = useState<string | null>(null);
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
 
+  // Accountant CPA Onboarding Interactive Modal State
+  const [showAccountantModal, setShowAccountantModal] = useState<boolean>(false);
+  const [accountantModalInitialView, setAccountantModalInitialView] = useState<'workflow' | 'email_preview' | 'roi'>('email_preview');
+
   const resetTemplateToNicheDefaults = (niche: NicheType = selectedNiche, lang: 'fr' | 'en' = bulkLanguage) => {
     const tmpl = NICHE_EMAIL_TEMPLATES[niche]?.[lang] || NICHE_EMAIL_TEMPLATES.general[lang];
     setCustomSubject(tmpl.subject);
     setCustomHeroTitle(tmpl.heroTitle);
-    setCustomHeroSubtitle(tmpl.heroSubtitle);
+    setCustomHeroSubtitle(getNicheIntroText(niche, '{{company}}', lang === 'fr' ? 'dans votre secteur' : 'in your area', lang));
     setCustomPrimaryCta(tmpl.primaryCta);
     setCustomSecondaryCta(lang === 'fr' ? `💬 Planifier un échange avec ${senderName}` : `💬 Schedule a call with ${senderName}`);
     setCustomPainPoint(lang === 'fr' ? "Réponse instantanée 24/7 & accueil client personnalisé" : "24/7 instant response & personalized client welcome");
+  };
+
+  // Restore saved email provider configuration on mount
+  useEffect(() => {
+    try {
+      const savedConfigStr = localStorage.getItem('assix_email_config');
+      if (savedConfigStr) {
+        const parsed = JSON.parse(savedConfigStr);
+        if (parsed.provider) setProvider(parsed.provider);
+        if (parsed.fromEmail) setFromEmail(parsed.fromEmail);
+        if (parsed.fromName) setFromName(parsed.fromName);
+        if (parsed.smtpHost) setSmtpHost(parsed.smtpHost);
+        if (parsed.smtpPort) setSmtpPort(Number(parsed.smtpPort) || 587);
+        if (parsed.smtpUser) setSmtpUser(parsed.smtpUser);
+        if (parsed.smtpPass) setSmtpPass(parsed.smtpPass);
+        if (parsed.apiKey) setApiKey(parsed.apiKey);
+      }
+    } catch (e) {
+      console.error('Failed to parse saved email connection config:', e);
+    }
+  }, []);
+
+  const handleSaveConnection = () => {
+    const configToSave = {
+      provider,
+      fromEmail: fromEmail || smtpUser,
+      fromName: fromName || senderName,
+      smtpHost: provider === 'gmail' ? 'smtp.gmail.com' : smtpHost,
+      smtpPort: provider === 'gmail' ? 587 : smtpPort,
+      smtpUser: smtpUser || fromEmail,
+      smtpPass,
+      apiKey
+    };
+    try {
+      localStorage.setItem('assix_email_config', JSON.stringify(configToSave));
+      showNotification('Email connection saved & remembered in browser!');
+    } catch (e) {
+      showNotification('Connection saved in memory for this session.');
+    }
+    setShowConfigModal(false);
   };
 
   useEffect(() => {
@@ -105,30 +165,30 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
     {
       id: 'mock_1',
       company: 'Evergreen Roofing',
-      contactName: 'David Miller',
-      email: 'david@evergreenroofing.com',
+      contactName: 'Evergreen Roofing',
+      email: 'contact@evergreenroofing.com',
       time: '10:42 AM',
-      snippet: 'Hi David, noticed Evergreen Roofing while scanning local listings. Saw that your site is missing a direct quote form...',
+      snippet: 'Hello Evergreen Roofing team, noticed your business while scanning local listings. Saw that your site is missing a direct quote form...',
       subject: 'quick question re: Evergreen Roofing',
       folder: 'inbox'
     },
     {
       id: 'mock_2',
       company: 'Apex Plumbing',
-      contactName: 'Sarah Jenkins',
-      email: 'sarah@apexplumbing.com',
+      contactName: 'Apex Plumbing',
+      email: 'contact@apexplumbing.com',
       time: 'Yesterday',
-      snippet: 'Hey Sarah, came across Apex Plumbing on Google Maps. Noticed you guys have 48 great 5-star reviews...',
+      snippet: 'Hello Apex Plumbing team, came across your business on Google Maps. Noticed you guys have 48 great 5-star reviews...',
       subject: 'idea for Apex Plumbing',
       folder: 'inbox'
     },
     {
       id: 'mock_3',
       company: 'Precision Auto Spa',
-      contactName: 'Marcus Vance',
-      email: 'marcus@precisionautospa.io',
+      contactName: 'Precision Auto Spa',
+      email: 'contact@precisionautospa.io',
       time: 'Aug 5',
-      snippet: 'Hi Marcus, saw Precision Auto Spa\'s Instagram ad. Noticed the ad link goes to a generic homepage...',
+      snippet: 'Hello Precision Auto Spa team, saw your Instagram ad. Noticed the ad link goes to a generic homepage...',
       subject: 'quick thoughts on Precision Auto Spa',
       folder: 'sent'
     }
@@ -136,16 +196,20 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
 
   // Combine scraped leads with mock fallback
   const leadThreads = leads.length > 0 
-    ? leads.map((l, i) => ({
-        id: l.leadId || l.id || `lead_${i}`,
-        company: l.company || l.businessName || l.name || 'Target Business',
-        contactName: l.contactName || l.pageName || l.name || 'Owner',
-        email: l.email || `${(l.company || 'info').toLowerCase().replace(/\s+/g, '')}@domain.com`,
-        time: `${(i + 1) * 2}h ago`,
-        snippet: `Re: ${l.company || l.name} - Custom cold email sequence generated for outreach...`,
-        subject: `quick question re: ${l.company || l.name || 'your business'}`,
-        folder: i % 3 === 2 ? 'sent' : 'inbox'
-      }))
+    ? leads.map((l, i) => {
+        const companyName = formatBusinessName(l.company || l.businessName || l.name || 'Target Business');
+        const contactName = formatBusinessName(l.contactName || l.company || l.businessName || l.name || companyName);
+        return {
+          id: l.leadId || l.id || `lead_${i}`,
+          company: companyName,
+          contactName: contactName,
+          email: l.email || `${companyName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'info'}@domain.com`,
+          time: `${(i + 1) * 2}h ago`,
+          snippet: `Re: ${companyName} - Custom cold email sequence generated for outreach...`,
+          subject: `quick question re: ${companyName}`,
+          folder: i % 3 === 2 ? 'sent' : 'inbox'
+        };
+      })
     : defaultLeadThreads;
 
   // Selected thread object
@@ -184,6 +248,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
       return;
     }
 
+    cancelBulkRef.current = false;
     setIsBulkRunning(true);
     setBulkCompleted(false);
     setBulkProgress({ total: targetLeads.length, current: 0, sent: 0, failed: 0 });
@@ -191,8 +256,14 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
 
     let sentCount = 0;
     let failedCount = 0;
+    let wasCancelled = false;
 
     for (let i = 0; i < targetLeads.length; i++) {
+      if (cancelBulkRef.current) {
+        wasCancelled = true;
+        break;
+      }
+
       const lead = targetLeads[i];
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -232,6 +303,16 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
             senderTitle: senderTitle
           }
         );
+
+        if (cancelBulkRef.current) {
+          wasCancelled = true;
+          setBulkLogs(prev => prev.map((item, idx) => idx === 0 ? {
+            ...item,
+            status: 'error',
+            details: 'Sending cancelled by user'
+          } : item));
+          break;
+        }
 
         const subjectToSend = emailContent.subject;
         const bodyHtmlToSend = emailContent.html;
@@ -293,14 +374,47 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
         failed: failedCount
       });
 
+      if (cancelBulkRef.current) {
+        wasCancelled = true;
+        break;
+      }
+
       if (i < targetLeads.length - 1 && sendIntervalSec > 0) {
-        await new Promise(r => setTimeout(r, sendIntervalSec * 1000));
+        const delayMs = sendIntervalSec * 1000;
+        const start = Date.now();
+        while (Date.now() - start < delayMs) {
+          if (cancelBulkRef.current) {
+            wasCancelled = true;
+            break;
+          }
+          await new Promise(r => setTimeout(r, 100));
+        }
+        if (wasCancelled || cancelBulkRef.current) {
+          wasCancelled = true;
+          break;
+        }
       }
     }
 
+    if (wasCancelled) {
+      setBulkLogs(prev => [
+        {
+          id: `log_cancelled_${Date.now()}`,
+          company: 'Campaign Cancelled',
+          email: 'System',
+          status: 'error',
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          details: 'Sending stopped by user.'
+        },
+        ...prev
+      ]);
+      showNotification(`Campaign sending cancelled! (${sentCount} sent before cancellation)`);
+    } else {
+      setBulkCompleted(true);
+      showNotification(`Bulk campaign complete! ${sentCount} sent, ${failedCount} failed.`);
+    }
+
     setIsBulkRunning(false);
-    setBulkCompleted(true);
-    showNotification(`Bulk campaign complete! ${sentCount} sent, ${failedCount} failed.`);
   };
 
   // Handle provider preset selection
@@ -361,7 +475,20 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
     const activeBody = generatedSequence?.steps?.[activeStepIdx]?.bodyText || activeLead?.snippet || 'Hello, testing email connection!';
     const activeSubject = generatedSequence?.steps?.[activeStepIdx]?.subject || activeLead?.subject || 'Quick hello!';
 
+    cancelTestSendRef.current = false;
     setIsSendingTest(true);
+
+    // 3-second delay allowing cancellation
+    for (let c = 3; c > 0; c--) {
+      if (cancelTestSendRef.current) return;
+      setTestCountdown(c);
+      await new Promise(r => setTimeout(r, 1000));
+      if (cancelTestSendRef.current) return;
+    }
+    setTestCountdown(null);
+
+    if (cancelTestSendRef.current) return;
+
     try {
       const res = await fetch('/api/email-campaign/send', {
         method: 'POST',
@@ -394,6 +521,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
       showNotification(`Error: ${err.message}`);
     } finally {
       setIsSendingTest(false);
+      setTestCountdown(null);
     }
   };
 
@@ -484,6 +612,32 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* --- ACTIVE CAMPAIGN RUNNING BANNER WITH CANCEL BUTTON --- */}
+      {isBulkRunning && (
+        <div className="bg-amber-500/15 border-b border-amber-500/30 px-5 py-2.5 flex items-center justify-between gap-3 text-xs font-bold text-amber-300 shrink-0">
+          <div className="flex items-center gap-2">
+            <RefreshCw size={14} className="animate-spin text-amber-400 shrink-0" />
+            <span>Email Campaign Active: <strong>{bulkProgress.current} / {bulkProgress.total}</strong> ({Math.round((bulkProgress.current / (bulkProgress.total || 1)) * 100)}%)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowBulkModal(true)}
+              className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-slate-200 border border-zinc-700 rounded-lg transition text-[11px] cursor-pointer"
+            >
+              View Progress
+            </button>
+            <button
+              type="button"
+              onClick={handleCancelBulkCampaign}
+              className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white font-extrabold rounded-lg transition text-[11px] flex items-center gap-1 cursor-pointer shadow animate-pulse"
+            >
+              <StopCircle size={13} /> Cancel Sending
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* --- MAIN WORKSPACE LAYOUT --- */}
       <div className="flex-1 flex overflow-hidden">
@@ -690,6 +844,52 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
               {/* Reader Body Area */}
               <div className="flex-1 overflow-y-auto p-6 space-y-5">
                 
+                {/* ACCOUNTANT ONBOARDING INTERACTIVE DEMO BANNER (Accountant Niche Only) */}
+                {selectedNiche === 'accountant' && (
+                  <div className="p-3.5 bg-gradient-to-r from-blue-950/70 via-indigo-950/60 to-emerald-950/60 border border-blue-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-500/20 border border-blue-400/30 rounded-lg text-blue-400 shrink-0">
+                        <Zap size={18} />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-extrabold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+                          <span>AI CPA ONBOARDING ENGINE</span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                        </div>
+                        <div className="text-xs font-bold text-white mt-0.5">
+                          Aperçu du parcours d'Onboarding Client & rendu Email Client
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccountantModalInitialView('email_preview');
+                          setShowAccountantModal(true);
+                        }}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                      >
+                        <Mail size={13} />
+                        <span>Aperçu Email Client (CSS)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccountantModalInitialView('workflow');
+                          setShowAccountantModal(true);
+                        }}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                      >
+                        <Zap size={13} />
+                        <span>Tester Démo 3-min</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Contact & Email Info Card */}
                 <div className={`border rounded-xl p-4 space-y-2 ${
                   isLight 
@@ -850,18 +1050,29 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                     {isGenerating ? 'Prompting...' : 'Re-Prompt AI'}
                   </button>
 
-                  <button
-                    onClick={handleSendTestEmail}
-                    disabled={isSendingTest}
-                    className={`px-3.5 py-2 font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap disabled:opacity-50 border ${
-                      isLight 
-                        ? 'bg-slate-800 border-slate-700 hover:bg-slate-900 text-white' 
-                        : 'bg-zinc-900 border-zinc-700 hover:bg-zinc-800 text-zinc-200'
-                    }`}
-                  >
-                    {isSendingTest ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} className="text-emerald-400" />}
-                    Send
-                  </button>
+                  {isSendingTest ? (
+                    <button
+                      type="button"
+                      onClick={handleCancelTestSend}
+                      className="px-3.5 py-2 font-black text-xs rounded-xl bg-red-600 hover:bg-red-500 text-white transition flex items-center gap-1.5 cursor-pointer shadow animate-pulse whitespace-nowrap"
+                    >
+                      <StopCircle size={14} />
+                      Cancel Sending {testCountdown !== null ? `(${testCountdown}s)` : ''}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSendTestEmail}
+                      className={`px-3.5 py-2 font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap border ${
+                        isLight 
+                          ? 'bg-slate-800 border-slate-700 hover:bg-slate-900 text-white' 
+                          : 'bg-zinc-900 border-zinc-700 hover:bg-zinc-800 text-zinc-200'
+                      }`}
+                    >
+                      <Send size={13} className="text-emerald-400" />
+                      Send
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1130,10 +1341,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => {
-                    showNotification('Email connection saved successfully!');
-                    setShowConfigModal(false);
-                  }}
+                  onClick={handleSaveConnection}
                   className="flex-1 py-2 bg-emerald-500 text-black font-extrabold text-xs uppercase tracking-wider rounded-xl hover:bg-emerald-400 transition cursor-pointer"
                 >
                   Save Connection
@@ -1151,12 +1359,17 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
           { id: 'general', label: 'General Business', icon: '💼' },
           { id: 'real_estate', label: 'Real Estate & Immobilier', icon: '🏠' },
           { id: 'restaurant', label: 'Restaurant & Traiteur', icon: '🍽️' },
-          { id: 'plumbing', label: 'Plumbing & Chauffage', icon: '🚰' },
+          { id: 'plumbing', label: 'Plumbing & Chauffage (Emergency Routing)', icon: '🚰' },
           { id: 'electrical', label: 'Electrical & Énergie', icon: '⚡' },
           { id: 'disaster_restoration', label: 'Disaster Restoration', icon: '🛠️' },
           { id: 'locksmith', label: 'Locksmith & Sécurité', icon: '🔑' },
-          { id: 'driving_school', label: 'Driving School', icon: '🚗' },
+          { id: 'driving_school', label: 'Driving School (Student Lifecycle)', icon: '🚗' },
           { id: 'law_firm', label: 'Law Firm & Avocats', icon: '⚖️' },
+          { id: 'accountant', label: 'Accountant & CPA (AI Client Onboarding)', icon: '📊' },
+          { id: 'funeral_home', label: 'Funeral Home & Pompes Funèbres', icon: '🕊️' },
+          { id: 'dog_groomer', label: 'Dog Groomer & Toilettage', icon: '🐾' },
+          { id: 'photographer', label: 'Photographer & Studio Photo', icon: '📸' },
+          { id: 'dentist', label: 'Dentist Veneers Widget', icon: '🦷' },
         ];
 
         const activePreviewLead = leadThreads.find(l => l.id === (previewLeadId || selectedBulkLeadIds[0] || leadThreads[0]?.id)) || leadThreads[0];
@@ -1185,22 +1398,26 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
         ) : { subject: '', html: '', text: '' };
 
         return (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4">
-            <div className={`border rounded-2xl max-w-4xl w-full p-5 sm:p-6 space-y-4 shadow-2xl overflow-hidden max-h-[94vh] flex flex-col ${
-              isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#181920] border-zinc-800 text-white'
-            }`}>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+            <div className="bg-[#F8FAFC] border border-slate-200 shadow-2xl rounded-2xl max-w-4xl w-full p-5 sm:p-6 space-y-4 overflow-hidden max-h-[94vh] flex flex-col text-slate-800">
               
               {/* Modal Header */}
-              <div className={`flex items-center justify-between border-b pb-3 shrink-0 ${
-                isLight ? 'border-slate-200' : 'border-zinc-800'
-              }`}>
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center">
-                    <Rocket size={20} />
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3.5 shrink-0 select-none">
+                <div className="flex items-center gap-3">
+                  {/* Traffic Light Dots */}
+                  <div className="flex items-center gap-1.5 mr-1 shrink-0">
+                    <span className="w-3 h-3 rounded-full bg-[#FF5F56] border border-red-600/30 inline-block" />
+                    <span className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-amber-600/30 inline-block" />
+                    <span className="w-3 h-3 rounded-full bg-[#27C93F] border border-emerald-600/30 inline-block" />
                   </div>
+
+                  <div className="w-8.5 h-8.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-600 flex items-center justify-center shrink-0">
+                    <Rocket size={18} />
+                  </div>
+
                   <div>
-                    <h3 className="text-sm font-bold tracking-tight">Bulk Niche Email Campaign Dispatcher</h3>
-                    <p className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
+                    <h3 className="text-sm font-black text-slate-950 tracking-tight">Bulk Outreach Campaign</h3>
+                    <p className="text-[10px] text-slate-500 font-medium">
                       Choose Niche, Preview Email, Edit Content & Send Bulk Outreach
                     </p>
                   </div>
@@ -1213,52 +1430,50 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                     }
                     setShowBulkModal(false);
                   }}
-                  className="text-slate-400 hover:text-slate-900 dark:hover:text-white transition text-xs font-bold cursor-pointer px-2 py-1"
+                  className="text-slate-400 hover:text-slate-900 transition text-[11px] font-extrabold tracking-wider uppercase border border-slate-200 hover:bg-slate-50 px-3 py-1.5 rounded-lg cursor-pointer"
                 >
                   ✕ Close
                 </button>
               </div>
 
               {/* Modal Sub-Tabs */}
-              <div className={`flex items-center gap-1.5 border-b pb-2 shrink-0 ${
-                isLight ? 'border-slate-200' : 'border-zinc-800/80'
-              }`}>
+              <div className="flex items-center gap-2 border-b border-slate-200 pb-3 shrink-0">
                 <button
                   type="button"
                   onClick={() => setBulkModalTab('dispatch')}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
                     bulkModalTab === 'dispatch'
-                      ? 'bg-emerald-500 text-black shadow-sm font-extrabold'
-                      : isLight ? 'text-slate-600 hover:bg-slate-100' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 shadow-xs font-extrabold'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   }`}
                 >
-                  <Rocket size={13} /> 
+                  <Rocket size={13} className="text-emerald-500" /> 
                   <span>1. Launch & Targets ({selectedBulkLeadIds.length})</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setBulkModalTab('preview')}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
                     bulkModalTab === 'preview'
-                      ? 'bg-emerald-500 text-black shadow-sm font-extrabold'
-                      : isLight ? 'text-slate-600 hover:bg-slate-100' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 shadow-xs font-extrabold'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   }`}
                 >
-                  <Eye size={13} /> 
+                  <Eye size={13} className="text-emerald-500" /> 
                   <span>2. Live Email Preview</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setBulkModalTab('edit')}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
                     bulkModalTab === 'edit'
-                      ? 'bg-emerald-500 text-black shadow-sm font-extrabold'
-                      : isLight ? 'text-slate-600 hover:bg-slate-100' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 shadow-xs font-extrabold'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   }`}
                 >
-                  <Edit3 size={13} /> 
+                  <Edit3 size={13} className="text-emerald-500" /> 
                   <span>3. Edit Content & Niche</span>
                 </button>
               </div>
@@ -1271,41 +1486,33 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                   <div className="space-y-4">
                     {/* Status Summary Banner */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className={`p-3 rounded-xl border ${
-                        isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#14151C] border-zinc-800'
-                      }`}>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Selected Leads</span>
-                        <div className="text-base font-black text-emerald-500 mt-0.5 flex items-center gap-1.5">
+                      <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-xs">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Selected Leads</span>
+                        <div className="text-base font-black text-emerald-600 mt-0.5 flex items-center gap-1.5">
                           <Users size={16} />
                           {selectedBulkLeadIds.length} / {leadThreads.length}
                         </div>
                       </div>
 
-                      <div className={`p-3 rounded-xl border ${
-                        isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#14151C] border-zinc-800'
-                      }`}>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Chosen Niche</span>
-                        <div className="text-xs font-bold text-emerald-400 mt-1 flex items-center gap-1 truncate capitalize">
+                      <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-xs">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Chosen Niche</span>
+                        <div className="text-xs font-black text-emerald-600 mt-1 flex items-center gap-1 truncate capitalize font-mono">
                           <span>{nicheOptions.find(n => n.id === selectedNiche)?.icon || '💼'}</span>
                           {selectedNiche.replace('_', ' ')}
                         </div>
                       </div>
 
-                      <div className={`p-3 rounded-xl border ${
-                        isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#14151C] border-zinc-800'
-                      }`}>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Sending Engine</span>
-                        <div className="text-xs font-bold text-slate-200 mt-1 flex items-center gap-1.5 truncate">
-                          <Zap size={14} className="text-emerald-400" />
+                      <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-xs">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Sending Engine</span>
+                        <div className="text-xs font-bold text-slate-700 mt-1 flex items-center gap-1.5 truncate font-mono">
+                          <Zap size={14} className="text-emerald-500" />
                           {provider.toUpperCase()}
                         </div>
                       </div>
 
-                      <div className={`p-3 rounded-xl border ${
-                        isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#14151C] border-zinc-800'
-                      }`}>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Est. Duration</span>
-                        <div className="text-xs font-bold text-amber-400 mt-1 flex items-center gap-1.5">
+                      <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-xs">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Est. Duration</span>
+                        <div className="text-xs font-bold text-amber-600 mt-1 flex items-center gap-1.5">
                           <Clock size={14} />
                           ~{Math.ceil((selectedBulkLeadIds.length * sendIntervalSec) / 60)} min ({sendIntervalSec}s gap)
                         </div>
@@ -1313,9 +1520,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                     </div>
 
                     {/* Campaign Settings Bar */}
-                    <div className={`p-3.5 rounded-xl border space-y-3 ${
-                      isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#0E0F15] border-zinc-800'
-                    }`}>
+                    <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-3 shadow-xs">
                       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Campaign Title</label>
@@ -1324,9 +1529,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                             value={campaignTitle}
                             onChange={(e) => setCampaignTitle(e.target.value)}
                             disabled={isBulkRunning}
-                            className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
-                              isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                            }`}
+                            className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-2.5 py-1.5 text-xs font-semibold transition bg-slate-50"
                           />
                         </div>
 
@@ -1342,9 +1545,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                               resetTemplateToNicheDefaults(n, bulkLanguage);
                             }}
                             disabled={isBulkRunning}
-                            className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
-                              isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                            }`}
+                            className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-2.5 py-1.5 text-xs font-semibold transition bg-slate-50"
                           >
                             {nicheOptions.map(n => (
                               <option key={n.id} value={n.id}>
@@ -1362,9 +1563,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                             value={bulkLanguage}
                             onChange={(e) => setBulkLanguage(e.target.value as 'fr' | 'en')}
                             disabled={isBulkRunning}
-                            className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
-                              isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                            }`}
+                            className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-2.5 py-1.5 text-xs font-semibold transition bg-slate-50"
                           >
                             <option value="fr">French (Français)</option>
                             <option value="en">English</option>
@@ -1379,9 +1578,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                             value={sendIntervalSec}
                             onChange={(e) => setSendIntervalSec(Number(e.target.value))}
                             disabled={isBulkRunning}
-                            className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
-                              isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                            }`}
+                            className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-2.5 py-1.5 text-xs font-semibold transition bg-slate-50"
                           >
                             <option value={1}>1 second (Fast)</option>
                             <option value={2}>2 seconds (Balanced)</option>
@@ -1394,55 +1591,64 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
 
                     {/* Progress & Live Logs Section (When running or completed) */}
                     {(isBulkRunning || bulkCompleted || bulkLogs.length > 0) && (
-                      <div className={`p-4 rounded-xl border space-y-3 ${
-                        isLight ? 'bg-emerald-50/50 border-emerald-200' : 'bg-emerald-950/20 border-emerald-500/30'
-                      }`}>
+                      <div className="p-4 bg-emerald-50/50 border border-emerald-200 rounded-xl space-y-3">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold uppercase tracking-wider flex items-center gap-2 text-emerald-400">
-                            {isBulkRunning ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                          <span className="text-xs font-extrabold uppercase tracking-wider flex items-center gap-2 text-emerald-700">
+                            {isBulkRunning ? <RefreshCw size={14} className="animate-spin text-emerald-600" /> : <CheckCircle2 size={14} className="text-emerald-600" />}
                             {isBulkRunning ? 'Sending Emails in Real-time...' : bulkCompleted ? 'Bulk Campaign Finished!' : 'Dispatch Logs'}
                           </span>
 
-                          <span className="text-xs font-mono font-bold text-slate-300">
-                            {bulkProgress.current} / {bulkProgress.total} ({Math.round((bulkProgress.current / (bulkProgress.total || 1)) * 100)}%)
-                          </span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-mono font-bold text-emerald-800">
+                              {bulkProgress.current} / {bulkProgress.total} ({Math.round((bulkProgress.current / (bulkProgress.total || 1)) * 100)}%)
+                            </span>
+
+                            {isBulkRunning && (
+                              <button
+                                type="button"
+                                onClick={handleCancelBulkCampaign}
+                                className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white text-[11px] font-black rounded-lg transition shadow flex items-center gap-1 cursor-pointer animate-pulse"
+                                title="Stop & Cancel Bulk Email Campaign"
+                              >
+                                <StopCircle size={13} /> Cancel Sending
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         {/* Progress Bar */}
-                        <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+                        <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                           <div
                             className="bg-emerald-500 h-full transition-all duration-300 rounded-full"
                             style={{ width: `${Math.round((bulkProgress.current / (bulkProgress.total || 1)) * 100)}%` }}
                           />
                         </div>
 
-                        <div className="flex items-center gap-4 text-xs font-semibold">
-                          <span className="text-emerald-400 flex items-center gap-1">
+                        <div className="flex items-center gap-4 text-xs font-bold">
+                          <span className="text-emerald-700 flex items-center gap-1">
                             <CheckCircle2 size={13} /> {bulkProgress.sent} Delivered
                           </span>
-                          <span className="text-red-400 flex items-center gap-1">
+                          <span className="text-red-600 flex items-center gap-1">
                             <XCircle size={13} /> {bulkProgress.failed} Failed
                           </span>
                         </div>
 
                         {/* Execution Log Box */}
-                        <div className={`p-2.5 rounded-lg border max-h-36 overflow-y-auto font-mono text-[11px] space-y-1.5 ${
-                          isLight ? 'bg-white border-slate-200' : 'bg-[#0E0F15] border-zinc-800'
-                        }`}>
+                        <div className="p-2.5 bg-white border border-slate-200 rounded-lg max-h-36 overflow-y-auto font-mono text-[11px] space-y-1.5">
                           {bulkLogs.map((log) => (
-                            <div key={log.id} className="flex items-start justify-between gap-2 border-b border-zinc-800/40 pb-1">
+                            <div key={log.id} className="flex items-start justify-between gap-2 border-b border-slate-100 pb-1">
                               <div className="flex items-center gap-1.5 truncate">
-                                {log.status === 'sending' && <RefreshCw size={11} className="animate-spin text-amber-400 shrink-0" />}
-                                {log.status === 'sent' && <CheckCircle2 size={11} className="text-emerald-400 shrink-0" />}
-                                {log.status === 'error' && <XCircle size={11} className="text-red-400 shrink-0" />}
-                                <span className="font-bold text-slate-200">{log.company}</span>
-                                <span className="text-slate-400">({log.email})</span>
+                                {log.status === 'sending' && <RefreshCw size={11} className="animate-spin text-amber-500 shrink-0" />}
+                                {log.status === 'sent' && <CheckCircle2 size={11} className="text-emerald-600 shrink-0" />}
+                                {log.status === 'error' && <XCircle size={11} className="text-red-500 shrink-0" />}
+                                <span className="font-bold text-slate-800">{log.company}</span>
+                                <span className="text-slate-500 font-sans">({log.email})</span>
                               </div>
 
                               <div className="text-[10px] text-right shrink-0">
                                 <span className={`px-1.5 py-0.5 rounded font-bold uppercase ${
-                                  log.status === 'sent' ? 'bg-emerald-500/20 text-emerald-400' :
-                                  log.status === 'error' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-300'
+                                  log.status === 'sent' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                  log.status === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-amber-50 text-amber-700 border border-amber-200'
                                 }`}>
                                   {log.status}
                                 </span>
@@ -1465,24 +1671,22 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                           <button
                             type="button"
                             onClick={() => setSelectedBulkLeadIds(leadThreads.map(l => l.id))}
-                            className="text-[10px] font-bold text-emerald-400 hover:underline cursor-pointer"
+                            className="text-[10px] font-black text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer"
                           >
                             Select All ({leadThreads.length})
                           </button>
-                          <span className="text-slate-600">•</span>
+                          <span className="text-slate-300 font-bold">•</span>
                           <button
                             type="button"
                             onClick={() => setSelectedBulkLeadIds([])}
-                            className="text-[10px] font-bold text-slate-400 hover:underline cursor-pointer"
+                            className="text-[10px] font-black text-slate-500 hover:text-slate-700 hover:underline cursor-pointer"
                           >
                             Deselect All
                           </button>
                         </div>
                       </div>
 
-                      <div className={`border rounded-xl divide-y max-h-52 overflow-y-auto ${
-                        isLight ? 'bg-white border-slate-200 divide-slate-100' : 'bg-[#0E0F15] border-zinc-800 divide-zinc-800/60'
-                      }`}>
+                      <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-52 overflow-y-auto bg-white shadow-xs">
                         {leadThreads.map((lead) => {
                           const isChecked = selectedBulkLeadIds.includes(lead.id);
                           return (
@@ -1496,28 +1700,28 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                                   setSelectedBulkLeadIds(prev => [...prev, lead.id]);
                                 }
                               }}
-                              className={`p-2.5 flex items-center justify-between transition cursor-pointer hover:bg-emerald-500/5 ${
-                                isChecked ? 'bg-emerald-500/10' : ''
+                              className={`p-2.5 flex items-center justify-between transition cursor-pointer hover:bg-slate-50 ${
+                                isChecked ? 'bg-emerald-50/20' : ''
                               }`}
                             >
                               <div className="flex items-center gap-2.5">
-                                <div className="text-emerald-500">
-                                  {isChecked ? <CheckSquare size={16} /> : <Square size={16} className="text-slate-600" />}
+                                <div className="text-emerald-600">
+                                  {isChecked ? <CheckSquare size={16} /> : <Square size={16} className="text-slate-300" />}
                                 </div>
                                 <div>
-                                  <div className="text-xs font-bold text-white flex items-center gap-2">
+                                  <div className="text-xs font-bold text-slate-800 flex items-center gap-2">
                                     {lead.company}
-                                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-zinc-800 text-slate-300">
+                                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-sans">
                                       {lead.contactName}
                                     </span>
                                   </div>
-                                  <div className="text-[10px] text-emerald-400 font-mono">
+                                  <div className="text-[10px] text-emerald-600 font-mono">
                                     {lead.email}
                                   </div>
                                 </div>
                               </div>
 
-                              <span className="text-[10px] font-mono text-slate-400">
+                              <span className="text-[10px] font-semibold text-slate-400 font-mono">
                                 {lead.folder === 'sent' ? '✓ Sent' : 'Inbox Lead'}
                               </span>
                             </div>
@@ -1532,20 +1736,16 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                 {bulkModalTab === 'preview' && (
                   <div className="space-y-3.5">
                     {/* Top Preview Controls Bar */}
-                    <div className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${
-                      isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#0E0F15] border-zinc-800'
-                    }`}>
+                    <div className="p-3 bg-white border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-xs">
                       {/* Sample Lead Picker */}
                       <div className="flex items-center gap-2 flex-1 min-w-[220px]">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
-                          <Users size={12} className="text-emerald-400" /> Preview Lead:
+                          <Users size={12} className="text-emerald-500" /> Preview Lead:
                         </label>
                         <select
                           value={previewLeadId || activePreviewLead.id}
                           onChange={(e) => setPreviewLeadId(e.target.value)}
-                          className={`w-full border rounded-lg px-2.5 py-1 text-xs font-semibold ${
-                            isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                          }`}
+                          className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-2.5 py-1 text-xs font-semibold transition bg-slate-50"
                         >
                           {leadThreads.map(l => (
                             <option key={l.id} value={l.id}>
@@ -1556,18 +1756,18 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                       </div>
 
                       {/* Niche Indicator */}
-                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-extrabold uppercase">
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-extrabold uppercase">
                         <span>{nicheOptions.find(n => n.id === selectedNiche)?.icon || '💼'}</span>
                         <span>{selectedNiche.replace('_', ' ')}</span>
                       </div>
 
                       {/* Device Switcher */}
-                      <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-700 p-1 rounded-lg shrink-0">
+                      <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 p-1 rounded-lg shrink-0">
                         <button
                           type="button"
                           onClick={() => setPreviewDevice('desktop')}
                           className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1 transition cursor-pointer ${
-                            previewDevice === 'desktop' ? 'bg-emerald-500 text-black' : 'text-slate-400 hover:text-white'
+                            previewDevice === 'desktop' ? 'bg-white border border-slate-200 text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-800'
                           }`}
                         >
                           <Monitor size={12} /> Desktop
@@ -1576,7 +1776,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                           type="button"
                           onClick={() => setPreviewDevice('mobile')}
                           className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1 transition cursor-pointer ${
-                            previewDevice === 'mobile' ? 'bg-emerald-500 text-black' : 'text-slate-400 hover:text-white'
+                            previewDevice === 'mobile' ? 'bg-white border border-slate-200 text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-800'
                           }`}
                         >
                           <Smartphone size={12} /> Mobile
@@ -1585,33 +1785,31 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                     </div>
 
                     {/* Simulated Email Inbox Header */}
-                    <div className={`p-3 rounded-xl border space-y-1.5 ${
-                      isLight ? 'bg-white border-slate-200' : 'bg-[#14151C] border-zinc-800'
-                    }`}>
+                    <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-1.5 shadow-xs">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-bold text-slate-400">Subject Line:</span>
-                        <span className="font-mono text-[10px] text-emerald-400 font-bold px-2 py-0.5 rounded bg-emerald-500/10">
+                        <span className="font-mono text-[10px] text-emerald-700 font-bold px-2 py-0.5 rounded bg-emerald-50 border border-emerald-100">
                           {bulkLanguage.toUpperCase()} HTML TEMPLATE
                         </span>
                       </div>
-                      <div className="text-sm font-black text-white tracking-tight">
+                      <div className="text-sm font-black text-slate-900 tracking-tight">
                         {previewEmailContent.subject}
                       </div>
-                      <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-2">
-                        <span>From: <strong className="text-white">{fromName || senderName}</strong> &lt;{fromEmail || smtpUser || 'outreach@assix.app'}&gt;</span>
+                      <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-2">
+                        <span>From: <strong className="text-slate-800">{fromName || senderName}</strong> &lt;{fromEmail || smtpUser || 'outreach@assix.app'}&gt;</span>
                         <span>•</span>
-                        <span>To: <strong className="text-white">{activePreviewLead.contactName}</strong> &lt;{activePreviewLead.email}&gt;</span>
+                        <span>To: <strong className="text-slate-800">{activePreviewLead.contactName}</strong> &lt;{activePreviewLead.email}&gt;</span>
                       </div>
                     </div>
 
                     {/* Live Rendered Email Frame */}
-                    <div className={`p-2 rounded-2xl border flex justify-center bg-zinc-950/80 ${
+                    <div className={`p-2 bg-slate-100 border border-slate-200 rounded-2xl flex justify-center ${
                       previewDevice === 'mobile' ? 'max-w-[400px] mx-auto' : 'w-full'
                     }`}>
                       <iframe
                         title="Email Live Preview"
                         srcDoc={previewEmailContent.html}
-                        className="w-full h-[450px] rounded-xl border border-zinc-800 bg-white shadow-lg"
+                        className="w-full h-[450px] rounded-xl border border-slate-200 bg-white shadow-sm"
                       />
                     </div>
                   </div>
@@ -1624,7 +1822,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                     <div className="space-y-2">
                       <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
                         <span>1. Select Industry Niche Sector</span>
-                        <span className="text-[10px] text-amber-400 font-semibold">Resets content to niche defaults</span>
+                        <span className="text-[10px] text-amber-600 font-extrabold">Resets content to niche defaults</span>
                       </label>
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -1641,12 +1839,12 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                               }}
                               className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between gap-1.5 ${
                                 isSelected
-                                  ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400 shadow-sm'
-                                  : isLight ? 'bg-slate-50 border-slate-200 hover:bg-slate-100' : 'bg-[#14151C] border-zinc-800 hover:border-zinc-700'
+                                  ? 'bg-emerald-50 border-emerald-400 text-emerald-700 shadow-xs font-black'
+                                  : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
                               }`}
                             >
                               <div className="text-xl">{niche.icon}</div>
-                              <div className="text-xs font-bold leading-snug truncate text-white">{niche.label}</div>
+                              <div className="text-xs font-bold leading-snug truncate text-slate-800">{niche.label}</div>
                             </button>
                           );
                         })}
@@ -1654,12 +1852,10 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                     </div>
 
                     {/* Content Form Overrides */}
-                    <div className={`p-4 rounded-xl border space-y-3.5 ${
-                      isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#0E0F15] border-zinc-800'
-                    }`}>
-                      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2">
-                        <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                          <Edit3 size={14} /> 2. Edit Email Content & Messaging
+                    <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-3.5 shadow-xs">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <span className="text-xs font-extrabold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                          <Edit3 size={14} className="text-emerald-500" /> 2. Edit Email Content & Messaging
                         </span>
 
                         <button
@@ -1668,19 +1864,19 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                             resetTemplateToNicheDefaults(selectedNiche, bulkLanguage);
                             showNotification('Template content reset to niche defaults.');
                           }}
-                          className="text-[10px] font-bold text-slate-400 hover:text-amber-400 flex items-center gap-1 transition cursor-pointer"
+                          className="text-[10px] font-extrabold text-slate-400 hover:text-emerald-600 flex items-center gap-1 transition cursor-pointer"
                         >
-                          <RotateCcw size={11} /> Reset to Niche Preset
+                          <RotateCcw size={11} /> Reset to Preset
                         </button>
                       </div>
 
                       {/* Dynamic Tag Legend */}
-                      <div className="text-[10px] text-slate-400 flex flex-wrap items-center gap-1.5 bg-zinc-900/60 p-2 rounded-lg border border-zinc-800">
-                        <span className="font-bold text-slate-300">Available Dynamic Tags:</span>
-                        <span className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-400">{`{{company}}`}</span>
-                        <span className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-400">{`{{contactName}}`}</span>
-                        <span className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-400">{`{{city}}`}</span>
-                        <span className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-400">{`{{firstName}}`}</span>
+                      <div className="text-[10px] text-slate-500 flex flex-wrap items-center gap-1.5 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                        <span className="font-bold text-slate-600">Available Dynamic Tags:</span>
+                        <span className="px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono text-emerald-700 font-semibold">{`{{company}}`}</span>
+                        <span className="px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono text-emerald-700 font-semibold">{`{{contactName}}`}</span>
+                        <span className="px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono text-emerald-700 font-semibold">{`{{city}}`}</span>
+                        <span className="px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono text-emerald-700 font-semibold">{`{{firstName}}`}</span>
                       </div>
 
                       {/* Fields */}
@@ -1691,10 +1887,8 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                             type="text"
                             value={customSubject}
                             onChange={(e) => setCustomSubject(e.target.value)}
-                            className={`w-full border rounded-lg px-3 py-2 text-xs font-semibold ${
-                              isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                            }`}
-                            placeholder="L'art de recevoir à votre image — Démo interactive pour {{company}}"
+                            className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-3 py-2 text-xs font-semibold bg-slate-50/50 transition"
+                            placeholder="Interactive demo for {{company}}"
                           />
                         </div>
 
@@ -1705,9 +1899,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                               type="text"
                               value={customHeroTitle}
                               onChange={(e) => setCustomHeroTitle(e.target.value)}
-                              className={`w-full border rounded-lg px-3 py-2 text-xs font-semibold ${
-                                isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                              }`}
+                              className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-3 py-2 text-xs font-semibold bg-slate-50/50 transition"
                             />
                           </div>
 
@@ -1717,22 +1909,19 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                               type="text"
                               value={customPainPoint}
                               onChange={(e) => setCustomPainPoint(e.target.value)}
-                              className={`w-full border rounded-lg px-3 py-2 text-xs font-semibold ${
-                                isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                              }`}
+                              className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-3 py-2 text-xs font-semibold bg-slate-50/50 transition"
                             />
                           </div>
                         </div>
 
                         <div>
-                          <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Hero Subtitle (Description)</label>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Email Body Message / Hero Intro Paragraph (Live Editable)</label>
                           <textarea
-                            rows={2}
+                            rows={4}
                             value={customHeroSubtitle}
                             onChange={(e) => setCustomHeroSubtitle(e.target.value)}
-                            className={`w-full border rounded-lg px-3 py-2 text-xs font-semibold ${
-                              isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                            }`}
+                            className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-3 py-2 text-xs font-semibold bg-slate-50/50 transition leading-relaxed"
+                            placeholder="Type or edit your niche intro email message..."
                           />
                         </div>
 
@@ -1748,9 +1937,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                                 setFromName(newName);
                                 setCustomSecondaryCta(bulkLanguage === 'fr' ? `💬 Planifier un échange avec ${newName}` : `💬 Schedule a call with ${newName}`);
                               }}
-                              className={`w-full border rounded-lg px-3 py-2 text-xs font-semibold ${
-                                isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                              }`}
+                              className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-3 py-2 text-xs font-semibold bg-slate-50/50 transition"
                               placeholder="Anthony"
                             />
                           </div>
@@ -1761,9 +1948,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                               type="text"
                               value={customPrimaryCta}
                               onChange={(e) => setCustomPrimaryCta(e.target.value)}
-                              className={`w-full border rounded-lg px-3 py-2 text-xs font-semibold ${
-                                isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                              }`}
+                              className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-3 py-2 text-xs font-semibold bg-slate-50/50 transition"
                             />
                           </div>
 
@@ -1773,9 +1958,7 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                               type="text"
                               value={customSecondaryCta}
                               onChange={(e) => setCustomSecondaryCta(e.target.value)}
-                              className={`w-full border rounded-lg px-3 py-2 text-xs font-semibold ${
-                                isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-zinc-900 border-zinc-700 text-white'
-                              }`}
+                              className="w-full border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-lg px-3 py-2 text-xs font-semibold bg-slate-50/50 transition"
                             />
                           </div>
                         </div>
@@ -1785,9 +1968,9 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                         <button
                           type="button"
                           onClick={() => setBulkModalTab('preview')}
-                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs uppercase tracking-wider rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow"
+                          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[10px] uppercase tracking-widest rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-sm hover:shadow"
                         >
-                          <Eye size={13} /> View Changes in Live Email Preview ↗
+                          <Eye size={13} /> View in Live Preview ↗
                         </button>
                       </div>
                     </div>
@@ -1797,11 +1980,9 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
               </div>
 
               {/* Footer Launch Action Bar */}
-              <div className={`pt-3 border-t shrink-0 flex items-center justify-between gap-3 ${
-                isLight ? 'border-slate-200' : 'border-zinc-800'
-              }`}>
-                <div className="text-[11px] font-medium text-slate-400 hidden sm:block">
-                  Niche: <strong className="text-emerald-400 capitalize">{selectedNiche.replace('_', ' ')}</strong> ({bulkLanguage.toUpperCase()})
+              <div className="pt-3.5 border-t border-slate-200 shrink-0 flex items-center justify-between gap-3 select-none">
+                <div className="text-[11px] font-extrabold tracking-wider uppercase text-slate-400 hidden sm:block">
+                  Niche: <strong className="text-emerald-600 capitalize font-mono">{selectedNiche.replace('_', ' ')}</strong> ({bulkLanguage.toUpperCase()})
                 </div>
 
                 <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -1809,9 +1990,9 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                     <button
                       type="button"
                       onClick={() => setBulkModalTab('preview')}
-                      className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-slate-200 font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer border border-zinc-700"
+                      className="px-3.5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer"
                     >
-                      <Eye size={13} className="text-emerald-400" /> Preview Email
+                      <Eye size={13} className="text-emerald-500" /> Preview Email
                     </button>
                   )}
 
@@ -1819,30 +2000,32 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                     <button
                       type="button"
                       onClick={() => setBulkModalTab('edit')}
-                      className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-slate-200 font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer border border-zinc-700"
+                      className="px-3.5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer"
                     >
-                      <Edit3 size={13} className="text-amber-400" /> Edit Content
+                      <Edit3 size={13} className="text-amber-500" /> Edit Content
                     </button>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={handleRunBulkCampaign}
-                    disabled={isBulkRunning || selectedBulkLeadIds.length === 0}
-                    className="flex-1 sm:flex-none px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs uppercase tracking-wider rounded-xl transition shadow flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    {isBulkRunning ? (
-                      <>
-                        <RefreshCw size={14} className="animate-spin" />
-                        Sending ({bulkProgress.current} / {bulkProgress.total})...
-                      </>
-                    ) : (
-                      <>
-                        <Rocket size={14} />
-                        Launch Campaign ({selectedBulkLeadIds.length} Leads)
-                      </>
-                    )}
-                  </button>
+                  {isBulkRunning ? (
+                    <button
+                      type="button"
+                      onClick={handleCancelBulkCampaign}
+                      className="flex-1 sm:flex-none px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-extrabold text-[10px] tracking-widest uppercase rounded-xl transition shadow flex items-center justify-center gap-2 cursor-pointer animate-pulse"
+                    >
+                      <StopCircle size={15} />
+                      Cancel ({bulkProgress.current} / {bulkProgress.total})
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleRunBulkCampaign}
+                      disabled={selectedBulkLeadIds.length === 0}
+                      className="flex-1 sm:flex-none px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[10px] tracking-widest uppercase rounded-xl transition shadow flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Rocket size={14} />
+                      Launch Campaign ({selectedBulkLeadIds.length} Leads)
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1850,6 +2033,15 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
           </div>
         );
       })()}
+
+      {/* Accountant Onboarding Interactive Modal */}
+      <AccountantOnboardingModal
+        isOpen={showAccountantModal}
+        onClose={() => setShowAccountantModal(false)}
+        companyName={activeLead?.company || 'Cabinet Fiduciaire Exemple'}
+        isLight={isLight}
+        initialViewMode={accountantModalInitialView}
+      />
 
     </div>
   );

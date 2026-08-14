@@ -406,6 +406,9 @@ export function buildLuxuryTemplate(lead, content = {}, nicheKey = 'traiteur') {
   const brandWords = brandName.split(' ');
   const firstPart = brandWords[0] || brandName;
   const secondPart = brandWords.slice(1).join(' ') || '';
+  const websiteDomain = lead.website ? lead.website.replace(/https?:\/\/|www\./g, '').split('/')[0] : '';
+  const faviconUrl = websiteDomain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(websiteDomain)}&sz=128` : null;
+  const siteLogoUrl = lead.logo || lead.avatar || lead.profilePic || lead.photo || faviconUrl;
 
   const fallbackUnsplash = 'https://images.unsplash.com/photo-1555244162-803834f70033?w=800&q=80&auto=format&fit=crop';
 
@@ -1512,7 +1515,10 @@ footer {
 
 <!-- NAVBAR -->
 <nav id="nav">
-  <div class="nav-logo">${firstPart} <span>${secondPart}</span></div>
+  <div class="nav-logo" style="display: flex; align-items: center; gap: 10px;">
+    ${siteLogoUrl ? `<img src="${siteLogoUrl}" alt="${brandName}" style="height: 32px; width: 32px; object-fit: contain; border-radius: 6px; background: #FFF; padding: 2px;" onerror="this.style.display='none';">` : ''}
+    <div>${firstPart} <span>${secondPart}</span></div>
+  </div>
   <a href="#booking" class="nav-cta">${ctaButton}</a>
 </nav>
 

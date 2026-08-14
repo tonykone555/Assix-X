@@ -8,7 +8,7 @@ interface WebsiteGeneratorPanelProps {
 export const WebsiteGeneratorPanel: React.FC<WebsiteGeneratorPanelProps> = ({ lead }) => {
   const [generating, setGenerating] = useState(false);
   const [siteData, setSiteData] = useState<any>(null);
-  const [templateStyle, setTemplateStyle] = useState<string>('premium-dark');
+  const [templateStyle, setTemplateStyle] = useState<string>('taste-minimal');
   const [error, setError] = useState<string | null>(null);
 
   const behanceTemplates = [
@@ -70,21 +70,33 @@ export const WebsiteGeneratorPanel: React.FC<WebsiteGeneratorPanelProps> = ({ le
   };
 
   return (
-    <div className="website-generator-panel bg-[#0A0A0C] border border-[#27272A] rounded-lg p-4 space-y-4 my-2 text-zinc-200">
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#1C1C22]">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-amber-400" />
-          <span className="text-xs font-bold text-white uppercase tracking-wider">
-            Nesta Website Generator
-          </span>
+    <div className="website-generator-panel bg-transparent border border-zinc-800/40 rounded-xl p-4 space-y-4 my-2 text-zinc-200">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-800/20 bg-transparent">
+        <div className="flex items-center gap-3">
+          {/* Three dots (Mac window style) */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#FF5F56] opacity-90" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#FFBD2E] opacity-90" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#27C93F] opacity-90" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-amber-400" />
+            <span className="text-xs font-bold text-zinc-800 dark:text-white uppercase tracking-wider">
+              AI Website Generator
+            </span>
+          </div>
         </div>
 
         <div className="template-toggle flex flex-wrap items-center gap-3 text-xs font-medium">
           <select 
             value={templateStyle}
             onChange={(e) => setTemplateStyle(e.target.value)}
-            className="bg-[#18181B] text-amber-400 font-bold border border-[#27272A] rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-500"
+            className="bg-zinc-950/20 text-amber-400 font-bold border border-zinc-800/60 rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-500 backdrop-blur-sm cursor-pointer"
           >
+            <optgroup label="Leon Taste-Skill (Anti-Slop Engine)">
+              <option value="taste-minimal">🖤 Leon Taste Minimalist (Strict-Grid)</option>
+              <option value="taste-editorial">📰 Leon Taste Editorial (Journal Bookish)</option>
+            </optgroup>
             <optgroup label="Behance High-End Portfolio Templates">
               <option value="behance-construction">🏗️ Behance Construction & Building</option>
               <option value="behance-cleaning">✨ Behance Home Cleaning</option>
@@ -128,7 +140,7 @@ export const WebsiteGeneratorPanel: React.FC<WebsiteGeneratorPanelProps> = ({ le
 
       {siteData && (
         <div className="site-preview-wrap space-y-3 pt-2">
-          <div className="preview-toolbar flex items-center justify-between p-2.5 bg-[#121216] border border-[#262832] rounded-md text-xs">
+          <div className="preview-toolbar flex items-center justify-between p-2.5 bg-zinc-950/10 border border-zinc-800/40 rounded-md text-xs">
             <div className="flex items-center gap-2 font-mono text-zinc-400 text-[11px] truncate">
               <span className="text-emerald-400 font-bold">LIVE PREVIEW</span>
               <span>•</span>
@@ -139,13 +151,13 @@ export const WebsiteGeneratorPanel: React.FC<WebsiteGeneratorPanelProps> = ({ le
                 href={siteData.previewUrl} 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="px-3 py-1.5 bg-[#1C1C22] hover:bg-zinc-800 text-amber-400 hover:text-amber-300 border border-[#2A2A32] rounded transition flex items-center gap-1.5 font-medium text-[11px]"
+                className="px-3 py-1.5 bg-zinc-900/30 hover:bg-zinc-800/50 text-amber-400 hover:text-amber-300 border border-zinc-800/50 rounded transition flex items-center gap-1.5 font-medium text-[11px]"
               >
                 Open in new tab <ExternalLink className="w-3 h-3" />
               </a>
               <button 
                 onClick={() => downloadZip(siteData.siteId)}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded transition flex items-center gap-1.5 text-[11px] cursor-pointer"
+                className="px-3 py-1.5 bg-emerald-600/80 hover:bg-emerald-500 text-white font-medium rounded transition flex items-center gap-1.5 text-[11px] cursor-pointer"
               >
                 <Download className="w-3 h-3" />
                 Download ZIP
@@ -158,7 +170,7 @@ export const WebsiteGeneratorPanel: React.FC<WebsiteGeneratorPanelProps> = ({ le
             srcDoc={siteData.html}
             title={`Preview for ${lead?.company || lead?.businessName || lead?.name || 'Lead'}`}
             className="site-preview-iframe"
-            style={{ width: '100%', height: '700px', border: '1px solid #262832', borderRadius: '10px', backgroundColor: '#0A0A0C' }}
+            style={{ width: '100%', height: '700px', border: '1px solid rgba(161, 161, 170, 0.25)', borderRadius: '10px', backgroundColor: '#ffffff' }}
           />
         </div>
       )}

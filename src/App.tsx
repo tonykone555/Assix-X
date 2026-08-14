@@ -50,6 +50,7 @@ import {
   Calendar,
   Upload,
   User,
+  Camera,
   Users,
   Settings,
   Film,
@@ -76,6 +77,7 @@ try {
   setLogLevel('silent');
 } catch (e) {}
 import { LeadCard } from './components/LeadCard';
+import { LeadRow } from './components/LeadRow';
 import { WebsiteGeneratorPanel } from './components/WebsiteGeneratorPanel';
 import { NestaWebsiteModal } from './components/NestaWebsiteModal';
 import { WhatsAppBulkSend } from './components/WhatsAppBulkSend';
@@ -89,7 +91,10 @@ import YoutubeAutoPoster from './components/YoutubeAutoPoster';
 import ScoutAgentTab from './components/ScoutAgentTab';
 import { PinLoginGate } from './components/PinLoginGate';
 import { RealEstateScraperTab } from './components/RealEstateScraperTab';
+import { InAppEmailComposerModal } from './components/InAppEmailComposerModal';
 import { ColdEmailCampaignTab } from './components/ColdEmailCampaignTab';
+import { OpenReplyTab } from './components/OpenReplyTab';
+import { AccountantOnboardingModal } from './components/AccountantOnboardingModal';
 import { 
   startLinkedInSession, 
   searchLinkedIn, 
@@ -131,7 +136,7 @@ const getWsUrlFromUrl = (urlStr: string) => {
 const WS_URL = getWsUrlFromUrl(SERVER);
 
 const TASK_TYPES = [
-  { id: 'google_maps_scrape', label: 'OpenStreetMap / Maps Scrape', desc: 'Scan global OpenStreetMap & directory listings for verified phone, website, and address' },
+  { id: 'google_maps_scrape', label: 'Google Maps & Web Search Scrape', desc: 'Scan Google Maps and local directory listings for verified phone, website, and address' },
   { id: 'pages_jaunes_scrape', label: 'Pages Jaunes Scrape', desc: 'Extract Canadian/French B2B directory prospects' },
   { id: 'instagram_discovery', label: 'Instagram Discovery', desc: 'Discover niche handles, scrap post content, and extract high-intent lead comments' },
   { id: 'facebook_ads_scrape', label: 'Facebook Ads Scrape', desc: 'Scrape and analyze Facebook Ads Library for active ads' },
@@ -538,8 +543,20 @@ const LiveViewer: React.FC<LiveViewerProps> = ({ taskId, onComplete, onError, se
       pollStatus();
       pollIntervalId = setInterval(pollStatus, 3000);
 
-      fetch(`${serverUrl}/api/firebase-config`)
-        .then(res => res.json())
+      const getFirebaseConfig = async (): Promise<any> => {
+        try {
+          const res = await fetch(`${serverUrl}/api/firebase-config`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (err) {
+          console.warn("Retrying relative fallback for Firebase config due to:", err);
+          const fallbackRes = await fetch(`/api/firebase-config`);
+          if (!fallbackRes.ok) throw new Error(`HTTP ${fallbackRes.status}`);
+          return await fallbackRes.json();
+        }
+      };
+
+      getFirebaseConfig()
         .then(config => {
           let app;
           if (getApps().length === 0) {
@@ -1741,9 +1758,20 @@ export default function App() {
     return url;
   });
 
+  useEffect(() => {
+    // Proactively verify if serverUrl is reachable. If it fails with a network/CORS error, auto-heal to window.location.origin
+    const testUrl = serverUrl || window.location.origin;
+    fetch(`${testUrl}/api/health`)
+      .catch((err) => {
+        console.warn("The serverUrl in state is unreachable or blocked. Auto-healing to relative window.location.origin:", err);
+        setServerUrl(window.location.origin);
+        localStorage.setItem('assix_server_url', window.location.origin);
+      });
+  }, []);
+
   // Navigation Tabs: 'workspace' | 'tasks' | 'leads' | 'history' | 'settings' | 'outreach' | 'email_campaign' | 'sectors' | 'agency' | 'ig_discovery' | 'ugc_video' | 'youtube_clipper' | 'video_studio' | 'scout_agent' | 'real_estate'
   const [tab, setTab] = useState<'workspace' | 'tasks' | 'leads' | 'history' | 'settings' | 'outreach' | 'email_campaign' | 'sectors' | 'agency' | 'ig_discovery' | 'ugc_video' | 'youtube_clipper' | 'video_studio' | 'scout_agent' | 'real_estate'>('workspace');
-  const [leadsSubTab, setLeadsSubTab] = useState<'all' | 'real_estate'>('all');
+  const [leadsSubTab, setLeadsSubTab] = useState<'all' | 'real_estate' | 'gov'>('all');
 
   // YouTube Automated Posting and Campaign state trigger
   const [youtubeVideoTrigger, setYoutubeVideoTrigger] = useState<{
@@ -1754,8 +1782,31 @@ export default function App() {
     brandName?: string;
   } | null>(null);
   
+  const [showAccountantModal, setShowAccountantModal] = useState<boolean>(false);
+  
   // Instagram & Meta Discovery states
-  const [discoveryMode, setDiscoveryMode] = useState<'reels' | 'profiles' | 'commentators' | 'meta_ads'>('reels');
+  const [discoveryMode, setDiscoveryMode] = useState<'reels' | 'profiles' | 'commentators' | 'meta_ads' | 'openreply'>('reels');
+  const [openReplyCampaigns, setOpenReplyCampaigns] = useState<any[]>([]);
+  const [openReplyLogs, setOpenReplyLogs] = useState<any[]>([]);
+  const [isLoadingOpenReply, setIsLoadingOpenReply] = useState<boolean>(false);
+  const [simulatedPoster, setSimulatedPoster] = useState<string>('@dentistry_global');
+  const [simulatedComment, setSimulatedComment] = useState<string>('Love this! SMILE please!');
+  const [isSimulatingTrigger, setIsSimulatingTrigger] = useState<boolean>(false);
+  const [simulationResult, setSimulationResult] = useState<any | null>(null);
+  const [editingCampaign, setEditingCampaign] = useState<any | null>(null);
+  const [showCampaignModal, setShowCampaignModal] = useState<boolean>(false);
+  const [campaignForm, setCampaignForm] = useState({
+    id: '',
+    name: '',
+    keyword: '',
+    postId: 'all',
+    privateMessage: '',
+    buttonText: '',
+    buttonUrl: '',
+    publicReply: '',
+    followGate: false,
+    status: 'active' as 'active' | 'inactive'
+  });
   const [reelSearchQuery, setReelSearchQuery] = useState<string>('plombier Lyon');
   const [reelMaxResults, setReelMaxResults] = useState<number>(30);
   const [isSearchingReels, setIsSearchingReels] = useState<boolean>(false);
@@ -1950,6 +2001,111 @@ export default function App() {
     }
   };
 
+  // OpenReply handlers
+  const fetchOpenReplyCampaigns = async () => {
+    try {
+      setIsLoadingOpenReply(true);
+      const res = await fetch(`${serverUrl}/api/openreply/campaigns`);
+      if (res.ok) {
+        const data = await res.json();
+        setOpenReplyCampaigns(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch OpenReply campaigns", err);
+    } finally {
+      setIsLoadingOpenReply(false);
+    }
+  };
+
+  const fetchOpenReplyLogs = async () => {
+    try {
+      const res = await fetch(`${serverUrl}/api/openreply/logs`);
+      if (res.ok) {
+        const data = await res.json();
+        setOpenReplyLogs(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch OpenReply logs", err);
+    }
+  };
+
+  const handleSaveCampaign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${serverUrl}/api/openreply/campaigns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(campaignForm)
+      });
+      if (res.ok) {
+        await fetchOpenReplyCampaigns();
+        setShowCampaignModal(false);
+        setCampaignForm({
+          id: '',
+          name: '',
+          keyword: '',
+          postId: 'all',
+          privateMessage: '',
+          buttonText: '',
+          buttonUrl: '',
+          publicReply: '',
+          followGate: false,
+          status: 'active'
+        });
+        showNotification("Campaign saved successfully!");
+      }
+    } catch (err) {
+      console.error("Failed to save campaign", err);
+      showNotification("Error saving campaign");
+    }
+  };
+
+  const handleDeleteCampaign = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this Comment-to-DM automation campaign?")) return;
+    try {
+      const res = await fetch(`${serverUrl}/api/openreply/campaigns/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        await fetchOpenReplyCampaigns();
+        showNotification("Campaign deleted successfully");
+      }
+    } catch (err) {
+      console.error("Failed to delete campaign", err);
+    }
+  };
+
+  const handleSimulateTrigger = async () => {
+    try {
+      setIsSimulatingTrigger(true);
+      setSimulationResult(null);
+      const res = await fetch(`${serverUrl}/api/openreply/trigger-simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: simulatedPoster,
+          commentText: simulatedComment,
+          postId: 'reels_ad_post_1001'
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSimulationResult(data);
+        await fetchOpenReplyLogs();
+        if (data.success) {
+          showNotification(`Simulated comment-to-DM trigger successfully for ${simulatedPoster}!`);
+        } else {
+          showNotification(`Simulation: ${data.message}`);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to simulate comment trigger", err);
+      showNotification("Failed to simulate comment trigger");
+    } finally {
+      setIsSimulatingTrigger(false);
+    }
+  };
+
   // Load persistent recorded commentators across all sessions on mount
   useEffect(() => {
     const loadRecordedCommentators = async () => {
@@ -1994,6 +2150,8 @@ export default function App() {
     loadRecordedCommentators();
     loadMetaAds();
     fetchIgCrmLeads();
+    fetchOpenReplyCampaigns();
+    fetchOpenReplyLogs();
   }, [serverUrl]);
 
   const handleSearchMetaAds = async () => {
@@ -2923,13 +3081,22 @@ export default function App() {
   // =========================================================================
   const [profileName, setProfileName] = useState<string>(() => localStorage.getItem('assix_profile_name') || 'Tony Kone');
   const [isEditingProfileName, setIsEditingProfileName] = useState<boolean>(false);
+  const DEFAULT_ARCHITECT_AVATAR = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120';
+  const [architectAvatarUrl, setArchitectAvatarUrl] = useState<string>(() => localStorage.getItem('assix_architect_avatar') || DEFAULT_ARCHITECT_AVATAR);
+  const [showAvatarPickerModal, setShowAvatarPickerModal] = useState<boolean>(false);
+  const [customAvatarInput, setCustomAvatarInput] = useState<string>('');
+  const [inAppEmailModalLead, setInAppEmailModalLead] = useState<any | null>(null);
+
+  const handleOpenInboxForLead = (targetLead: any) => {
+    setInAppEmailModalLead(targetLead);
+  };
   const [workflows, setWorkflows] = useState<any[]>([]);
   const [selectedTier, setSelectedTier] = useState<'local' | 'ecom' | 'saas' | null>(null);
   const [searchNiche, setSearchNiche] = useState<string>('');
   const [searchLocation, setSearchLocation] = useState<string>('');
   const [searchGaps, setSearchGaps] = useState<string[]>([]);
   const [searchCount, setSearchCount] = useState<number>(5);
-  const [searchEngine, setSearchEngine] = useState<'apify' | 'dom' | 'sirene'>('dom');
+  const [searchEngine, setSearchEngine] = useState<'apify' | 'dom' | 'sirene' | 'playwright'>('playwright');
   const [searchNoWebsiteOnly, setSearchNoWebsiteOnly] = useState<boolean>(false);
   const [searchStep, setSearchStep] = useState<'tier' | 'config' | 'confirm' | 'running' | 'complete'>('complete');
   const [enrichedSearchInsights, setEnrichedSearchInsights] = useState<{ suggestedMarkets: string[]; targetKeywords: string[]; painSignals: string[]; outreachHook: string } | null>(null);
@@ -3016,7 +3183,7 @@ export default function App() {
   const [freelanceLogs, setFreelanceLogs] = useState<string[]>([]);
   
   // Sidebar state
-  const [leftOpen, setLeftOpen] = useState<boolean>(true);
+  const [leftOpen, setLeftOpen] = useState<boolean>(false);
   const [rightOpen, setRightOpen] = useState<boolean>(true);
   const [liveLogOpen, setLiveLogOpen] = useState<boolean>(false);
 
@@ -3056,12 +3223,73 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [leadsFilterPopupOpen, setLeadsFilterPopupOpen] = useState<boolean>(false);
 
+  // Website Scraper & Re-generator states
+  const [scrapeUrlInput, setScrapeUrlInput] = useState<string>('');
+  const [isScrapingToLead, setIsScrapingToLead] = useState<boolean>(false);
+  const [scrapeStatusText, setScrapeStatusText] = useState<string>('');
+
+  const handleScrapeToLead = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scrapeUrlInput.trim()) return;
+
+    let targetUrl = scrapeUrlInput.trim();
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+      targetUrl = 'https://' + targetUrl;
+    }
+
+    setIsScrapingToLead(true);
+    setScrapeStatusText('Initializing connection to ' + targetUrl + '...');
+    showNotification('Scraping website: ' + targetUrl);
+
+    try {
+      setScrapeStatusText('Scraping website contents (via Jina Reader AI)...');
+      
+      const response = await fetch('/api/leads/scrape-to-lead', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: targetUrl }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to scrape and analyze the website.');
+      }
+
+      const data = await response.json();
+      if (data.success && data.lead) {
+        setScrapeStatusText('Analyzing business details and building premium French pitch...');
+        setTimeout(() => {
+          setScrapeStatusText('Successfully registered prospect lead!');
+          showNotification('Prospect successfully registered! Initiating modern re-generator...');
+          setIsScrapingToLead(false);
+          setScrapeUrlInput('');
+          setScrapeStatusText('');
+          
+          const newLead = data.lead;
+          setLeads(prev => [newLead, ...prev]);
+          
+          // Instantly trigger website generation modal
+          setNestaModalLead(newLead);
+        }, 1500);
+      } else {
+        throw new Error('No lead details returned from server.');
+      }
+    } catch (err: any) {
+      console.error('[ScrapeToLead] Error:', err);
+      showNotification('Error: ' + err.message);
+      setIsScrapingToLead(false);
+      setScrapeStatusText('');
+    }
+  };
+
   // Google Maps Lead Scraper States
   const [gmapsModalOpen, setGmapsModalOpen] = useState<boolean>(false);
   const [gmapsQuery, setGmapsQuery] = useState<string>('');
   const [gmapsCity, setGmapsCity] = useState<string>('');
   const [gmapsCount, setGmapsCount] = useState<number>(10);
-  const [gmapsEngine, setGmapsEngine] = useState<'hyperagent' | 'osm' | 'dom' | 'apify' | 'sirene'>('sirene');
+  const [gmapsEngine, setGmapsEngine] = useState<'playwright' | 'hyperagent' | 'osm' | 'dom' | 'apify' | 'sirene'>('playwright');
   const [gmapsNoWebsiteOnly, setGmapsNoWebsiteOnly] = useState<boolean>(false);
   const [isScrapingGmaps, setIsScrapingGmaps] = useState<boolean>(false);
   const initialTaskLoadedRef = useRef<boolean>(false);
@@ -3539,7 +3767,7 @@ export default function App() {
 
     showNotification(`🏛️ Registering ${formattedPreviewLeads.length || countNum} Govt Leads for "${niche}" (${countryCode})...`);
 
-    fetch(`${serverUrl}/api/lead-finder/run`, {
+    fetch(`${serverUrl}/api/sirene/run-direct`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3582,6 +3810,75 @@ export default function App() {
     setGmapsModalOpen(false);
     setSearchStep('complete');
 
+    if (gmapsEngine === 'playwright') {
+      const taskId = 'pw-maps-' + Date.now();
+      const labelStr = `Playwright Chromium Map Scraper [${queryStr}${cityStr ? ` in ${cityStr}` : ''}]`;
+      const newTask: Task = {
+        taskId,
+        label: labelStr,
+        taskType: 'lead_generation',
+        config: { tier: 'local', niche: queryStr, location: cityStr || 'Global', count, engine: 'playwright', noWebsiteOnly: gmapsNoWebsiteOnly },
+        status: 'running',
+        progress: 0,
+        total: count,
+        createdAt: new Date().toISOString()
+      };
+
+      setTasks(prev => [newTask, ...prev]);
+      setActiveTask(newTask);
+      setActiveDynamicTaskId(taskId);
+      setActiveTaskLeads([]);
+      setTab('workspace');
+      setWorkspaceBoxTab('viewport');
+      connectWS(taskId);
+      showNotification(`🎭 Launching Playwright Live Chromium Browser Scraper for "${queryStr}"...`);
+      setIsScrapingGmaps(false);
+
+      const postBody = {
+        tier: 'local',
+        niche: queryStr,
+        location: cityStr,
+        count,
+        engine: 'playwright',
+        noWebsiteOnly: gmapsNoWebsiteOnly,
+        userId: userId || 'system',
+        taskId
+      };
+
+      const executePlaywrightSearch = async () => {
+        try {
+          const res = await fetch(`${serverUrl}/api/lead-finder/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(postBody)
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json().catch(() => ({}));
+        } catch (err) {
+          console.warn("Retrying relative fallback for Playwright search due to:", err);
+          const fallbackRes = await fetch(`/api/lead-finder/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(postBody)
+          });
+          if (!fallbackRes.ok) throw new Error(`HTTP ${fallbackRes.status}`);
+          return await fallbackRes.json().catch(() => ({}));
+        }
+      };
+
+      executePlaywrightSearch()
+      .then(data => {
+        showNotification(`Playwright Scraper search complete!`);
+        fetchTasks();
+        fetchLeads();
+      })
+      .catch(err => {
+        console.error('Playwright search error:', err);
+      });
+
+      return;
+    }
+
     if (gmapsEngine === 'sirene') {
       const taskId = 'gouv-sirene-' + Date.now();
       const labelStr = `French Govt SIRENE Register [${queryStr}${cityStr ? ` in ${cityStr}` : ''}]`;
@@ -3605,22 +3902,40 @@ export default function App() {
       showNotification(`🏛️ Launching Official French Govt SIRENE Search for "${queryStr}"...`);
       setIsScrapingGmaps(false);
 
-      fetch(`${serverUrl}/api/lead-finder/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tier: 'local',
-          niche: queryStr,
-          location: cityStr || 'France',
-          count,
-          engine: 'sirene',
-          noWebsiteOnly: gmapsNoWebsiteOnly,
-          userId: userId || 'system',
-          taskId
-        })
-      })
-      .then(async res => {
-        const data = await res.json().catch(() => ({}));
+      const postBody = {
+        tier: 'local',
+        niche: queryStr,
+        location: cityStr || 'France',
+        count,
+        engine: 'sirene',
+        noWebsiteOnly: gmapsNoWebsiteOnly,
+        userId: userId || 'system',
+        taskId
+      };
+
+      const executeSireneSearch = async () => {
+        try {
+          const res = await fetch(`${serverUrl}/api/lead-finder/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(postBody)
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json().catch(() => ({}));
+        } catch (err) {
+          console.warn("Retrying relative fallback for SIRENE search due to:", err);
+          const fallbackRes = await fetch(`/api/lead-finder/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(postBody)
+          });
+          if (!fallbackRes.ok) throw new Error(`HTTP ${fallbackRes.status}`);
+          return await fallbackRes.json().catch(() => ({}));
+        }
+      };
+
+      executeSireneSearch()
+      .then(data => {
         showNotification(`SIRENE French Govt Search complete!`);
         fetchTasks();
         fetchLeads();
@@ -3685,6 +4000,7 @@ export default function App() {
             createdAt: new Date().toISOString()
           }));
           setActiveTaskLeads(formattedLeads);
+          autoEnrichNewLeads(formattedLeads);
           setWorkspaceBoxTab('data');
         }
         fetchTasks();
@@ -3699,7 +4015,7 @@ export default function App() {
 
     if (gmapsEngine === 'apify') {
       const taskId = 'gmaps-apify-' + Date.now();
-      showNotification(`Starting Apify Google Maps campaign for "${queryStr}" (${count} leads)...`);
+      showNotification(`Starting OmniMap Deep Scraper campaign for "${queryStr}" (${count} leads)...`);
       try {
         await fetch(`${serverUrl}/api/google-maps/discover-enrich`, {
           method: 'POST',
@@ -3714,7 +4030,7 @@ export default function App() {
             taskId
           })
         });
-        showNotification(`Apify Google Maps campaign launched for "${queryStr}"${gmapsNoWebsiteOnly ? ' (No Website Only)' : ''}`);
+        showNotification(`OmniMap Deep Scraper campaign launched for "${queryStr}"${gmapsNoWebsiteOnly ? ' (No Website Only)' : ''}`);
         setTimeout(() => {
           fetchTasks();
           fetchLeads();
@@ -3727,12 +4043,10 @@ export default function App() {
       return;
     }
 
-    // OpenStreetMap & Map Scraper Engine
+    // Google Maps & Web Scraper Engine
     try {
-      const taskType = gmapsEngine === 'osm' ? 'openstreetmap_scrape' : 'google_maps_scrape';
-      const labelStr = gmapsEngine === 'osm' 
-        ? `OpenStreetMap Scrape [${queryStr}${cityStr ? ` in ${cityStr}` : ''}]`
-        : `Google Maps Scrape [${queryStr}${cityStr ? ` in ${cityStr}` : ''}]`;
+      const taskType = 'google_maps_scrape';
+      const labelStr = `Google Maps Scrape [${queryStr}${cityStr ? ` in ${cityStr}` : ''}]`;
 
       const res = await fetch(`${serverUrl}/api/task/start`, {
         method: 'POST',
@@ -3836,7 +4150,7 @@ export default function App() {
             })
           }).catch(err => console.error("Apify Google Maps error:", err));
           
-          showNotification(`Google Maps (Apify Actor) discovery started for ${taskConfig.niche} in ${taskConfig.city}`);
+          showNotification(`OmniMap Deep Scraper discovery started for ${taskConfig.niche} in ${taskConfig.city}`);
           setNewTaskModal(false);
           setTab('workspace');
           setWorkspaceBoxTab('viewport');
@@ -4019,10 +4333,253 @@ export default function App() {
     try {
       const remaining = leads.filter(l => !selectedLeadIds.includes(l.leadId));
       setLeads(remaining);
+      
+      // Also notify backend batch delete
+      fetch(`${serverUrl}/api/leads/batch-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadIds: selectedLeadIds })
+      }).catch(() => {});
+
       setSelectedLeadIds([]);
       showNotification(`${selectedLeadIds.length} selected lead(s) deleted.`);
     } catch (e: any) {
       console.error("Failed to delete selected leads:", e);
+    }
+  };
+
+  const deduplicateLeadsList = (leadList: Lead[]) => {
+    if (!leadList || leadList.length === 0) {
+      return { uniqueLeads: [], duplicateIds: [], removedCount: 0 };
+    }
+
+    const getRichnessScore = (lead: Lead) => {
+      let score = 0;
+      const anyLead = lead as any;
+      if (lead.email && lead.email.trim() && lead.email.includes('@')) score += 25;
+      if (anyLead.secondaryEmail) score += 5;
+      if (lead.phone && !lead.phone.toLowerCase().includes('direct') && lead.phone.trim().length >= 6) score += 20;
+      if (lead.secondaryPhone || anyLead.whatsappPhone || lead.whatsappNumber) score += 5;
+      if (lead.website && !lead.website.includes('google.com/maps') && lead.website.trim().length > 7) score += 15;
+      if (lead.address && lead.address.trim().length > 5) score += 10;
+      if (lead.city) score += 5;
+      if (lead.enriched) score += 25;
+      if (lead.websiteAudit) score += 10;
+      if (lead.rating || lead.reviewsCount || anyLead.reviewCount) score += 5;
+      if (anyLead.instagram || anyLead.facebook || lead.linkedinUrl || anyLead.linkedin) score += 10;
+      if (lead.pitch && lead.pitch.length > 20) score += 10;
+      return score;
+    };
+
+    const getCleanNameKey = (l: Lead) => (l.businessName || l.name || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
+    const getCleanPhoneKey = (l: Lead) => {
+      const digits = (l.phone || l.secondaryPhone || '').replace(/\D/g, '');
+      return digits.length >= 7 ? digits : '';
+    };
+    const getCleanDomainKey = (l: Lead) => {
+      if (!l.website || l.website.includes('google.com/maps')) return '';
+      try {
+        const u = new URL(l.website.startsWith('http') ? l.website : `https://${l.website}`);
+        return u.hostname.replace(/^www\./, '').toLowerCase();
+      } catch {
+        return '';
+      }
+    };
+
+    const duplicateIdSet = new Set<string>();
+    const keptLeads: Lead[] = [];
+    const processedIndices = new Set<number>();
+
+    for (let i = 0; i < leadList.length; i++) {
+      if (processedIndices.has(i)) continue;
+      const current = leadList[i];
+      const nameKey = getCleanNameKey(current);
+      const phoneKey = getCleanPhoneKey(current);
+      const domainKey = getCleanDomainKey(current);
+
+      const group: Lead[] = [current];
+      processedIndices.add(i);
+
+      for (let j = i + 1; j < leadList.length; j++) {
+        if (processedIndices.has(j)) continue;
+        const other = leadList[j];
+        const otherName = getCleanNameKey(other);
+        const otherPhone = getCleanPhoneKey(other);
+        const otherDomain = getCleanDomainKey(other);
+
+        const isNameMatch = Boolean(nameKey && otherName && nameKey === otherName);
+        const isPhoneMatch = Boolean(phoneKey && otherPhone && phoneKey === otherPhone);
+        const isDomainMatch = Boolean(domainKey && otherDomain && domainKey === otherDomain);
+
+        if (isNameMatch || isPhoneMatch || isDomainMatch) {
+          group.push(other);
+          processedIndices.add(j);
+        }
+      }
+
+      if (group.length > 1) {
+        // Sort descending by richness score -> richest populated lead is first
+        group.sort((a, b) => getRichnessScore(b) - getRichnessScore(a));
+
+        const keeperLead = { ...group[0] };
+
+        // Merge any non-empty fields from duplicates into keeper lead
+        for (let k = 1; k < group.length; k++) {
+          const dup = group[k];
+          const dupId = dup.leadId || (dup as any).id;
+          if (dupId) duplicateIdSet.add(dupId);
+
+          if (!keeperLead.email && dup.email) keeperLead.email = dup.email;
+          if (!keeperLead.phone && dup.phone) keeperLead.phone = dup.phone;
+          if (!keeperLead.secondaryPhone && dup.secondaryPhone) keeperLead.secondaryPhone = dup.secondaryPhone;
+          if (!keeperLead.website && dup.website) keeperLead.website = dup.website;
+          if (!keeperLead.address && dup.address) keeperLead.address = dup.address;
+          if (!keeperLead.city && dup.city) keeperLead.city = dup.city;
+          if (!keeperLead.rating && dup.rating) keeperLead.rating = dup.rating;
+          if (!keeperLead.reviewsCount && dup.reviewsCount) keeperLead.reviewsCount = dup.reviewsCount;
+          if (!keeperLead.enriched && dup.enriched) keeperLead.enriched = dup.enriched;
+          if (!keeperLead.websiteAudit && dup.websiteAudit) keeperLead.websiteAudit = dup.websiteAudit;
+          if (!keeperLead.linkedinUrl && dup.linkedinUrl) keeperLead.linkedinUrl = dup.linkedinUrl;
+          if (!(keeperLead as any).instagram && (dup as any).instagram) (keeperLead as any).instagram = (dup as any).instagram;
+          if (!(keeperLead as any).facebook && (dup as any).facebook) (keeperLead as any).facebook = (dup as any).facebook;
+        }
+
+        keptLeads.push(keeperLead);
+      } else {
+        keptLeads.push(current);
+      }
+    }
+
+    return {
+      uniqueLeads: keptLeads,
+      duplicateIds: Array.from(duplicateIdSet),
+      removedCount: leadList.length - keptLeads.length
+    };
+  };
+
+  const handleRemoveDuplicates = async () => {
+    if (!leads || leads.length === 0) {
+      showNotification("No leads to deduplicate.");
+      return;
+    }
+
+    const { uniqueLeads, duplicateIds, removedCount } = deduplicateLeadsList(leads);
+
+    if (removedCount === 0) {
+      showNotification("All leads are unique! No duplicates found.");
+      return;
+    }
+
+    const dupSet = new Set(duplicateIds);
+
+    // Update global leads state
+    setLeads(uniqueLeads);
+    setSelectedLeadIds(prev => prev.filter(id => !dupSet.has(id)));
+
+    // Clean up activeTaskLeads and historyLeads
+    setActiveTaskLeads(prev => prev.filter(l => !dupSet.has(l.leadId || (l as any).id)));
+    setHistoryLeads(prev => {
+      const updated: Record<string, Lead[]> = {};
+      for (const [tId, tLeads] of Object.entries(prev)) {
+        if (Array.isArray(tLeads)) {
+          updated[tId] = (tLeads as Lead[]).filter(l => !dupSet.has(l.leadId || (l as any).id));
+        }
+      }
+      return updated;
+    });
+
+    // Update tasks results
+    setTasks(prev => prev.map(t => {
+      if (t.results?.leads && Array.isArray(t.results.leads)) {
+        const filtered = t.results.leads.filter((l: any) => !dupSet.has(l.leadId || l.id));
+        return {
+          ...t,
+          results: {
+            ...t.results,
+            leads: filtered,
+            saved: filtered.length
+          }
+        };
+      }
+      return t;
+    }));
+
+    showNotification(`Removed and permanently deleted ${removedCount} duplicate(s). Kept ${uniqueLeads.length} rich lead(s).`);
+
+    if (duplicateIds.length > 0) {
+      fetch(`${serverUrl}/api/leads/batch-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadIds: duplicateIds })
+      }).catch(err => console.warn("Failed batch delete backend call:", err));
+    }
+  };
+
+  const handleRemoveRunDuplicates = async (targetTaskLeads?: Lead[], targetTaskId?: string) => {
+    const runLeads = targetTaskLeads || activeTaskLeads;
+    if (!runLeads || runLeads.length === 0) {
+      showNotification("No leads in this source run to deduplicate.");
+      return;
+    }
+
+    const { uniqueLeads, duplicateIds, removedCount } = deduplicateLeadsList(runLeads);
+
+    if (removedCount === 0) {
+      showNotification("All leads in this source run are unique!");
+      return;
+    }
+
+    const effectiveTaskId = targetTaskId || activeTask?.taskId;
+    const dupSet = new Set(duplicateIds);
+
+    if (effectiveTaskId) {
+      setHistoryLeads(prev => ({
+        ...prev,
+        [effectiveTaskId]: uniqueLeads
+      }));
+    }
+
+    setActiveTaskLeads(prev => {
+      if (!effectiveTaskId || activeTask?.taskId === effectiveTaskId) return uniqueLeads;
+      return prev.filter(l => !dupSet.has(l.leadId || (l as any).id));
+    });
+
+    // Also sync global leads state
+    setLeads(prev => {
+      return prev
+        .filter(l => !dupSet.has(l.leadId || (l as any).id))
+        .map(l => {
+          const matchingUnique = uniqueLeads.find(u => (u.leadId || (u as any).id) === (l.leadId || (l as any).id));
+          return matchingUnique ? { ...l, ...matchingUnique } : l;
+        });
+    });
+
+    // Update tasks for this run
+    if (effectiveTaskId) {
+      setTasks(prev => prev.map(t => {
+        if (t.taskId === effectiveTaskId) {
+          return {
+            ...t,
+            results: {
+              ...(t.results || {}),
+              leads: uniqueLeads,
+              saved: uniqueLeads.length
+            }
+          };
+        }
+        return t;
+      }));
+    }
+
+    setSelectedLeadIds(prev => prev.filter(id => !dupSet.has(id)));
+    showNotification(`Removed and deleted ${removedCount} duplicate(s) from this run. Kept ${uniqueLeads.length} rich lead(s).`);
+
+    if (duplicateIds.length > 0) {
+      fetch(`${serverUrl}/api/leads/batch-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadIds: duplicateIds, taskId: effectiveTaskId })
+      }).catch(err => console.warn("Failed batch delete backend call:", err));
     }
   };
 
@@ -4128,23 +4685,38 @@ export default function App() {
     appendLog(`[LEAD FINDER] Spawned Lead Generation Task: ${searchNiche.toUpperCase()} in ${locationToUse.toUpperCase()} (Target Count: ${searchCount})`);
     setLiveLogOpen(true);
 
+    const postBody = {
+      tier: tierToUse,
+      niche: searchNiche,
+      location: locationToUse,
+      gaps: searchGaps || [],
+      count: searchCount,
+      engine: searchEngine,
+      noWebsiteOnly: searchNoWebsiteOnly,
+      userId
+    };
+
     try {
-      const res = await fetch(`${serverUrl}/api/lead-finder/run`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          tier: tierToUse,
-          niche: searchNiche,
-          location: locationToUse,
-          gaps: searchGaps || [],
-          count: searchCount,
-          engine: searchEngine,
-          noWebsiteOnly: searchNoWebsiteOnly,
-          userId
-        })
-      });
+      let res;
+      try {
+        res = await fetch(`${serverUrl}/api/lead-finder/run`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(postBody)
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch (err) {
+        console.warn("Retrying relative fallback for third lead-finder call due to:", err);
+        res = await fetch(`/api/lead-finder/run`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(postBody)
+        });
+      }
 
       if (res.ok) {
         const data = await res.json();
@@ -4164,8 +4736,12 @@ export default function App() {
         
         setTasks(prev => [newTask, ...prev]);
         setActiveTask(newTask);
-        setWorkspaceBoxTab('viewport'); // Show logs viewport during extraction
+        setActiveDynamicTaskId(data.taskId);
+        setActiveTaskLeads([]);
+        setTab('workspace');
+        setWorkspaceBoxTab('viewport');
         connectWS(data.taskId);
+        showNotification(`🚀 Launching ${searchEngine.toUpperCase()} Scraper for "${searchNiche}" in "${locationToUse}"...`);
       } else {
         const err = await res.json();
         setChat(prev => [...prev, { role: 'agent', msg: `Search error: ${err.error || 'Failed to start lead generation'}` }]);
@@ -4251,6 +4827,39 @@ export default function App() {
 
   const [isBatchEnriching, setIsBatchEnriching] = useState(false);
   const [batchEnrichProgress, setBatchEnrichProgress] = useState({ current: 0, total: 0 });
+
+  const autoEnrichedLeadSetRef = useRef<Set<string>>(new Set());
+
+  const autoEnrichNewLeads = async (newLeadsList: any[]) => {
+    if (!newLeadsList || newLeadsList.length === 0) return;
+    const unenriched = newLeadsList.filter(l => {
+      const id = l.leadId || l.id;
+      return id && !l.enriched && !enrichingLeadIds[id] && !autoEnrichedLeadSetRef.current.has(id);
+    });
+    if (unenriched.length === 0) return;
+
+    // Immediately mark all as enriching so UI shows "⚡ Enriching..." status icon on cards right away!
+    setEnrichingLeadIds(prev => {
+      const next = { ...prev };
+      unenriched.forEach(l => {
+        const id = l.leadId || l.id;
+        if (id) {
+          next[id] = true;
+          autoEnrichedLeadSetRef.current.add(id);
+        }
+      });
+      return next;
+    });
+
+    showNotification(`⚡ Auto-enriching phase launched for ${unenriched.length} scraped leads...`);
+
+    // Process in parallel high-speed batches of 8
+    const concurrency = 8;
+    for (let i = 0; i < unenriched.length; i += concurrency) {
+      const chunk = unenriched.slice(i, i + concurrency);
+      await Promise.all(chunk.map(lead => handleEnrichLead(lead)));
+    }
+  };
 
   const handleEnrichLead = async (lead: any) => {
     const leadId = lead.leadId || lead.id;
@@ -4342,18 +4951,79 @@ export default function App() {
 
     setIsBatchEnriching(true);
     setBatchEnrichProgress({ current: 0, total: targetLeads.length });
-    showNotification(`Starting website batch enrichment for ${targetLeads.length} leads...`);
+    showNotification(`🚀 Launching ultra-fast bulk enrichment for ${targetLeads.length} leads...`);
+
+    // Immediately mark all targeted leads as enriching
+    setEnrichingLeadIds(prev => {
+      const next = { ...prev };
+      targetLeads.forEach(l => {
+        const id = l.leadId || l.id;
+        if (id) next[id] = true;
+      });
+      return next;
+    });
 
     let enrichedCount = 0;
-    for (let i = 0; i < targetLeads.length; i++) {
-      const lead = targetLeads[i];
-      setBatchEnrichProgress({ current: i + 1, total: targetLeads.length });
-      await handleEnrichLead(lead);
-      enrichedCount++;
+    const batchChunkSize = 10;
+
+    for (let i = 0; i < targetLeads.length; i += batchChunkSize) {
+      const chunk = targetLeads.slice(i, i + batchChunkSize);
+      setBatchEnrichProgress({ current: Math.min(i + batchChunkSize, targetLeads.length), total: targetLeads.length });
+
+      try {
+        const res = await fetch(`${serverUrl}/api/lead/batch-enrich`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            leads: chunk,
+            concurrency: 8,
+            userId: userId || 'user',
+            sessionId: `session-${Date.now()}`
+          })
+        });
+
+        const data = await res.json();
+        if (data.success && Array.isArray(data.leads)) {
+          enrichedCount += data.enrichedCount || 0;
+
+          // Merge enriched leads into UI state
+          const updateMap = new Map<string, any>();
+          data.leads.forEach((el: any) => {
+            const id = el.leadId || el.id;
+            if (id) updateMap.set(id, el);
+          });
+
+          setActiveTaskLeads(prev => prev.map(l => {
+            const id = l.leadId || (l as any).id;
+            return updateMap.has(id) ? { ...l, ...updateMap.get(id) } : l;
+          }));
+
+          setLeads(prev => prev.map(l => {
+            const id = l.leadId || (l as any).id;
+            return updateMap.has(id) ? { ...l, ...updateMap.get(id) } : l;
+          }));
+        } else {
+          // Fallback to parallel client promises if batch endpoint fails
+          await Promise.all(chunk.map(lead => handleEnrichLead(lead)));
+        }
+      } catch (err) {
+        // Fallback to parallel client promises
+        await Promise.all(chunk.map(lead => handleEnrichLead(lead)));
+      } finally {
+        // Clear enriching flag for this batch chunk
+        setEnrichingLeadIds(prev => {
+          const next = { ...prev };
+          chunk.forEach(l => {
+            const id = l.leadId || l.id;
+            if (id) next[id] = false;
+          });
+          return next;
+        });
+      }
     }
 
     setIsBatchEnriching(false);
-    showNotification(`Completed batch enrichment for ${enrichedCount} leads!`);
+    showNotification(`⚡ Completed ultra-fast batch enrichment for ${targetLeads.length} leads (${enrichedCount} contacts found)!`);
   };
 
   const handleResolveCaptcha = async () => {
@@ -5405,12 +6075,39 @@ export default function App() {
     const handleTaskComplete = (data: any) => {
       if (data && data.taskId) {
         appendLog(`[SUCCESS] Task ${data.taskId.slice(0, 8)} successfully finished!`);
+        setTasks(prev => prev.map(t => t.taskId === data.taskId ? { ...t, status: 'complete' } : t));
+        setActiveTask(prev => {
+          if (prev && prev.taskId === data.taskId) {
+            return { ...prev, status: 'complete' };
+          }
+          return prev;
+        });
+        fetchTasks();
+        fetchLeads();
+        
+        // Pull final leads for this task
+        fetch(`${serverUrl}/api/task/${data.taskId}/leads`)
+          .then(res => res.json())
+          .then(leadsData => {
+            if (Array.isArray(leadsData)) {
+              setActiveTaskLeads(leadsData);
+            }
+          })
+          .catch(() => {});
       }
     };
 
     const handleTaskError = (data: any) => {
       if (data && data.taskId) {
         appendLog(`[ERROR] Task ${data.taskId.slice(0, 8)} failed: ${data.error || 'Execution halted'}`);
+        setTasks(prev => prev.map(t => t.taskId === data.taskId ? { ...t, status: 'error' } : t));
+        setActiveTask(prev => {
+          if (prev && prev.taskId === data.taskId) {
+            return { ...prev, status: 'error' };
+          }
+          return prev;
+        });
+        fetchTasks();
       }
     };
 
@@ -6136,26 +6833,29 @@ export default function App() {
       {tab === 'workspace' && (
         <div className="flex flex-1 overflow-hidden relative">
 
-          {/* LEFT COMPANION RAILS - SEARCH DIRECTORIES / TABS */}
           <section 
             style={{ width: leftOpen ? '220px' : '0px' }}
-            className={`border-r h-full flex flex-col pt-4 pb-16 shrink-0 overflow-hidden transition-all duration-300 select-none ${isLight ? 'bg-slate-100 border-slate-200 text-slate-800' : 'bg-[#070709] border-[#16161A] text-[#F5F5F5]'}`}
+            className={`border-r h-full flex flex-col pt-4 pb-16 shrink-0 overflow-hidden transition-all duration-300 select-none ${
+              isLight 
+                ? 'bg-slate-50 border-slate-200 text-slate-800' 
+                : 'bg-[#070709] border-[#16161A] text-[#F5F5F5]'
+            }`}
           >
             {/* Header / Brand */}
             <div className="px-4 mb-4 shrink-0">
-              <h3 className="text-[9px] tracking-[0.25em] text-[#A27B5C] font-extrabold uppercase mb-0.5">SEARCH TABS</h3>
-              <p className="text-[8px] text-[#52525B] font-bold tracking-wider uppercase">Lead Directories By Run</p>
+              <h3 className={`text-[9px] tracking-[0.25em] font-extrabold uppercase mb-0.5 ${isLight ? 'text-emerald-600' : 'text-[#A27B5C]'}`}>SEARCH TABS</h3>
+              <p className={`text-[8px] font-bold tracking-wider uppercase ${isLight ? 'text-slate-400' : 'text-[#52525B]'}`}>Lead Directories By Run</p>
             </div>
 
             {/* Sub-section: ACTIVE SCANS */}
             <div className="px-4 mb-2 flex items-center justify-between shrink-0">
-              <span className="text-[8px] tracking-[0.15em] text-[#52525B] font-bold uppercase">ACTIVE SCANS ({tasks.filter(t => t.status === 'running' || t.status === 'paused_captcha' || t.status === 'paused_input' || t.status === 'queued' || t.status === 'planning').length})</span>
-              <Activity size={9} className="text-[#10B981] animate-pulse" />
+              <span className={`text-[8px] tracking-[0.15em] font-bold uppercase ${isLight ? 'text-slate-400' : 'text-[#52525B]'}`}>ACTIVE SCANS ({tasks.filter(t => t.status === 'running' || t.status === 'paused_captcha' || t.status === 'paused_input' || t.status === 'queued' || t.status === 'planning').length})</span>
+              <Activity size={9} className="text-emerald-500 animate-pulse" />
             </div>
 
-            <div className="max-h-[180px] overflow-y-auto space-y-1 select-none shrink-0 border-b border-[#16161A] pb-3 mb-2 scrollbar-thin">
+            <div className={`max-h-[180px] overflow-y-auto space-y-1 select-none shrink-0 border-b pb-3 mb-2 scrollbar-thin ${isLight ? 'border-slate-200' : 'border-[#16161A]'}`}>
               {tasks.filter(t => t.status === 'running' || t.status === 'paused_captcha' || t.status === 'paused_input' || t.status === 'queued' || t.status === 'planning').length === 0 ? (
-                <div className="px-4 py-2 text-left text-[#52525B] text-[9.5px] italic">No active scanners.</div>
+                <div className={`px-4 py-2 text-left text-[9.5px] italic ${isLight ? 'text-slate-400' : 'text-[#52525B]'}`}>No active scanners.</div>
               ) : (
                 tasks.filter(t => t.status === 'running' || t.status === 'paused_captcha' || t.status === 'paused_input' || t.status === 'queued' || t.status === 'planning').map((task, idx) => {
                   const isActive = activeTask?.taskId === task.taskId;
@@ -6170,17 +6870,21 @@ export default function App() {
                       <div 
                         className={`group relative mx-2 py-2 px-2.5 rounded transition-all cursor-pointer ${
                           isActive 
-                            ? 'bg-[#101014] border border-transparent border-l-2 border-l-[#7C5335] text-white shadow-sm rounded-l-none' 
-                            : 'bg-transparent border border-transparent hover:bg-[#0C0C0F] hover:border-zinc-800 text-[#A1A1AA]'
+                            ? isLight
+                              ? 'bg-white border-slate-200 border-l-2 border-l-emerald-600 text-slate-800 shadow-sm rounded-l-none'
+                              : 'bg-[#101014] border border-transparent border-l-2 border-l-emerald-500 text-white shadow-sm rounded-l-none' 
+                            : isLight
+                              ? 'bg-transparent hover:bg-slate-200/50 text-slate-600'
+                              : 'bg-transparent border border-transparent hover:bg-[#0C0C0F] hover:border-zinc-800 text-[#A1A1AA]'
                         }`}
                       >
                         <div className="flex items-center justify-between gap-1.5 mb-1">
                           <div className="flex items-center gap-1.5 truncate">
-                            <span className="text-[10.5px] font-bold tracking-wide truncate max-w-[110px] text-zinc-200">
+                            <span className={`text-[10.5px] font-bold tracking-wide truncate max-w-[110px] ${isActive ? 'text-slate-800' : isLight ? 'text-slate-700' : 'text-zinc-200'}`}>
                               {task.config?.query || task.label || (task.taskType || '').replace(/_/g, ' ')}
                             </span>
                             {task.useStealth && (
-                              <span className="px-1 py-0.5 rounded text-[7px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+                              <span className="px-1 py-0.5 rounded text-[7px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/20 shrink-0">
                                 STEALTH
                               </span>
                             )}
@@ -6188,8 +6892,8 @@ export default function App() {
                           <div className="flex items-center gap-1 shrink-0">
                             {isRun && (
                               <span className="flex h-1.5 w-1.5 relative">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10B981] opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#10B981]"></span>
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
                               </span>
                             )}
                             <div 
@@ -6201,17 +6905,17 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="flex justify-between items-center text-[8px] text-[#52525B] group-hover:text-zinc-500 font-semibold tracking-wide uppercase">
-                          <span className="truncate max-w-[90px] text-[#A27B5C]">{task.config?.city || ''}</span>
+                        <div className={`flex justify-between items-center text-[8px] font-semibold tracking-wide uppercase ${isLight ? 'text-slate-400 group-hover:text-slate-500' : 'text-[#52525B] group-hover:text-zinc-500'}`}>
+                          <span className={`truncate max-w-[90px] ${isLight ? 'text-slate-500 font-extrabold' : 'text-[#A27B5C]'}`}>{task.config?.city || ''}</span>
                           <span>{task.progress || 0} leads</span>
                         </div>
 
                         {/* Micro progress indicators */}
                         {isRun && task.total > 0 && (
                           <div className="mt-1.5">
-                            <div className="w-full bg-[#1A1A22] h-1 rounded-full overflow-hidden">
+                            <div className={`w-full h-1 rounded-full overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-[#1A1A22]'}`}>
                               <div 
-                                className="bg-[#10B981] h-full transition-all duration-500" 
+                                className="bg-emerald-500 h-full transition-all duration-500" 
                                 style={{ width: `${task.progressPct || 0}%` }}
                               />
                             </div>
@@ -6226,24 +6930,24 @@ export default function App() {
 
             {/* Sub-section: COMPLETED SEARCH TABS (DIRECTORIES) */}
             <div className="px-4 mt-2 mb-2 flex items-center justify-between shrink-0">
-              <span className="text-[8px] tracking-[0.15em] text-[#52525B] font-bold uppercase">SAVED DIRECTORY TABS ({tasks.filter(t => t.status !== 'running' && t.status !== 'paused_captcha' && t.status !== 'paused_input' && t.status !== 'queued' && t.status !== 'planning').length})</span>
+              <span className={`text-[8px] tracking-[0.15em] font-bold uppercase ${isLight ? 'text-slate-400' : 'text-[#52525B]'}`}>SAVED DIRECTORY TABS ({tasks.filter(t => t.status !== 'running' && t.status !== 'paused_captcha' && t.status !== 'paused_input' && t.status !== 'queued' && t.status !== 'planning').length})</span>
               <div className="flex items-center gap-1.5">
                 {tasks.length > 0 && (
                   <button
                     onClick={handleDeleteAllTasks}
-                    className="text-[7px] font-bold uppercase tracking-widest text-red-500 hover:text-red-400 bg-transparent border-0 p-0 cursor-pointer transition-colors"
+                    className="text-[7px] font-extrabold uppercase tracking-widest text-red-500 hover:text-red-400 bg-transparent border-0 p-0 cursor-pointer transition-colors"
                     title="Delete all"
                   >
                     Clear All
                   </button>
                 )}
-                <History size={9} className="text-[#52525B22]" />
+                <History size={9} className={isLight ? 'text-slate-300' : 'text-[#52525B22]'} />
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-1 select-none scrollbar-thin">
               {tasks.filter(t => t.status !== 'running' && t.status !== 'paused_captcha' && t.status !== 'paused_input' && t.status !== 'queued' && t.status !== 'planning').length === 0 ? (
-                <div className="px-4 py-6 text-center text-[#52525B] text-[10px] italic">No completed directories.</div>
+                <div className={`px-4 py-6 text-center text-[10px] italic ${isLight ? 'text-slate-400' : 'text-[#52525B]'}`}>No completed directories.</div>
               ) : (
                 tasks.filter(t => t.status !== 'running' && t.status !== 'paused_captcha' && t.status !== 'paused_input' && t.status !== 'queued' && t.status !== 'planning').map((task, idx) => {
                   const isActive = activeTask?.taskId === task.taskId;
@@ -6257,22 +6961,30 @@ export default function App() {
                       <div 
                         className={`group relative mx-2 py-2.5 px-3 rounded-md transition-all cursor-pointer ${
                           isActive 
-                            ? 'bg-[#0E0E12] border border-transparent border-l-2 border-l-[#7C5335] text-white shadow-inner rounded-l-none' 
-                            : 'bg-[#050507]/40 border border-[#141417] hover:bg-[#0B0B0E]/80 hover:border-zinc-800 text-[#A1A1AA]'
+                            ? isLight
+                              ? 'bg-white border-slate-200 border-l-2 border-l-emerald-600 text-slate-800 shadow-sm rounded-l-none'
+                              : 'bg-[#0E0E12] border border-transparent border-l-2 border-l-emerald-500 text-white shadow-inner rounded-l-none' 
+                            : isLight
+                              ? 'bg-transparent hover:bg-slate-200/50 text-slate-600'
+                              : 'bg-[#050507]/40 border border-[#141417] hover:bg-[#0B0B0E]/80 hover:border-zinc-800 text-[#A1A1AA]'
                         }`}
                       >
                         <div className="flex items-center justify-between gap-1.5 mb-1">
-                          <span className="text-[10.5px] font-bold tracking-wide truncate max-w-[110px] text-zinc-200">
+                          <span className={`text-[10.5px] font-bold tracking-wide truncate max-w-[110px] ${isActive ? 'text-slate-800' : isLight ? 'text-slate-700' : 'text-zinc-200'}`}>
                             {task.config?.query || task.label || (task.taskType || '').replace(/_/g, ' ')}
                           </span>
                           {/* Leads Count Tab Badge */}
-                          <div className="px-1.5 py-0.5 rounded-full text-[8px] font-extrabold bg-[#7C5335]/10 text-[#A27B5C] border border-[#7C5335]/20 shrink-0">
+                          <div className={`px-1.5 py-0.5 rounded-full text-[8px] font-extrabold border ${
+                            isLight
+                              ? 'bg-slate-100 text-slate-600 border-slate-200'
+                              : 'bg-[#7C5335]/10 text-[#A27B5C] border-[#7C5335]/20'
+                          }`}>
                             {task.progress || task.leadsCount || 0}
                           </div>
                         </div>
 
-                        <div className="flex justify-between items-center text-[8px] text-[#52525B] group-hover:text-zinc-400 font-semibold tracking-wider uppercase font-sans">
-                          <span className="truncate max-w-[85px] text-[#A27B5C]">{task.config?.city || ''}</span>
+                        <div className={`flex justify-between items-center text-[8px] font-semibold tracking-wider uppercase font-sans ${isLight ? 'text-slate-400 group-hover:text-slate-500' : 'text-[#52525B] group-hover:text-zinc-400'}`}>
+                          <span className={`truncate max-w-[85px] ${isLight ? 'text-slate-500 font-extrabold' : 'text-[#A27B5C]'}`}>{task.config?.city || ''}</span>
                           {task.createdAt && (
                             <span>{new Date(task.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                           )}
@@ -6285,34 +6997,46 @@ export default function App() {
             </div>
 
             {/* Sub-section: SAVED SEARCH QUERY TEMPLATES */}
-            <div className="px-4 mt-3 mb-2 flex items-center justify-between shrink-0 border-t border-[#16161A] pt-3">
-              <span className="text-[8px] tracking-[0.15em] text-[#52525B] font-bold uppercase">QUERY TEMPLATES ({workflows.length})</span>
-              <Activity size={9} className="text-[#52525B22]" />
+            <div className={`px-4 mt-3 mb-2 flex items-center justify-between shrink-0 border-t pt-3 ${isLight ? 'border-slate-200' : 'border-[#16161A]'}`}>
+              <span className={`text-[8px] tracking-[0.15em] font-bold uppercase ${isLight ? 'text-slate-400' : 'text-[#52525B]'}`}>QUERY TEMPLATES ({workflows.length})</span>
+              <Activity size={9} className={isLight ? 'text-slate-300' : 'text-[#52525B22]'} />
             </div>
 
             <div className="max-h-[140px] overflow-y-auto space-y-1 select-none shrink-0 pb-2 scrollbar-thin">
               {workflows.length === 0 ? (
-                <div className="px-4 py-2 text-[#52525B] text-[9.5px] italic">No saved templates.</div>
+                <div className={`px-4 py-2 text-[9.5px] italic ${isLight ? 'text-slate-400' : 'text-[#52525B]'}`}>No saved templates.</div>
               ) : (
                 workflows.map((wf: any, idx) => (
                   <div 
                     key={wf.workflowId || idx} 
-                    className="mx-2.5 p-2 rounded bg-[#0A0A0D] border border-[#141418] hover:border-[#10B981]/30 transition flex flex-col gap-1.5"
+                    className={`mx-2.5 p-2 rounded border transition flex flex-col gap-1.5 ${
+                      isLight 
+                        ? 'bg-white border-slate-200 hover:border-emerald-300' 
+                        : 'bg-[#0A0A0D] border-[#141418] hover:border-zinc-800'
+                    }`}
                   >
                     <div className="flex items-center justify-between gap-1">
-                      <span className="text-[9.5px] font-bold text-[#F5F5F5] truncate max-w-[125px] uppercase" title={`${wf.niche} in ${wf.location}`}>
+                      <span className={`text-[9.5px] font-bold truncate max-w-[125px] uppercase ${isLight ? 'text-slate-800' : 'text-[#F5F5F5]'}`} title={`${wf.niche} in ${wf.location}`}>
                         {wf.niche} in {wf.location}
                       </span>
-                      <span className="text-[6px] text-[#10B981] font-extrabold uppercase tracking-wider bg-[#10B981]/5 px-1 py-0.5 border border-[#10B981]/10 rounded shrink-0">
+                      <span className={`text-[6px] font-extrabold uppercase tracking-wider px-1 py-0.5 border rounded shrink-0 ${
+                        isLight 
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                          : 'bg-[#10B981]/5 text-[#10B981] border-[#10B981]/10'
+                      }`}>
                         {wf.tier}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between text-[8px] text-zinc-500 font-medium">
+                    <div className="flex items-center justify-between text-[8px] text-slate-400 font-medium">
                       <span>Target: {wf.count}</span>
                       <button 
                         onClick={() => handleRunWorkflow(wf)}
                         disabled={searchRunning}
-                        className="text-[7px] text-[#A27B5C] hover:text-white bg-[#111116] hover:bg-[#7C5335] border border-[#1F1F24] px-1.5 py-0.5 rounded cursor-pointer font-extrabold uppercase tracking-widest disabled:opacity-30 transition"
+                        className={`text-[7px] px-1.5 py-0.5 rounded cursor-pointer font-extrabold uppercase tracking-widest disabled:opacity-30 transition ${
+                          isLight
+                            ? 'text-slate-700 hover:text-white bg-slate-100 hover:bg-emerald-600 border border-slate-200'
+                            : 'text-[#A27B5C] hover:text-white bg-[#111116] hover:bg-[#7C5335] border border-[#1F1F24]'
+                        }`}
                       >
                         Run Again
                       </button>
@@ -6326,7 +7050,11 @@ export default function App() {
           {/* TOGGLE SIDES BUTTONS LEFT/RIGHT */}
           <div 
             onClick={() => setLeftOpen(!leftOpen)} 
-            className="absolute top-1/2 -translate-y-1/2 z-20 w-4 h-12 bg-[#141414] border border-[#2A2A2A] border-l-0 rounded-r-lg flex items-center justify-center cursor-pointer text-xs text-[#52525B] hover:text-[#7C5335] hover:bg-[#181818] transition-all"
+            className={`absolute top-1/2 -translate-y-1/2 z-20 w-4 h-12 border border-l-0 rounded-r-lg flex items-center justify-center cursor-pointer text-xs transition-all ${
+              isLight 
+                ? 'bg-white border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-50' 
+                : 'bg-[#141414] border-[#2A2A2A] text-[#52525B] hover:text-[#7C5335] hover:bg-[#181818]'
+            }`}
             style={{ left: leftOpen ? '220px' : '0px' }}
           >
             {leftOpen ? <ChevronLeft size={10} /> : <ChevronRight size={10} />}
@@ -6718,37 +7446,37 @@ export default function App() {
                                     >
                                       ← BACK
                                     </button>
-                                    <span className="text-[10px] font-extrabold tracking-widest text-[#A27B5C] bg-[#7C5335]/5 border border-[#7C5335]/15 px-3 py-1 rounded uppercase select-none">
+                                    <span className="text-[10px] font-extrabold tracking-widest text-[#5C4033] bg-[#EEDC82]/20 border border-[#D4AF37]/30 px-3 py-1 rounded uppercase select-none">
                                       PRE-FLIGHT VALIDATION SUMMARY
                                     </span>
                                   </div>
 
-                                  <div className="bg-[#0C0C0E] border border-[#1A1A1D] rounded-lg p-6 space-y-6">
+                                  <div className="bg-[#FAF6F0] border border-[#E6DFD5] rounded-xl p-6 space-y-6 shadow-xl">
                                     <div className="text-center space-y-1">
-                                      <h4 className="text-xs font-extrabold tracking-widest text-[#F5F5F5] uppercase">READY FOR INGESTION</h4>
-                                      <p className="text-[10px] text-zinc-500 font-medium">Verify your target campaign configuration before spawning browser workflows</p>
+                                      <h4 className="text-xs font-black tracking-widest text-[#3E2723] uppercase">READY FOR INGESTION</h4>
+                                      <p className="text-[10px] text-[#795548] font-semibold">Verify your target campaign configuration before spawning browser workflows</p>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-4 border-t border-b border-[#1C1C1F]/60 py-5 text-xs">
+                                    <div className="grid grid-cols-2 gap-4 border-t border-b border-[#E6DFD5] py-5 text-xs text-[#4E342E]">
                                       <div className="space-y-1">
-                                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">TARGET TIER:</span>
-                                        <span className="text-emerald-400 font-extrabold uppercase bg-emerald-500/5 px-2 py-0.5 border border-emerald-500/10 rounded">{selectedTier?.toUpperCase()}</span>
+                                        <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">TARGET TIER:</span>
+                                        <span className="text-emerald-700 font-extrabold uppercase bg-emerald-50 px-2 py-0.5 border border-emerald-200 rounded">{selectedTier?.toUpperCase()}</span>
                                       </div>
                                       <div className="space-y-1">
-                                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">LEAD COUNT LIMIT:</span>
-                                        <span className="text-white font-extrabold">{searchCount} Prospects</span>
+                                        <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">LEAD COUNT LIMIT:</span>
+                                        <span className="text-[#3E2723] font-black">{searchCount} Prospects</span>
                                       </div>
                                       <div className="space-y-1">
-                                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">NICHE SECTOR:</span>
-                                        <span className="text-white font-bold">{searchNiche}</span>
+                                        <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">NICHE SECTOR:</span>
+                                        <span className="text-[#3E2723] font-extrabold">{searchNiche}</span>
                                       </div>
                                       <div className="space-y-1">
-                                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">TARGET REGION:</span>
-                                        <span className="text-white font-bold">{searchLocation}</span>
+                                        <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">TARGET REGION:</span>
+                                        <span className="text-[#3E2723] font-extrabold">{searchLocation}</span>
                                       </div>
                                       <div className="col-span-2 space-y-1">
-                                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">SELECTED DEFICIENCIES / GAPS:</span>
-                                        <span className="text-red-400 font-medium font-mono text-[11px] bg-red-500/5 px-2 py-1 border border-red-500/10 rounded block">
+                                        <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">SELECTED DEFICIENCIES / GAPS:</span>
+                                        <span className="text-red-700 font-bold font-mono text-[11px] bg-red-50 px-2 py-1 border border-red-200 rounded block">
                                           {searchGaps.join(', ') || 'Analyze all available gaps'}
                                         </span>
                                       </div>
@@ -6757,7 +7485,7 @@ export default function App() {
                                     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
                                       <button 
                                         onClick={handleSaveWorkflow}
-                                        className="w-full sm:w-auto px-4 py-2 bg-transparent hover:bg-zinc-800 text-[#A27B5C] hover:text-white border border-[#7C5335]/30 text-[10px] font-extrabold tracking-widest uppercase rounded transition cursor-pointer flex items-center justify-center gap-1.5"
+                                        className="w-full sm:w-auto px-4 py-2 bg-transparent hover:bg-[#F0EAE1] text-[#7C5335] border border-[#7C5335]/40 text-[10px] font-extrabold tracking-widest uppercase rounded transition cursor-pointer flex items-center justify-center gap-1.5 font-bold"
                                       >
                                         Save Search as Workflow
                                       </button>
@@ -6765,13 +7493,13 @@ export default function App() {
                                       <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
                                         <button 
                                           onClick={() => setSearchStep('config')}
-                                          className="px-4 py-2 bg-transparent hover:bg-zinc-800 text-zinc-400 hover:text-white border border-[#1C1C1F] text-[10px] font-extrabold tracking-widest uppercase rounded transition cursor-pointer"
+                                          className="px-4 py-2 bg-transparent hover:bg-[#F0EAE1] text-[#5D4033] border border-[#E6DFD5] text-[10px] font-extrabold tracking-widest uppercase rounded transition cursor-pointer font-bold"
                                         >
                                           Modify
                                         </button>
                                         <button 
                                           onClick={handleLaunchSearch}
-                                          className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold tracking-widest uppercase rounded transition shadow-[0_2px_10px_rgba(16,185,129,0.25)] cursor-pointer"
+                                          className="px-6 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-black tracking-widest uppercase rounded transition shadow-[0_4px_14px_rgba(4,120,87,0.3)] cursor-pointer"
                                         >
                                           🚀 LAUNCH SEARCH
                                         </button>
@@ -7124,6 +7852,8 @@ export default function App() {
                                       onSkip={handleSkipLead}
                                       onGenerateWebsite={(l) => setNestaModalLead(l)}
                                       onEnrichLead={handleEnrichLead}
+                                      isEnriching={Boolean(enrichingLeadIds[lead.leadId || (lead as any).id])}
+                                      onOpenInbox={handleOpenInboxForLead}
                                     />
                                   ))}
                                 </div>
@@ -7685,7 +8415,7 @@ export default function App() {
       {tab === 'leads' && (
         <div className={`w-full h-full p-4 md:p-6 flex flex-col justify-between transition-colors duration-300 font-sans ${
           isLight
-            ? 'bg-gradient-to-br from-[#CBD8E6] via-[#DCE5F0] to-[#B2C5D8] text-[#1E2530]'
+            ? 'bg-gradient-to-br from-[#1E3A8A] via-[#2563EB] to-[#1D4ED8] text-white'
             : 'bg-gradient-to-br from-[#0C0E14] via-[#121620] to-[#090A0E] text-[#E6EBF2]'
         }`}>
           
@@ -7696,23 +8426,23 @@ export default function App() {
               <button
                 onClick={() => setLeadsSidebarOpen(!leadsSidebarOpen)}
                 className={`md:hidden p-2 rounded-2xl shadow-sm cursor-pointer transition ${
-                  isLight ? 'bg-white/80 text-slate-800' : 'bg-zinc-800/80 text-zinc-100'
+                  isLight ? 'bg-white/20 backdrop-blur-md text-white hover:bg-white/30' : 'bg-zinc-800/80 text-zinc-100'
                 }`}
                 title="Toggle Leads Navigation"
               >
-                {leadsSidebarOpen ? <X className="w-5 h-5 text-rose-500" /> : <Menu className="w-5 h-5 text-indigo-500" />}
+                {leadsSidebarOpen ? <X className="w-5 h-5 text-rose-300" /> : <Menu className="w-5 h-5 text-white" />}
               </button>
 
               <div className={`p-2.5 rounded-2xl shadow-sm ${
-                isLight ? 'bg-white/80 text-slate-800' : 'bg-zinc-800/80 text-zinc-100'
+                isLight ? 'bg-white/20 backdrop-blur-md text-white' : 'bg-zinc-800/80 text-zinc-100'
               }`}>
-                <Database className="w-5 h-5 text-amber-500" />
+                <Database className="w-5 h-5 text-amber-300" />
               </div>
               <div className="min-w-0">
-                <h1 className="text-sm md:text-base font-extrabold tracking-tight flex items-center gap-2 truncate">
+                <h1 className="text-sm md:text-base font-extrabold tracking-tight flex items-center gap-2 truncate text-white">
                   <span>LEAD DISCOVERY ARCHITECT</span>
                 </h1>
-                <p className="text-[10px] md:text-xs opacity-70 truncate">Multi-channel B2B lead generation, SIRENE, Google Maps & real estate scraper</p>
+                <p className="text-[10px] md:text-xs text-white/80 truncate">Multi-channel B2B lead generation, SIRENE, Google Maps & real estate scraper</p>
               </div>
             </div>
 
@@ -7724,7 +8454,7 @@ export default function App() {
                   setActiveTask(null);
                   setGmapsModalOpen(true);
                 }}
-                className="px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
+                className="px-3.5 py-1.5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
               >
                 <Plus size={14} strokeWidth={2.5} />
                 <span className="hidden sm:inline">New Lead Search</span>
@@ -7748,7 +8478,7 @@ export default function App() {
               leadsSidebarOpen ? 'translate-x-0 opacity-100' : '-translate-x-[120%] md:translate-x-0 opacity-0 md:opacity-100 pointer-events-none md:pointer-events-auto'
             } ${
               isLight
-                ? 'bg-[#C7D7E5]/95 border-slate-300/80 text-[#252E3A] shadow-slate-900/10'
+                ? 'bg-white/70 backdrop-blur-2xl border-white/80 text-slate-800 shadow-blue-950/20'
                 : 'bg-[#12141c]/90 border-white/[0.08] text-[#E0E6EE] shadow-[0_20px_50px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.04]'
             }`}>
               <div className="space-y-5 overflow-y-auto pr-1 select-none flex-1">
@@ -7762,16 +8492,35 @@ export default function App() {
 
                 {/* PROFILE HEADER (EXACT MATCH FOR ATTACHED DESIGN) */}
                 <div className="flex items-center gap-3 pt-1 border-b border-slate-300/80 dark:border-white/[0.08] pb-3">
-                  <div className="relative w-10 h-10 rounded-full overflow-hidden shrink-0 border-2 border-white/60 dark:border-zinc-700 shadow-sm bg-slate-300 dark:bg-zinc-800">
+                  <div 
+                    onClick={() => setShowAvatarPickerModal(true)}
+                    className="relative w-11 h-11 rounded-full overflow-hidden shrink-0 border-2 border-emerald-500/50 hover:border-emerald-400 shadow-sm bg-transparent cursor-pointer group transition-all"
+                    title="Click to change Lead Architect photo"
+                  >
                     <img
-                      src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120"
+                      src={architectAvatarUrl}
                       alt="Architect Avatar"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = DEFAULT_ARCHITECT_AVATAR;
+                      }}
                     />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <Camera size={14} className="text-white drop-shadow" />
+                    </div>
                     <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white dark:border-zinc-900" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-zinc-400 truncate">LEAD ARCHITECT</div>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-zinc-400 truncate">LEAD ARCHITECT</span>
+                      <button 
+                        onClick={() => setShowAvatarPickerModal(true)}
+                        className="text-[8.5px] font-bold text-emerald-500 hover:text-emerald-400 hover:underline uppercase tracking-wider cursor-pointer"
+                        title="Change Lead Architect Photo"
+                      >
+                        Change Photo
+                      </button>
+                    </div>
                     {isEditingProfileName ? (
                       <input
                         type="text"
@@ -7809,10 +8558,10 @@ export default function App() {
 
                   {/* SOURCING RUNS LIST */}
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
-                    {tasks.filter(t => t.taskType === 'lead_generation' || t.taskType === 'google_maps_scrape' || t.taskType === 'openstreetmap_scrape' || t.taskType === 'pages_jaunes_scrape' || t.taskType === 'sirene_scrape' || t.taskType === 'sirene' || t.taskType === 'real_estate_scrape' || t.taskType === 'csv_import' || t.taskType === 'hyperagent_scrape' || t.taskType === 'social_scrape' || t.taskType === 'dynamic' || (t.taskType && !['chat', 'system'].includes(t.taskType))).length === 0 ? (
+                    {tasks.filter(t => t.taskType === 'lead_generation' || t.taskType === 'google_maps_scrape' || t.taskType === 'pages_jaunes_scrape' || t.taskType === 'sirene_scrape' || t.taskType === 'sirene' || t.taskType === 'real_estate_scrape' || t.taskType === 'csv_import' || t.taskType === 'hyperagent_scrape' || t.taskType === 'social_scrape' || t.taskType === 'dynamic' || (t.taskType && !['chat', 'system'].includes(t.taskType))).length === 0 ? (
                       <div className="p-3 text-center text-slate-500 dark:text-zinc-500 text-xs italic">No lead searches run yet.</div>
                     ) : (
-                      tasks.filter(t => t.taskType === 'lead_generation' || t.taskType === 'google_maps_scrape' || t.taskType === 'openstreetmap_scrape' || t.taskType === 'pages_jaunes_scrape' || t.taskType === 'sirene_scrape' || t.taskType === 'sirene' || t.taskType === 'real_estate_scrape' || t.taskType === 'csv_import' || t.taskType === 'hyperagent_scrape' || t.taskType === 'social_scrape' || t.taskType === 'dynamic' || (t.taskType && !['chat', 'system'].includes(t.taskType))).map((task, idx) => {
+                      tasks.filter(t => t.taskType === 'lead_generation' || t.taskType === 'google_maps_scrape' || t.taskType === 'pages_jaunes_scrape' || t.taskType === 'sirene_scrape' || t.taskType === 'sirene' || t.taskType === 'real_estate_scrape' || t.taskType === 'csv_import' || t.taskType === 'hyperagent_scrape' || t.taskType === 'social_scrape' || t.taskType === 'dynamic' || (t.taskType && !['chat', 'system'].includes(t.taskType))).map((task, idx) => {
                         const isActive = activeTask?.taskId === task.taskId;
                         return (
                           <button
@@ -7957,7 +8706,7 @@ export default function App() {
               
               {/* SUB-TAB HEADER FOR LEADS SECTION */}
               <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-200 dark:border-zinc-800 shrink-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => setLeadsSubTab('all')}
                     className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
@@ -8028,6 +8777,7 @@ export default function App() {
                   serverUrl={serverUrl}
                   isLight={theme === 'light'}
                   showNotification={showNotification}
+                  onOpenEmailModal={handleOpenInboxForLead}
                   onSaveLeads={(newLeads) => {
                     setLeads(prev => [...prev, ...newLeads.map((l, idx) => ({
                       id: `lead_re_${Date.now()}_${idx}`,
@@ -8070,7 +8820,7 @@ export default function App() {
                 />
               </div>
             ) : activeTask ? (
-              <div className={`flex-1 flex flex-col overflow-hidden p-6 shrink-0 ${isLight ? 'bg-slate-50 text-slate-800' : 'bg-[#0E0F14] text-zinc-100'}`}>
+              <div className={`flex-1 flex flex-col overflow-hidden p-6 shrink-0 rounded-[28px] border shadow-2xl ${isLight ? 'bg-white/95 backdrop-blur-xl border-white/80 text-slate-800' : 'bg-gradient-to-br from-[#0C0E14] via-[#121620] to-[#090A0E] text-zinc-100 border-white/10'}`}>
                 {/* Active task running top progress banner */}
                 {(activeTask.status === 'running' || activeTask.status === 'paused_captcha') && (
                   <div className="mb-4 bg-[#0C0C0E] border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in shadow-lg">
@@ -8083,9 +8833,7 @@ export default function App() {
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-extrabold tracking-widest text-emerald-400 uppercase">
-                            {activeTask.taskType === 'openstreetmap_scrape' 
-                              ? 'OPENSTREETMAP SCRAPER ACTIVE' 
-                              : activeTask.taskType === 'google_maps_scrape' 
+                            {activeTask.taskType === 'google_maps_scrape' 
                               ? 'GOOGLE MAPS SCRAPER ACTIVE' 
                               : activeTask.taskType === 'lead_generation' 
                               ? `ASSIX LEAD FINDER (${activeTask.config?.engine?.toUpperCase() || 'INTEL'}) ACTIVE` 
@@ -8129,7 +8877,7 @@ export default function App() {
                   </div>
                 )}
 
-                <header className="flex flex-col gap-3 border-b border-[#1A1A1A] pb-4 shrink-0 select-none">
+                <header className="flex flex-col gap-3 border-b pb-4 shrink-0 select-none border-slate-200/50 dark:border-zinc-800">
                     {/* Top Row: Title on Left (Editable), Actions on Right */}
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div className="flex-1 min-w-0">
@@ -8161,48 +8909,37 @@ export default function App() {
                             className="flex items-center gap-2 group cursor-pointer inline-flex max-w-full" 
                             onClick={() => {
                               setEditingTaskId(activeTask.taskId);
-                              setTempTaskTitle(activeTask.label);
+                              setTempTaskTitle(activeTask.label || 'Active Sourcing Run Campaign');
                             }}
                             title="Click to edit source title"
                           >
                             <h2 className="text-sm md:text-base font-black tracking-wide text-slate-900 dark:text-white uppercase flex items-center gap-2 truncate">
                               <Database size={15} className="text-emerald-500 dark:text-emerald-400 shrink-0" />
-                              <span className="truncate text-slate-900 dark:text-white font-black">{activeTask.label}</span>
+                              <span className="truncate text-slate-900 dark:text-white font-black">{activeTask.label || 'Active Sourcing Run Campaign'}</span>
                             </h2>
                             <Pencil size={12} className="text-zinc-500 hover:text-blue-400 opacity-60 group-hover:opacity-100 transition shrink-0" />
                           </div>
                         )}
                       </div>
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="flex items-center gap-1 bg-[#161010] border border-white/5 p-1 rounded-full select-none">
-                          <button 
-                            onClick={() => setActiveTaskLeadsViewMode('cards')} 
-                            className={`p-1.5 rounded-full transition cursor-pointer ${activeTaskLeadsViewMode === 'cards' ? 'bg-[#282121] border border-[#5D4037] text-[#eaeaea] shadow-md' : 'text-[#71717A] hover:text-white bg-transparent'}`}
-                            title="Card View"
-                          >
-                            <LayoutGrid size={11} />
-                          </button>
-                          <button 
-                            onClick={() => setActiveTaskLeadsViewMode('table')} 
-                            className={`p-1.5 rounded-full transition cursor-pointer ${activeTaskLeadsViewMode === 'table' ? 'bg-[#282121] border border-[#5D4037] text-[#eaeaea] shadow-md' : 'text-[#71717A] hover:text-white bg-transparent'}`}
-                            title="List / Table View"
-                          >
-                            <List size={11} />
-                          </button>
-                        </div>
-                      </div>
                     </div>
 
-                    {/* Bottom Row: IG Discovery Style Pop-Up Trigger Button */}
-                    <div className="flex items-center gap-2 select-none">
+                    {/* Bottom Row: IG Discovery Style Pop-Up Trigger Button and View mode toggle */}
+                    <div className="flex flex-wrap items-center gap-3 select-none">
                       <button 
-                        onClick={() => setLeadsFilterPopupOpen(true)}
-                        className="flex items-center gap-2 px-3.5 py-1.5 bg-[#0F0F12] hover:bg-[#1A1A22] border border-[#272738] rounded-full text-[9px] font-black uppercase tracking-wider text-slate-200 shadow-sm transition cursor-pointer group"
+                        onClick={() => setLeadsFilterPopupOpen(!leadsFilterPopupOpen)}
+                        className={`flex items-center gap-2 px-3.5 py-1.5 border rounded-full text-[9px] font-black uppercase tracking-wider transition cursor-pointer shadow-sm group ${
+                          leadsFilterPopupOpen
+                            ? 'bg-[#7C5335] text-white border-[#7C5335] shadow-md ring-1 ring-[#7C5335]/50'
+                            : isLight
+                              ? 'bg-slate-200 hover:bg-slate-300 text-slate-800 border-slate-300'
+                              : 'bg-[#0F0F12] hover:bg-[#1A1A22] text-slate-200 border-[#272738]'
+                        }`}
                       >
-                        <Sliders size={12} className="text-[#7C5335]" />
+                        <Sliders size={12} className={leadsFilterPopupOpen ? 'text-white' : 'text-[#7C5335]'} />
                         <span>Filter Prospects:</span>
-                        <span className="px-2 py-0.5 rounded-full bg-[#7C5335]/20 text-[#7C5335] border border-[#7C5335]/30 font-mono text-[8.5px]">
+                        <span className={`px-2 py-0.5 rounded-full font-mono text-[8.5px] ${
+                          leadsFilterPopupOpen ? 'bg-black/30 text-white' : 'bg-[#7C5335]/15 text-[#7C5335]'
+                        }`}>
                           {leadsFilter === 'all' && `ALL (${activeTaskLeads.length})`}
                           {leadsFilter === 'no-website' && `NO WEBSITE (${activeTaskLeads.filter(isNoWebsiteLead).length})`}
                           {leadsFilter === 'has-website' && `HAS WEBSITE (${activeTaskLeads.filter(l => !isNoWebsiteLead(l)).length})`}
@@ -8211,95 +8948,137 @@ export default function App() {
                           {leadsFilter === 'facebook_ads' && 'FB ADS'}
                           {leadsFilter === 'facebook_groups' && 'FB GROUPS'}
                         </span>
-                        <ChevronDown size={12} className="text-slate-400 group-hover:translate-y-0.5 transition-transform" />
+                        <ChevronDown size={12} className={`text-slate-400 group-hover:translate-y-0.5 transition-transform duration-200 ${leadsFilterPopupOpen ? 'rotate-180' : ''}`} />
                       </button>
+
+                      {/* Theme-matched Grid/List Toggle beside Filter Prospects */}
+                      <div className={`flex items-center gap-1 p-0.5 rounded-lg select-none shrink-0 border ${
+                        isLight 
+                          ? 'bg-slate-100 border-slate-200 text-slate-800' 
+                          : 'bg-[#14141E] border-[#2A2A38] text-zinc-300'
+                      }`}>
+                        <button 
+                          onClick={() => setActiveTaskLeadsViewMode('cards')} 
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded transition cursor-pointer text-[9px] font-extrabold uppercase tracking-wider ${
+                            activeTaskLeadsViewMode === 'cards' 
+                              ? 'bg-[#7C5335] text-white shadow-sm font-black' 
+                              : 'text-zinc-500 hover:text-white bg-transparent'
+                          }`}
+                          title="Grid View"
+                        >
+                          <LayoutGrid size={11} />
+                          <span>Grid</span>
+                        </button>
+                        <button 
+                          onClick={() => setActiveTaskLeadsViewMode('table')} 
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded transition cursor-pointer text-[9px] font-extrabold uppercase tracking-wider ${
+                            activeTaskLeadsViewMode === 'table' 
+                              ? 'bg-[#7C5335] text-white shadow-sm font-black' 
+                              : 'text-zinc-500 hover:text-white bg-transparent'
+                          }`}
+                          title="List View"
+                        >
+                          <List size={11} />
+                          <span>List</span>
+                        </button>
+                      </div>
                     </div>
                   </header>
 
                   <div className="flex items-center gap-2 my-3 select-none flex-wrap">
                     <button 
                       onClick={() => setFilterPanelOpen(!filterPanelOpen)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 border rounded text-[9px] font-bold tracking-widest uppercase transition cursor-pointer ${filterPanelOpen ? 'bg-red-950/30 border-red-500/50 text-red-400' : 'border-[#222225] text-zinc-400 hover:text-white hover:border-zinc-700'}`}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 border rounded text-[9px] font-bold tracking-widest uppercase transition-all duration-200 cursor-pointer ${filterPanelOpen ? 'bg-amber-500/10 border-amber-500/50 text-amber-400' : 'bg-[#0E0E11] border-[#1C1C24] hover:border-zinc-700 text-zinc-400 hover:text-white'}`}
                       title="Toggle Filter Panel"
                     >
                       <Sliders size={10} /> Filters
                     </button>
 
-                      <a 
-                        href={`${serverUrl}/api/task/${activeTask.taskId}/export/csv`} 
-                        download
-                        className="flex items-center gap-1.5 px-3.5 py-1.5 border border-[#222225] hover:border-[#7C5335]/50 bg-[#121214] hover:bg-[#151518] text-[#A1A1AA] hover:text-[#7C5335] text-[9px] font-bold tracking-widest uppercase rounded transition cursor-pointer"
-                      >
-                        <Download size={10} /> CSV
-                      </a>
+                    <a 
+                      href={`${serverUrl}/api/task/${activeTask.taskId}/export/csv`} 
+                      download
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 border bg-[#0E0E11] border-[#1C1C24] hover:border-zinc-700 text-zinc-400 hover:text-white text-[9px] font-bold tracking-widest uppercase rounded transition cursor-pointer"
+                    >
+                      <Download size={10} /> CSV
+                    </a>
 
-                      <label className="flex items-center gap-1.5 px-3.5 py-1.5 border border-blue-300 hover:border-blue-400 bg-white hover:bg-blue-50 text-blue-600 hover:text-blue-700 text-[9px] font-extrabold tracking-widest uppercase rounded shadow-sm transition cursor-pointer select-none">
-                        <Upload size={10} /> Upload CSV
-                        <input type="file" accept=".csv" onChange={handleCsvContactUpload} className="hidden" />
-                      </label>
+                    <label className="flex items-center gap-1.5 px-3.5 py-1.5 border bg-[#0E0E11] border-[#1C1C24] hover:border-zinc-700 text-zinc-400 hover:text-white text-[9px] font-bold tracking-widest uppercase rounded transition cursor-pointer select-none">
+                      <Upload size={10} /> Upload CSV
+                      <input type="file" accept=".csv" onChange={handleCsvContactUpload} className="hidden" />
+                    </label>
 
-                      {filteredActiveTaskLeads.length > 0 && (
-                        <button
-                          onClick={() => {
-                            const taskLeadIds = filteredActiveTaskLeads.map(l => l.leadId || (l as any).id).filter(Boolean);
-                            const selectedInTask = selectedLeadIds.filter(id => taskLeadIds.includes(id));
-                            const targetList = selectedInTask.length > 0
-                              ? filteredActiveTaskLeads.filter(l => selectedInTask.includes(l.leadId || (l as any).id))
-                              : filteredActiveTaskLeads;
-                            handleBatchEnrichLeads(targetList);
-                          }}
-                          disabled={isBatchEnriching}
-                          className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-blue-100 border border-blue-700/60 text-[9px] font-extrabold tracking-widest uppercase rounded shadow-sm transition cursor-pointer"
-                          title="Enrich selected leads (or all leads in this run) via website scraping & contact extraction"
-                        >
-                          {isBatchEnriching && <RefreshCw size={10} className="animate-spin text-blue-300" />}
-                          {isBatchEnriching 
-                            ? `Enriching (${batchEnrichProgress.current}/${batchEnrichProgress.total})...` 
-                            : (() => {
-                                const selectedInTask = selectedLeadIds.filter(id => filteredActiveTaskLeads.some(l => (l.leadId || (l as any).id) === id));
-                                return selectedInTask.length > 0 
-                                  ? `Enrich Selected (${selectedInTask.length})` 
-                                  : `Enrich Run Leads (${filteredActiveTaskLeads.length})`;
-                              })()
-                          }
-                        </button>
-                      )}
-
-                      <button 
+                    {filteredActiveTaskLeads.length > 0 && (
+                      <button
                         onClick={() => {
-                          const runLeadIds = filteredActiveTaskLeads.map(l => l.leadId || (l as any).id).filter(Boolean);
-                          if (runLeadIds.length === 0) {
-                            showNotification("No leads found in this run to add to WhatsApp.");
-                            return;
-                          }
-                          setSelectedLeadIds(prev => Array.from(new Set([...prev, ...runLeadIds])));
-                          setTab('whatsapp');
-                          showNotification(`Loaded ${runLeadIds.length} leads from this run into WhatsApp Bulk Outreach`);
+                          const taskLeadIds = filteredActiveTaskLeads.map(l => l.leadId || (l as any).id).filter(Boolean);
+                          const selectedInTask = selectedLeadIds.filter(id => taskLeadIds.includes(id));
+                          const targetList = selectedInTask.length > 0
+                            ? filteredActiveTaskLeads.filter(l => selectedInTask.includes(l.leadId || (l as any).id))
+                            : filteredActiveTaskLeads;
+                          handleBatchEnrichLeads(targetList);
                         }}
-                        className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white hover:bg-emerald-50 text-[#10B981] hover:text-emerald-600 border border-[#10B981]/40 text-[9px] font-extrabold tracking-widest uppercase rounded shadow-sm transition cursor-pointer"
-                        title="Send bulk WhatsApp messages to leads in this source run"
+                        disabled={isBatchEnriching}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0E0E11] border border-blue-500/30 hover:border-blue-500/60 text-blue-400 hover:text-blue-300 disabled:opacity-50 text-[9px] font-bold tracking-widest uppercase rounded shadow-sm transition cursor-pointer"
+                        title="Enrich selected leads (or all leads in this run) via website scraping & contact extraction"
                       >
-                        <MessageSquare size={10} /> Bulk WhatsApp ({filteredActiveTaskLeads.length})
+                        {isBatchEnriching && <RefreshCw size={10} className="animate-spin text-blue-300" />}
+                        {isBatchEnriching 
+                          ? `Enriching (${batchEnrichProgress.current}/${batchEnrichProgress.total})...` 
+                          : (() => {
+                              const selectedInTask = selectedLeadIds.filter(id => filteredActiveTaskLeads.some(l => (l.leadId || (l as any).id) === id));
+                              return selectedInTask.length > 0 
+                                ? `Enrich Selected (${selectedInTask.length})` 
+                                : `Enrich Run Leads (${filteredActiveTaskLeads.length})`;
+                            })()
+                        }
                       </button>
+                    )}
 
-                      <button 
-                        onClick={() => {
-                          const runLeadIds = filteredActiveTaskLeads.map(l => l.leadId || (l as any).id).filter(Boolean);
-                          if (runLeadIds.length === 0) {
-                            showNotification("No leads found in this run for bulk email.");
-                            return;
-                          }
-                          setSelectedLeadIds(prev => Array.from(new Set([...prev, ...runLeadIds])));
-                          setAutoOpenEmailBulkModal(true);
-                          setTab('email_campaign');
-                          showNotification(`Loaded ${runLeadIds.length} leads from this run into Bulk Email Campaign`);
-                        }}
-                        className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black text-[9px] font-extrabold tracking-widest uppercase rounded shadow-sm transition cursor-pointer"
-                        title="Send bulk email campaign to leads in this source run"
+                    {filteredActiveTaskLeads.length > 0 && (
+                      <button
+                        onClick={() => handleRemoveRunDuplicates(filteredActiveTaskLeads, activeTask?.taskId)}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0E0E11] border border-amber-500/30 hover:border-amber-500/60 text-amber-400 hover:text-amber-300 text-[9px] font-bold tracking-widest uppercase rounded shadow-sm transition cursor-pointer"
+                        title="Remove duplicate leads inside this source run, keeping the leads with the most complete information"
                       >
-                        <Rocket size={10} /> Bulk Email Campaign ({filteredActiveTaskLeads.length})
+                        <Layers size={10} /> Deduplicate Run ({filteredActiveTaskLeads.length})
                       </button>
-                    </div>
+                    )}
+
+                    <button 
+                      onClick={() => {
+                        const runLeadIds = filteredActiveTaskLeads.map(l => l.leadId || (l as any).id).filter(Boolean);
+                        if (runLeadIds.length === 0) {
+                          showNotification("No leads found in this run to add to WhatsApp.");
+                          return;
+                        }
+                        setSelectedLeadIds(prev => Array.from(new Set([...prev, ...runLeadIds])));
+                        setTab('whatsapp');
+                        showNotification(`Loaded ${runLeadIds.length} leads from this run into WhatsApp Bulk Outreach`);
+                      }}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0E0E11] border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-400 hover:text-emerald-300 text-[9px] font-bold tracking-widest uppercase rounded shadow-sm transition cursor-pointer"
+                      title="Send bulk WhatsApp messages to leads in this source run"
+                    >
+                      <MessageSquare size={10} /> Bulk WhatsApp ({filteredActiveTaskLeads.length})
+                    </button>
+
+                    <button 
+                      onClick={() => {
+                        const runLeadIds = filteredActiveTaskLeads.map(l => l.leadId || (l as any).id).filter(Boolean);
+                        if (runLeadIds.length === 0) {
+                          showNotification("No leads found in this run for bulk email.");
+                          return;
+                        }
+                        setSelectedLeadIds(prev => Array.from(new Set([...prev, ...runLeadIds])));
+                        setAutoOpenEmailBulkModal(true);
+                        setTab('email_campaign');
+                        showNotification(`Loaded ${runLeadIds.length} leads from this run into Bulk Email Campaign`);
+                      }}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0E0E11] border border-rose-500/30 hover:border-rose-500/60 text-rose-400 hover:text-rose-300 text-[9px] font-bold tracking-widest uppercase rounded shadow-sm transition cursor-pointer"
+                      title="Send bulk email campaign to leads in this source run"
+                    >
+                      <Rocket size={10} /> Bulk Email Campaign ({filteredActiveTaskLeads.length})
+                    </button>
+                  </div>
 
                   <div className="flex-1 overflow-y-auto min-h-0 pt-4">
                     {filteredActiveTaskLeads.length === 0 ? (
@@ -8307,17 +9086,17 @@ export default function App() {
                         No lead records matching this run and filter criteria. Either sourcing is compiling, or no records were returned.
                       </div>
                     ) : activeTaskLeadsViewMode === 'table' ? (
-                      <div className={`rounded-2xl overflow-x-auto p-3.5 transition-all duration-300 border backdrop-blur-xl ${
+                      <div className={`rounded-2xl overflow-x-auto p-4 transition-all duration-300 border backdrop-blur-xl ${
                         isLight 
-                          ? 'bg-white/60 border-slate-200/40 shadow-[0_4px_24px_rgba(0,0,0,0.02)] ring-1 ring-slate-100/80 hover:border-slate-300/60' 
-                          : 'bg-gradient-to-b from-[#0e1017]/80 via-[#0a0b10]/60 to-[#07080c]/80 border-white/10 shadow-[0_12px_40px_rgba(0,0,0,0.4)] ring-1 ring-white/5 hover:border-white/15'
+                          ? 'bg-white/60 border-slate-200 shadow-md ring-1 ring-slate-100 hover:border-slate-300' 
+                          : 'bg-gradient-to-b from-[#0e1017]/90 via-[#0a0b10]/80 to-[#07080c]/90 border-white/[0.06] shadow-2xl ring-1 ring-white/5 hover:border-white/10'
                       }`}>
-                        <table className="w-full text-[11px] text-left select-text font-['SF_Pro_Text','Helvetica_Neue',Helvetica,Arial,sans-serif] border-separate border-spacing-y-2">
-                          <thead className={`text-[8.5px] tracking-widest uppercase font-bold select-none ${
-                            isLight ? 'bg-slate-200/80 text-blue-700' : 'bg-[#0D0F18] text-blue-300'
+                        <table className="w-full text-xs text-left select-text font-sans border-separate border-spacing-y-2.5">
+                          <thead className={`text-[8.5px] tracking-widest uppercase font-black select-none ${
+                            isLight ? 'bg-slate-200/60 text-blue-800' : 'bg-[#0D0F18] text-blue-400'
                           }`}>
                             <tr className="rounded-xl">
-                              <th className="px-4 py-3 font-bold uppercase tracking-wider w-12 text-center select-none rounded-l-xl">
+                              <th className="px-4 py-3.5 font-bold uppercase tracking-wider w-12 text-center select-none rounded-l-xl">
                                 <input 
                                   type="checkbox"
                                   checked={filteredActiveTaskLeads.length > 0 && filteredActiveTaskLeads.every(l => selectedLeadIds.includes(l.leadId))}
@@ -8333,112 +9112,43 @@ export default function App() {
                                       });
                                     }
                                   }}
-                                  className="bg-zinc-900 border-zinc-700 rounded text-red-500 focus:ring-red-500 w-3.5 h-3.5 cursor-pointer"
+                                  className="bg-zinc-900 border-zinc-700 rounded text-[#7C5335] focus:ring-[#7C5335] w-3.5 h-3.5 cursor-pointer"
                                 />
                               </th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Business / Firm</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Phone / WhatsApp</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Email</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Website</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Rating & Reviews</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider rounded-r-xl">Website AI</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Business / Firm</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Phone / WhatsApp</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Email Address</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Website URL</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Social Links</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Rating & Reviews</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Website AI</th>
+                              <th className="px-4 py-3.5 font-black uppercase tracking-wider text-center rounded-r-xl">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
                             {filteredActiveTaskLeads.map((lead, idx) => {
                               const isSelected = selectedLeadIds.includes(lead.leadId);
                               return (
-                                <tr 
-                                  key={lead.leadId || `lead-run-row-${idx}`} 
-                                  className={`transition-all duration-200 group rounded-2xl shadow-sm ${
-                                    isSelected 
-                                      ? 'bg-white text-slate-900 border-2 border-red-500 shadow-sm' 
-                                      : (isLight 
-                                          ? 'bg-white border border-blue-100/80 hover:border-blue-400 hover:bg-blue-50/40 text-slate-800' 
-                                          : 'bg-[#0D0E14] border border-blue-500/20 hover:border-blue-500/50 hover:bg-blue-950/30 text-zinc-100')
-                                  }`}
-                                >
-                                  <td className="px-4 py-3.5 text-center select-none w-12 rounded-l-2xl">
-                                    <input 
-                                      type="checkbox"
-                                      checked={isSelected}
-                                      onChange={() => {
-                                        const id = lead.leadId;
-                                        setSelectedLeadIds(prev => 
-                                          prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-                                        );
-                                      }}
-                                      className="bg-zinc-900 border-zinc-700 rounded text-red-500 focus:ring-red-500 w-3.5 h-3.5 cursor-pointer"
-                                    />
-                                  </td>
-                                  <td className="px-6 py-3.5 font-bold">
-                                    <div className="flex items-center gap-2">
-                                      <span className="px-1.5 py-0.5 bg-blue-900/40 border border-blue-500/30 text-blue-300 font-mono text-[9px] font-bold rounded">
-                                        #{idx + 1}
-                                      </span>
-                                      <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 flex items-center justify-center shrink-0 border border-slate-300/50 dark:border-zinc-700/50">
-                                        <User size={12} />
-                                      </div>
-                                      <div className="flex flex-col">
-                                        <span className={isSelected ? 'text-slate-900 font-bold' : (isLight ? 'text-slate-900' : 'text-[#F5F5F5]')}>{lead.businessName}</span>
-                                        {lead.name && lead.name !== lead.businessName && (
-                                          <span className="text-[9.5px] text-red-600 font-medium mt-0.5">{lead.name} {lead.headline ? `· ${lead.headline}` : ''}</span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </td>
-                                  <td className="px-6 py-3.5 font-mono text-[#A1A1AA]">
-                                    <div className="flex items-center gap-2">
-                                      <span>{lead.phone || '—'}</span>
-                                      {lead.phone && (
-                                        <a
-                                          href={`https://wa.me/${lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(lead.pitch || '')}`}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="p-1 bg-black hover:bg-zinc-900 text-[#10B981] hover:text-[#25D366] border border-[#10B981]/40 hover:border-[#10B981] rounded transition cursor-pointer flex items-center justify-center shadow-sm"
-                                          title="Send Direct WhatsApp"
-                                        >
-                                          <MessageSquare size={11} className="text-[#10B981]" />
-                                        </a>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="px-6 py-3.5 font-mono text-[#A1A1AA]">
-                                    {lead.email ? (
-                                      <a href={`mailto:${lead.email}`} className="text-emerald-400 hover:underline flex items-center gap-1.5 font-mono">
-                                        <Mail size={10} className="text-emerald-400" />
-                                        {lead.email}
-                                      </a>
-                                    ) : (
-                                      <span className="text-[#52525B]">—</span>
-                                    )}
-                                  </td>
-                                  <td className="px-6 py-3.5 text-[#A1A1AA]">
-                                    {lead.website ? (
-                                      <a href={lead.website} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1.5 font-mono">
-                                        <Globe size={11} className="text-blue-400 shrink-0" /> 
-                                        {lead.website.replace(/https?:\/\/|www\./g, '')}
-                                      </a>
-                                    ) : (
-                                      <span className="flex items-center gap-1.5 text-xs text-[#52525B] font-mono select-none">—</span>
-                                    )}
-                                  </td>
-                                  <td className="px-6 py-3.5">
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-amber-400 font-extrabold text-xs">★ {lead.rating || '4.8'}</span>
-                                      <span className="text-zinc-500 font-medium text-[10px]">({lead.reviewsCount || Math.floor(Math.random() * 50) + 12})</span>
-                                    </div>
-                                  </td>
-                                  <td className="px-6 py-3.5 rounded-r-2xl">
-                                    <button
-                                      onClick={() => setNestaModalLead(lead)}
-                                      className="bg-white hover:bg-zinc-200 text-black font-extrabold text-[9px] px-2.5 py-1 rounded border border-zinc-300 shadow-sm flex items-center gap-1 cursor-pointer transition uppercase tracking-wider"
-                                      title="Generate AI Website for Lead"
-                                    >
-                                      <Sparkles size={10} /> Build AI Site
-                                    </button>
-                                  </td>
-                                </tr>
+                                <LeadRow 
+                                  key={lead.leadId || `lead-run-row-${idx}`}
+                                  lead={lead}
+                                  idx={idx}
+                                  isLight={isLight}
+                                  isSelected={isSelected}
+                                  onSelectToggle={(id) => {
+                                    setSelectedLeadIds(prev => 
+                                      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+                                    );
+                                  }}
+                                  onPushLead={handlePushLead}
+                                  isPushing={pushingLeadId === lead.leadId}
+                                  onSkip={handleSkipLead}
+                                  onGenerateWebsite={(l) => setNestaModalLead(l)}
+                                  onEnrichLead={handleEnrichLead}
+                                  isEnriching={Boolean(enrichingLeadIds[lead.leadId || (lead as any).id])}
+                                  serverUrl={serverUrl}
+                                  onOpenInbox={handleOpenInboxForLead}
+                                />
                               );
                             })}
                           </tbody>
@@ -8456,6 +9166,8 @@ export default function App() {
                             onSkip={handleSkipLead}
                             onGenerateWebsite={(l) => setNestaModalLead(l)}
                             onEnrichLead={handleEnrichLead}
+                            isEnriching={Boolean(enrichingLeadIds[lead.leadId || (lead as any).id])}
+                            onOpenInbox={handleOpenInboxForLead}
                           />
                         ))}
                       </div>
@@ -8466,13 +9178,13 @@ export default function App() {
               /* If activeTask is null */
               searchStep === 'complete' ? (
                 /* GLOBAL CENTRALIZED PROSPECT DATABASE / ARCHIVE */
-                <div className={`flex-1 flex flex-col overflow-hidden p-6 shrink-0 ${isLight ? 'bg-slate-50 text-slate-900' : 'bg-[#080808] text-[#F5F5F5]'}`}>
+                <div className={`flex-1 flex flex-col overflow-hidden p-6 shrink-0 rounded-[28px] border shadow-2xl ${isLight ? 'bg-white/95 backdrop-blur-xl border-white/80 text-slate-900' : 'bg-gradient-to-br from-[#0C0E14] via-[#121620] to-[#090A0E] text-[#F5F5F5] border-white/10'}`}>
                   <header className={`flex flex-col gap-3 border-b pb-5 shrink-0 select-none ${isLight ? 'border-slate-200' : 'border-[#1A1A1A]'}`}>
                     {/* Top Row: Title on Left, Action Buttons on Right */}
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
                         <div className="text-[8px] tracking-[0.16em] text-[#52525B] font-bold uppercase select-none">CENTRALIZED CLOUD ARCHIVE</div>
-                        <h2 className="text-sm font-extrabold tracking-widest text-[#F5F5F5] uppercase mt-0.5 flex items-center gap-2">
+                        <h2 className={`text-sm font-extrabold tracking-widest uppercase mt-0.5 flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-[#F5F5F5]'}`}>
                           <Database size={14} className="text-[#7C5335]" /> Lead Generation Prospect Database
                         </h2>
                       </div>
@@ -8495,6 +9207,71 @@ export default function App() {
                           <input type="file" accept=".csv" onChange={handleCsvContactUpload} className="hidden" />
                         </label>
                       </div>
+                    </div>
+
+                    {/* INSTANT WEBSITE SCRAPE & CLONE PIPELINE */}
+                    <div className={`mt-2.5 p-2.5 rounded-lg border transition-all ${
+                      isLight 
+                        ? 'bg-[#F9FAFB] border-slate-200' 
+                        : 'bg-[#0b0b10] border-white/[0.03]'
+                    }`}>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <Sparkles size={11} className="text-amber-500 shrink-0" />
+                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-700 dark:text-zinc-200">
+                            Website Cloner & Scraper
+                          </span>
+                        </div>
+                        <span className="text-[8px] text-zinc-500 font-medium hidden sm:inline">Scrape & restructure with luxury theme</span>
+                      </div>
+
+                      <form onSubmit={handleScrapeToLead} className="flex gap-1.5">
+                        <div className="relative flex-1">
+                          <div className="absolute inset-y-0 left-2.5 flex items-center pointer-events-none text-zinc-500">
+                            <Globe size={10} />
+                          </div>
+                          <input
+                            type="text"
+                            value={scrapeUrlInput}
+                            onChange={(e) => setScrapeUrlInput(e.target.value)}
+                            disabled={isScrapingToLead}
+                            placeholder="Paste any URL to clone (e.g. cabinetdentaireparis.fr)..."
+                            className={`w-full pl-7 pr-2.5 py-1 text-[10px] rounded-md border outline-none transition-all ${
+                              isLight
+                                ? 'bg-white border-slate-200 text-slate-900 focus:border-[#7C5335]'
+                                : 'bg-[#040406] border-white/[0.05] text-white focus:border-amber-500'
+                            }`}
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={isScrapingToLead || !scrapeUrlInput.trim()}
+                          className={`px-3 py-1 rounded-md text-[9px] font-extrabold uppercase tracking-widest flex items-center gap-1 transition shadow-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0 ${
+                            isLight
+                              ? 'bg-[#1E3A8A] hover:bg-[#1D4ED8] text-white'
+                              : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black'
+                          }`}
+                        >
+                          {isScrapingToLead ? (
+                            <RefreshCw size={10} className="animate-spin" />
+                          ) : (
+                            <Sparkles size={10} />
+                          )}
+                          <span>{isScrapingToLead ? 'Scraping...' : 'Clone'}</span>
+                        </button>
+                      </form>
+
+                      {isScrapingToLead && scrapeStatusText && (
+                        <div className="mt-1 flex items-center gap-1 animate-pulse">
+                          <span className="relative flex h-1 w-1">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-1 w-1 bg-amber-500"></span>
+                          </span>
+                          <span className={`text-[8px] font-mono font-bold uppercase tracking-wider ${isLight ? 'text-[#7C5335]' : 'text-amber-400'}`}>
+                            {scrapeStatusText}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Persistent IG Discovery Style Prospect Segment Filter Bar & Simple Draw-Down */}
@@ -8759,6 +9536,16 @@ export default function App() {
                           <span>{isBatchEnriching ? `Enriching (${batchEnrichProgress.current}/${batchEnrichProgress.total})...` : `Enrich Selected (${selectedLeadIds.length})`}</span>
                         </button>
 
+                        {/* Remove Duplicates */}
+                        <button
+                          onClick={handleRemoveDuplicates}
+                          className="px-3.5 py-1.5 bg-amber-950/80 hover:bg-amber-900 text-amber-200 border border-amber-700/60 font-extrabold text-[10px] uppercase tracking-wider rounded-lg shadow-sm transition cursor-pointer flex items-center gap-1.5"
+                          title="Detect and remove duplicate leads automatically"
+                        >
+                          <Layers size={12} className="text-amber-400" />
+                          <span>Remove Duplicates</span>
+                        </button>
+
                         {/* Delete Selected Leads */}
                         <button
                           onClick={handleDeleteSelectedLeads}
@@ -8862,17 +9649,17 @@ export default function App() {
                     {filteredLeads.length === 0 ? (
                       <div className="py-20 text-center text-[#52525B] text-xs font-semibold select-none uppercase tracking-widest bg-[#0A0A0A] border border-[#1A1A1A] rounded">No target records matched query filters.</div>
                     ) : leadsViewMode === 'table' ? (
-                      <div className={`rounded-2xl overflow-x-auto p-3.5 transition-all duration-300 border max-w-full backdrop-blur-xl ${
+                      <div className={`rounded-2xl overflow-x-auto p-4 transition-all duration-300 border backdrop-blur-xl ${
                         isLight 
-                          ? 'bg-white/60 border-slate-200/40 shadow-[0_4px_24px_rgba(0,0,0,0.02)] ring-1 ring-slate-100/80 hover:border-slate-300/60' 
-                          : 'bg-gradient-to-b from-[#0e1017]/80 via-[#0a0b10]/60 to-[#07080c]/80 border-white/10 shadow-[0_12px_40px_rgba(0,0,0,0.4)] ring-1 ring-white/5 hover:border-white/15'
+                          ? 'bg-white/60 border-slate-200 shadow-md ring-1 ring-slate-100 hover:border-slate-300' 
+                          : 'bg-gradient-to-b from-[#0e1017]/90 via-[#0a0b10]/80 to-[#07080c]/90 border-white/[0.06] shadow-2xl ring-1 ring-white/5 hover:border-white/10'
                       }`}>
-                        <table className="min-w-[720px] w-full text-[11px] text-left select-text font-['SF_Pro_Text','Helvetica_Neue',Helvetica,Arial,sans-serif] border-separate border-spacing-y-2">
-                          <thead className={`text-[8.5px] tracking-widest uppercase font-bold select-none ${
-                            isLight ? 'bg-slate-200/80 text-blue-700' : 'bg-[#0D0F18] text-blue-300'
+                        <table className="w-full text-xs text-left select-text font-sans border-separate border-spacing-y-2.5">
+                          <thead className={`text-[8.5px] tracking-widest uppercase font-black select-none ${
+                            isLight ? 'bg-slate-200/60 text-blue-800' : 'bg-[#0D0F18] text-blue-400'
                           }`}>
                             <tr className="rounded-xl">
-                              <th className="px-4 py-3 text-center w-12 select-none rounded-l-xl">
+                              <th className="px-4 py-3.5 font-bold uppercase tracking-wider w-12 text-center select-none rounded-l-xl">
                                 <input 
                                   type="checkbox"
                                   checked={filteredLeads.length > 0 && filteredLeads.every(l => selectedLeadIds.includes(l.leadId))}
@@ -8888,138 +9675,45 @@ export default function App() {
                                       });
                                     }
                                   }}
-                                  className="bg-zinc-900 border-zinc-700 rounded text-red-500 focus:ring-red-500 w-3.5 h-3.5 cursor-pointer"
+                                  className="bg-zinc-900 border-zinc-700 rounded text-[#7C5335] focus:ring-[#7C5335] w-3.5 h-3.5 cursor-pointer"
                                 />
                               </th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Business / Firm</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Phone / WhatsApp</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Email</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Website</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Rating & Reviews</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider">Website AI</th>
-                              <th className="px-6 py-3 font-bold uppercase tracking-wider rounded-r-xl">Geo / Type</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Business / Firm</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Phone / WhatsApp</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Email Address</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Website URL</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Social Links</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Rating & Reviews</th>
+                              <th className="px-6 py-3.5 font-black uppercase tracking-wider">Website AI</th>
+                              <th className="px-4 py-3.5 font-black uppercase tracking-wider text-center rounded-r-xl">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
                             {filteredLeads.map((lead, idx) => {
                               const isSelected = selectedLeadIds.includes(lead.leadId);
                               return (
-                                <tr 
-                                  key={lead.leadId || `lead-row-${idx}`} 
-                                  className={`transition-all duration-200 group rounded-2xl shadow-sm ${
-                                    isSelected
-                                      ? 'bg-white text-slate-900 border-2 border-red-500 shadow-sm'
-                                      : (isLight 
-                                          ? 'bg-white border border-blue-100/80 hover:border-blue-400 hover:bg-blue-50/40 text-slate-800' 
-                                          : 'bg-[#0D0E14] border border-blue-500/20 hover:border-blue-500/50 hover:bg-blue-950/30 text-zinc-100')
-                                  }`}
-                                >
-                                <td className="px-4 py-3.5 text-center select-none w-12">
-                                  <input 
-                                    type="checkbox"
-                                    checked={selectedLeadIds.includes(lead.leadId)}
-                                    onChange={() => {
-                                      const id = lead.leadId;
-                                      setSelectedLeadIds(prev => 
-                                        prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
-                                      );
-                                    }}
-                                    className="bg-zinc-900 border-zinc-700 rounded text-red-500 focus:ring-red-500 w-3.5 h-3.5 cursor-pointer"
-                                  />
-                                </td>
-                                <td className="px-6 py-3.5 font-bold">
-                                  <div className="flex items-center gap-2">
-                                    <span className="px-1.5 py-0.5 bg-blue-900/40 border border-blue-500/30 text-blue-300 font-mono text-[9px] font-bold rounded">
-                                      #{idx + 1}
-                                    </span>
-                                    <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 flex items-center justify-center shrink-0 border border-slate-300/50 dark:border-zinc-700/50">
-                                      <User size={12} />
-                                    </div>
-                                    <div className="flex flex-col">
-                                      <span className={isSelected ? 'text-slate-900 font-bold' : (isLight ? 'text-slate-900' : 'text-[#F5F5F5]')}>{lead.businessName}</span>
-                                      {(lead.siren || lead.contactName) && (
-                                        <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                                          {lead.siren && (
-                                            <span className="text-[8.5px] font-mono font-bold text-indigo-300 bg-indigo-950/60 border border-indigo-500/40 px-1 py-0.2 rounded">
-                                              SIREN: {lead.siren}
-                                            </span>
-                                          )}
-                                          {lead.contactName && lead.contactName !== lead.businessName && (
-                                            <span className="text-[8.5px] font-medium text-amber-300 bg-amber-950/40 border border-amber-500/30 px-1 py-0.2 rounded">
-                                              👔 {lead.contactName}
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-                                      {lead.name && lead.name !== lead.businessName && !lead.contactName && (
-                                        <span className="text-[9.5px] text-red-600 font-medium mt-0.5">{lead.name}</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </td>
-                                <td className="px-6 py-3.5 font-mono text-[#A1A1AA]">
-                                  <div className="flex items-center gap-2">
-                                    <span>{lead.phone || '—'}</span>
-                                    {lead.phone && (
-                                      <a
-                                        href={`https://wa.me/${lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(lead.pitch || '')}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="p-1 bg-black hover:bg-zinc-900 text-[#10B981] hover:text-[#25D366] border border-[#10B981]/40 hover:border-[#10B981] rounded transition cursor-pointer flex items-center justify-center shadow-sm"
-                                        title="Send Direct WhatsApp"
-                                      >
-                                        <MessageSquare size={11} className="text-[#10B981]" />
-                                      </a>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-3.5 font-mono text-[#A1A1AA]">
-                                  {lead.email ? (
-                                    <a href={`mailto:${lead.email}`} className="text-emerald-400 hover:underline flex items-center gap-1.5 font-mono">
-                                      <Mail size={10} /> {lead.email}
-                                    </a>
-                                  ) : (
-                                    <span className="text-[#52525B]">—</span>
-                                  )}
-                                </td>
-                                <td className="px-6 py-3.5 text-[#A1A1AA]">
-                                  {lead.website ? (
-                                    <a href={lead.website} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1.5 font-['SF_Pro_Text','Helvetica_Neue',Helvetica,Arial,sans-serif]">
-                                      <Globe size={11} className="text-blue-400" /> {lead.website.replace(/https?:\/\/|www\./g, '')}
-                                    </a>
-                                  ) : (
-                                    <span className="text-[#52525B]">—</span>
-                                  )}
-                                </td>
-                                <td className="px-6 py-3.5">
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-amber-400 font-extrabold text-xs">★ {lead.rating || '4.8'}</span>
-                                    <span className="text-zinc-500 font-medium text-[10px]">({lead.reviewsCount || Math.floor(Math.random() * 60) + 10})</span>
-                                  </div>
-                                </td>
-                                <td className="px-6 py-3.5">
-                                  <button
-                                    onClick={() => setNestaModalLead(lead)}
-                                    className="bg-white hover:bg-zinc-200 text-black font-extrabold text-[9px] px-2.5 py-1 rounded border border-zinc-300 shadow-sm flex items-center gap-1 cursor-pointer transition uppercase tracking-wider"
-                                    title="Generate AI Website for Lead"
-                                  >
-                                    <Sparkles size={10} /> Build AI Site
-                                  </button>
-                                </td>
-                                <td className="px-6 py-3.5 text-[#7c7c85] rounded-r-2xl">
-                                  <div className="flex flex-col gap-1">
-                                    <span className="text-[10px] text-zinc-300">{lead.city || 'Ontario, CA'}</span>
-                                    <span className={`px-1.5 py-0.5 rounded text-[7.5px] font-bold uppercase tracking-wider w-fit ${
-                                      lead.source === 'linkedin_enriched' ? 'bg-[#7C5335]/10 text-[#A27B5C] border border-[#7C5335]/20' :
-                                      lead.leadType === 'no_website' ? 'bg-[#EF4444]/10 text-[#EF4444] border border-[#EF4444]/20' : 'bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/20'
-                                    }`}>
-                                      {lead.source === 'linkedin_enriched' ? 'Campaign prospect' : lead.leadType === 'no_website' ? 'No Website' : 'Has Website'}
-                                    </span>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
+                                <LeadRow 
+                                  key={lead.leadId || `lead-row-${idx}`}
+                                  lead={lead}
+                                  idx={idx}
+                                  isLight={isLight}
+                                  isSelected={isSelected}
+                                  onSelectToggle={(id) => {
+                                    setSelectedLeadIds(prev => 
+                                      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+                                    );
+                                  }}
+                                  onPushLead={handlePushLead}
+                                  isPushing={pushingLeadId === lead.leadId}
+                                  onSkip={handleSkipLead}
+                                  onGenerateWebsite={(l) => setNestaModalLead(l)}
+                                  onEnrichLead={handleEnrichLead}
+                                  isEnriching={Boolean(enrichingLeadIds[lead.leadId || (lead as any).id])}
+                                  serverUrl={serverUrl}
+                                  onOpenInbox={handleOpenInboxForLead}
+                                />
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -9036,12 +9730,14 @@ export default function App() {
                             onSkip={handleSkipLead}
                             onGenerateWebsite={(l) => setNestaModalLead(l)}
                             onEnrichLead={handleEnrichLead}
+                            isEnriching={Boolean(enrichingLeadIds[lead.leadId || (lead as any).id])}
                             selected={selectedLeadIds.includes(lead.leadId)}
                             onSelectToggle={(id) => {
                               setSelectedLeadIds(prev => 
                                 prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
                               );
                             }}
+                            onOpenInbox={handleOpenInboxForLead}
                           />
                         ))}
                       </div>
@@ -9050,7 +9746,7 @@ export default function App() {
                 </div>
               ) : (
                 /* PARAMETER WIZARD PROCESS */
-                <div className={`flex-1 flex flex-col overflow-y-auto p-6 ${isLight ? 'bg-slate-50 text-slate-900' : 'bg-[#080808] text-[#F5F5F5]'}`}>
+                <div className={`flex-1 flex flex-col overflow-y-auto p-6 rounded-[28px] border shadow-2xl ${isLight ? 'bg-white/95 backdrop-blur-xl border-white/80 text-slate-900' : 'bg-gradient-to-br from-[#0C0E14] via-[#121620] to-[#090A0E] text-[#F5F5F5] border-white/10'}`}>
                   <div className="max-w-4xl mx-auto w-full space-y-6">
                     
                     <div className="text-center space-y-2 py-4 border-b border-[#1A1A1A]">
@@ -9096,7 +9792,7 @@ export default function App() {
                                 </div>
                                 <div className="text-left">
                                   <div className="text-[10.5px] font-bold text-zinc-300">
-                                    Finding <span className="text-[#A27B5C]">{classificationResult.niche}</span> in <span className="text-emerald-400">{classificationResult.location || 'Anywhere'}</span> via <span className="text-[#A27B5C] font-semibold">{searchEngine === 'sirene' ? '🏛️ French Govt SIRENE Register' : classificationResult.dataSource?.replace('_', ' ')}</span>
+                                    Finding <span className="text-[#A27B5C]">{classificationResult.niche}</span> in <span className="text-emerald-400">{classificationResult.location || 'Anywhere'}</span> via <span className="text-[#A27B5C] font-semibold">{searchEngine === 'sirene' ? '🏛️ French Govt SIRENE Register' : searchEngine === 'playwright' ? '🎭 Playwright Live Chromium Browser' : searchEngine === 'apify' ? '⚡ Apify Actor' : '🌐 DOM Scraper'}</span>
                                   </div>
                                   <div className="text-[9px] text-zinc-500 mt-0.5">
                                     Suggested limit: <span className="text-zinc-400 font-semibold">{classificationResult.count} leads</span> · Gaps: <span className="text-red-400 font-semibold font-mono">{classificationResult.gaps?.join(', ') || 'Any'}</span>
@@ -9199,9 +9895,10 @@ export default function App() {
                                     onChange={(e) => setSearchEngine(e.target.value as any)}
                                     className="w-full bg-[#080808] border border-[#1C1C1F] hover:border-[#27272A] focus:border-[#7C5335] focus:outline-none rounded px-3 py-1.5 text-xs text-white"
                                   >
+                                    <option value="playwright">🎭 Playwright Live Chromium Browser (Deep Multi-Source & Live Screenshots)</option>
                                     <option value="sirene">🏛️ French Govt SIRENE Official Register (All Niches + Web & Contact Enrichment)</option>
                                     <option value="dom">🌐 Steel / Real DOM Browser Scraper (Fast Scrape)</option>
-                                    <option value="apify">⚡ Apify Actor (Apify Token Scraper)</option>
+                                    <option value="apify">⚡ OmniMap Deep Scraper (Socials, Emails & Phone Vector)</option>
                                   </select>
                                 </div>
 
@@ -9410,9 +10107,10 @@ export default function App() {
                               onChange={(e) => setSearchEngine(e.target.value as any)}
                               className="w-full bg-[#080808] border border-[#1C1C1F] hover:border-[#27272A] focus:border-[#7C5335] focus:outline-none rounded px-3 py-2 text-xs font-medium text-white transition-all duration-300"
                             >
+                              <option value="playwright">🎭 Playwright Live Chromium Browser (Deep Multi-Source & Live Screenshots)</option>
                               <option value="dom">⚡ Jina AI Reader & DOM Engine (Fast Scraping & Email Discovery)</option>
                               <option value="sirene">🏛️ French Govt SIRENE Official Register (All Niches + Web & Contact Enrichment)</option>
-                              <option value="apify">⚡ Apify Actor (Apify Token Scraper)</option>
+                              <option value="apify">⚡ OmniMap Deep Scraper (Socials, Emails & Phone Vector)</option>
                             </select>
                           </div>
 
@@ -9484,47 +10182,47 @@ export default function App() {
                           >
                             ← BACK
                           </button>
-                          <span className="text-[10px] font-extrabold tracking-widest text-[#A27B5C] bg-[#7C5335]/5 border border-[#7C5335]/15 px-3 py-1 rounded uppercase select-none">
+                          <span className="text-[10px] font-extrabold tracking-widest text-[#5C4033] bg-[#EEDC82]/20 border border-[#D4AF37]/30 px-3 py-1 rounded uppercase select-none">
                             PRE-FLIGHT VALIDATION SUMMARY
                           </span>
                         </div>
 
-                        <div className="bg-[#0C0C0E] border border-[#1A1A1D] rounded-lg p-6 space-y-6 font-sans">
+                        <div className="bg-[#FAF6F0] border border-[#E6DFD5] rounded-xl p-6 space-y-6 font-sans shadow-xl">
                           <div className="text-center space-y-1">
-                            <h4 className="text-xs font-extrabold tracking-widest text-[#F5F5F5] uppercase">READY FOR INGESTION</h4>
-                            <p className="text-[10px] text-zinc-500 font-medium">Verify your target campaign configuration before spawning browser workflows</p>
+                            <h4 className="text-xs font-black tracking-widest text-[#3E2723] uppercase">READY FOR INGESTION</h4>
+                            <p className="text-[10px] text-[#795548] font-semibold">Verify your target campaign configuration before spawning browser workflows</p>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-4 border-t border-b border-[#1C1C1F]/60 py-5 text-xs">
+                          <div className="grid grid-cols-2 gap-4 border-t border-b border-[#E6DFD5] py-5 text-xs text-[#4E342E]">
                             <div className="space-y-1">
-                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">TARGET TIER:</span>
-                              <span className="text-emerald-400 font-extrabold uppercase bg-emerald-500/5 px-2 py-0.5 border border-emerald-500/10 rounded">{selectedTier?.toUpperCase()}</span>
+                              <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">TARGET TIER:</span>
+                              <span className="text-emerald-700 font-extrabold uppercase bg-emerald-50 px-2 py-0.5 border border-emerald-200 rounded">{selectedTier?.toUpperCase()}</span>
                             </div>
                             <div className="space-y-1">
-                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">ENGINE & APFI LINK:</span>
-                              <span className="text-amber-400 font-extrabold uppercase bg-amber-500/5 px-2 py-0.5 border border-amber-500/10 rounded">{searchEngine === 'sirene' ? '🏛️ SIRENE Register' : searchEngine === 'apify' ? '⚡ Apify Actor' : '🌐 DOM Scraper'}</span>
+                              <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">ENGINE & APFI LINK:</span>
+                              <span className="text-amber-700 font-extrabold uppercase bg-amber-50 px-2 py-0.5 border border-amber-200 rounded">{searchEngine === 'sirene' ? '🏛️ SIRENE Register' : searchEngine === 'playwright' ? '🎭 Playwright Live Chromium' : searchEngine === 'apify' ? '⚡ Apify Actor' : '🌐 DOM Scraper'}</span>
                             </div>
                             <div className="space-y-1">
-                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">LEAD COUNT LIMIT:</span>
-                              <span className="text-white font-extrabold">{searchCount} Prospects</span>
+                              <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">LEAD COUNT LIMIT:</span>
+                              <span className="text-[#3E2723] font-black">{searchCount} Prospects</span>
                             </div>
                             <div className="space-y-1">
-                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">WEBSITE FILTER:</span>
-                              <span className={`font-extrabold px-2 py-0.5 rounded border text-[10px] uppercase ${searchNoWebsiteOnly ? 'text-pink-400 bg-pink-500/10 border-pink-500/20' : 'text-zinc-300 bg-zinc-800/40 border-zinc-700/30'}`}>
+                              <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">WEBSITE FILTER:</span>
+                              <span className={`font-extrabold px-2 py-0.5 rounded border text-[10px] uppercase ${searchNoWebsiteOnly ? 'text-pink-700 bg-pink-50 border-pink-200' : 'text-zinc-700 bg-zinc-100 border-zinc-200'}`}>
                                 {searchNoWebsiteOnly ? 'No-Website Only' : 'All Prospects'}
                               </span>
                             </div>
                             <div className="space-y-1">
-                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">NICHE SECTOR:</span>
-                              <span className="text-white font-bold">{searchNiche}</span>
+                              <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">NICHE SECTOR:</span>
+                              <span className="text-[#3E2723] font-extrabold">{searchNiche}</span>
                             </div>
                             <div className="space-y-1">
-                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">TARGET REGION:</span>
-                              <span className="text-white font-bold">{searchLocation}</span>
+                              <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">TARGET REGION:</span>
+                              <span className="text-[#3E2723] font-extrabold">{searchLocation}</span>
                             </div>
                             <div className="col-span-2 space-y-1">
-                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">SELECTED DEFICIENCIES / GAPS:</span>
-                              <span className="text-red-400 font-medium font-mono text-[11px] bg-red-500/5 px-2 py-1 border border-red-500/10 rounded block">
+                              <span className="text-[9px] font-black text-[#8D6E63] uppercase tracking-wider block">SELECTED DEFICIENCIES / GAPS:</span>
+                              <span className="text-red-700 font-bold font-mono text-[11px] bg-red-50 px-2 py-1 border border-red-200 rounded block">
                                 {searchGaps.join(', ') || 'Analyze all available gaps'}
                               </span>
                             </div>
@@ -9533,7 +10231,7 @@ export default function App() {
                           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
                             <button 
                               onClick={handleSaveWorkflow}
-                              className="w-full sm:w-auto px-4 py-2 bg-transparent hover:bg-zinc-800 text-[#A27B5C] hover:text-white border border-[#7C5335]/30 text-[10px] font-extrabold tracking-widest uppercase rounded transition cursor-pointer flex items-center justify-center gap-1.5 font-sans"
+                              className="w-full sm:w-auto px-4 py-2 bg-transparent hover:bg-[#F0EAE1] text-[#7C5335] border border-[#7C5335]/40 text-[10px] font-extrabold tracking-widest uppercase rounded transition cursor-pointer flex items-center justify-center gap-1.5 font-sans font-bold"
                             >
                               Save Search as Workflow
                             </button>
@@ -9541,13 +10239,13 @@ export default function App() {
                             <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
                               <button 
                                 onClick={() => setSearchStep('config')}
-                                className="px-4 py-2 bg-transparent hover:bg-zinc-800 text-zinc-400 hover:text-white border border-[#1C1C1F] text-[10px] font-extrabold tracking-widest uppercase rounded transition cursor-pointer"
+                                className="px-4 py-2 bg-transparent hover:bg-[#F0EAE1] text-[#5D4033] border border-[#E6DFD5] text-[10px] font-extrabold tracking-widest uppercase rounded transition cursor-pointer font-bold"
                               >
                                 Modify
                               </button>
                               <button 
                                 onClick={handleLaunchSearch}
-                                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold tracking-widest uppercase rounded transition shadow-[0_2px_10px_rgba(16,185,129,0.25)] cursor-pointer"
+                                className="px-6 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-black tracking-widest uppercase rounded transition shadow-[0_4px_14px_rgba(4,120,87,0.3)] cursor-pointer"
                               >
                                 🚀 LAUNCH SEARCH
                               </button>
@@ -9956,9 +10654,20 @@ export default function App() {
                     {/* Expandable data table / details */}
                     {task.taskId && expandedHistoryTaskId === task.taskId && (
                       <div className="mt-4 p-4 border border-[#1C1C1F] bg-[#0A0A0C] rounded space-y-3 select-text">
-                        <h5 className="text-[10px] font-bold tracking-wider text-[#A1A1AA] uppercase flex items-center gap-1.5 border-b border-[#1A1A1D] pb-2">
-                          <Database size={11} className="text-emerald-400" /> Collected Data Results Ledger
-                        </h5>
+                        <div className="flex items-center justify-between border-b border-[#1A1A1D] pb-2">
+                          <h5 className="text-[10px] font-bold tracking-wider text-[#A1A1AA] uppercase flex items-center gap-1.5">
+                            <Database size={11} className="text-emerald-400" /> Collected Data Results Ledger
+                          </h5>
+                          {historyLeads[task.taskId] && historyLeads[task.taskId].length > 0 && (
+                            <button
+                              onClick={() => handleRemoveRunDuplicates(historyLeads[task.taskId], task.taskId)}
+                              className="px-2.5 py-1 bg-amber-950/80 hover:bg-amber-900 border border-amber-700/60 text-amber-300 font-extrabold text-[9px] uppercase tracking-wider rounded transition cursor-pointer flex items-center gap-1"
+                              title="Remove duplicate leads from this source run while keeping rich populated leads"
+                            >
+                              <Layers size={10} /> Deduplicate Run ({historyLeads[task.taskId].length})
+                            </button>
+                          )}
+                        </div>
 
                         {historyLeads[task.taskId] && historyLeads[task.taskId].length > 0 ? (
                           <div className="overflow-x-auto rounded border border-[#1A1A1D]">
@@ -10646,6 +11355,17 @@ export default function App() {
                 Profile Scraper
               </button>
               <button
+                onClick={() => setDiscoveryMode('openreply')}
+                className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-extrabold uppercase tracking-wider transition flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap ${
+                  discoveryMode === 'openreply'
+                    ? (isLight ? 'bg-white text-pink-600 shadow-sm border border-slate-200' : 'bg-[#222230] text-pink-400 border border-[#3B3B4D] shadow-md')
+                    : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-zinc-300 hover:text-white hover:bg-[#1C1C28]')
+                }`}
+              >
+                <MessageSquare size={14} />
+                Comment-to-DM (OpenReply)
+              </button>
+              <button
                 onClick={() => setDiscoveryMode('crm_leads')}
                 className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-extrabold uppercase tracking-wider transition flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap ${
                   discoveryMode === 'crm_leads'
@@ -10936,6 +11656,32 @@ export default function App() {
                     </>
                   );
                 })()}
+              </div>
+            ) : discoveryMode === 'openreply' ? (
+              <div className="w-full">
+                <OpenReplyTab
+                  isLight={isLight}
+                  openReplyCampaigns={openReplyCampaigns}
+                  openReplyLogs={openReplyLogs}
+                  isLoadingOpenReply={isLoadingOpenReply}
+                  simulatedPoster={simulatedPoster}
+                  setSimulatedPoster={setSimulatedPoster}
+                  simulatedComment={simulatedComment}
+                  setSimulatedComment={setSimulatedComment}
+                  isSimulatingTrigger={isSimulatingTrigger}
+                  simulationResult={simulationResult}
+                  handleSimulateTrigger={handleSimulateTrigger}
+                  editingCampaign={editingCampaign}
+                  setEditingCampaign={setEditingCampaign}
+                  showCampaignModal={showCampaignModal}
+                  setShowCampaignModal={setShowCampaignModal}
+                  campaignForm={campaignForm}
+                  setCampaignForm={setCampaignForm}
+                  handleSaveCampaign={handleSaveCampaign}
+                  handleDeleteCampaign={handleDeleteCampaign}
+                  fetchOpenReplyCampaigns={fetchOpenReplyCampaigns}
+                  fetchOpenReplyLogs={fetchOpenReplyLogs}
+                />
               </div>
             ) : (
               /* Grid Layout for Campaign Setup & Discovery Viewers */
@@ -13339,7 +14085,7 @@ export default function App() {
                     >
                       <option value="dom">🌐 Steel / Real DOM Browser Scraper (Zero Cost Background Scraping)</option>
                       <option value="sirene">🏛️ French Govt SIRENE Official Register (All Niches + Web & Contact Enrichment)</option>
-                      <option value="apify">⚡ Apify Actor (Apify Token Scraper)</option>
+                      <option value="apify">⚡ OmniMap Deep Scraper (Socials, Emails & Phone Vector)</option>
                     </select>
                   </div>
 
@@ -13825,7 +14571,7 @@ export default function App() {
           <div className="bg-[#0F0F11] border border-[#1C1C1F] rounded-lg p-6 w-full max-w-lg shadow-2xl space-y-4">
             <header className="flex justify-between items-center border-b border-[#1A1A1A] pb-3">
               <div>
-                <span className="text-[8px] tracking-widest text-[#10B981] font-bold uppercase block">NESTA SCRAPE TARGET</span>
+                <span className="text-[8px] tracking-widest text-[#10B981] font-bold uppercase block">AI SCRAPE TARGET</span>
                 <h4 className="text-xs font-bold text-[#F5F5F5] uppercase tracking-wider mt-0.5">LAUNCH AGENT FOR {selectedSector.name}</h4>
               </div>
               <button onClick={() => setSectorModalOpen(false)} className="text-[#52525B] hover:text-white transition cursor-pointer">
@@ -13884,270 +14630,233 @@ export default function App() {
         </div>
       )}
 
-      {/* OPENSTREETMAP & GLOBAL MAPS LEAD SCRAPER SEARCH MODAL */}
+      {/* OPENSTREETMAP, GOOGLE MAPS & GLOBAL LEAD SCRAPER MODAL */}
       {gmapsModalOpen && (
-        <div className="fixed inset-0 bg-[#080808F0]/95 flex items-center justify-center p-2 sm:p-4 z-50 animate-fade-in backdrop-blur-md select-none overflow-y-auto">
-          {gmapsEngine === 'sirene' ? (
-            <div className="w-full max-w-6xl">
-              <FrenchGouvExplorer
-                serverUrl={serverUrl}
-                userId={userId}
-                onExtractLeads={handleExtractSireneLeads}
-                onClose={() => setGmapsModalOpen(false)}
-              />
-            </div>
-          ) : (
-            <div className="bg-[#0F0F11] border border-[#1C1C1F] rounded-xl p-6 w-full max-w-xl shadow-2xl space-y-5">
-              <header className="flex justify-between items-center border-b border-[#1A1A1A] pb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400">
-                    <MapPin size={18} />
-                  </div>
-                  <div>
-                    <span className="text-[8px] tracking-widest text-emerald-400 font-extrabold uppercase block">MAPS & DIRECTORIES LEAD FINDER</span>
-                    <h3 className="text-sm font-extrabold text-[#F5F5F5] uppercase tracking-wider mt-0.5">Scrape Leads & Business Registers</h3>
-                  </div>
-                </div>
-                <button onClick={() => setGmapsModalOpen(false)} className="text-[#52525B] hover:text-white transition cursor-pointer p-1">
-                  <X size={16} />
-                </button>
-              </header>
-
-            <form onSubmit={handleStartGmapsScrape} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[9px] tracking-widest text-zinc-400 font-extrabold uppercase block">
-                  SEARCH REQUEST / BUSINESS NICHE <span className="text-red-400">*</span>
-                </label>
-                <div className="relative">
-                  <Search size={14} className="absolute left-3.5 top-3 text-zinc-500" />
-                  <input
-                    type="text"
-                    required
-                    value={gmapsQuery}
-                    onChange={(e) => setGmapsQuery(e.target.value)}
-                    placeholder="e.g. Dentists in Miami, Plumbers, Roofers, Restaurants in Paris..."
-                    className="w-full bg-[#080808] border border-[#222225] focus:border-emerald-500 text-xs rounded-lg pl-10 pr-4 py-2.5 text-white outline-none transition font-sans"
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 z-50 animate-fade-in overflow-y-auto" onClick={() => setGmapsModalOpen(false)}>
+          <div 
+            className={`bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden w-full transition-all flex flex-col text-slate-800 text-xs font-sans max-h-[96vh] md:max-h-[92vh] ${
+              gmapsEngine === 'sirene' ? 'max-w-6xl' : 'max-w-2xl'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* TOP WINDOW HEADER WITH 3 DOTS (🔴 🟡 🟢) */}
+            <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 select-none shrink-0">
+              <div className="flex items-center gap-3 truncate">
+                {/* macOS Style 3 Window Dots */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <div 
+                    className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E] hover:opacity-80 transition cursor-pointer" 
+                    onClick={() => setGmapsModalOpen(false)} 
+                    title="Close" 
                   />
+                  <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]" />
+                  <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]" />
                 </div>
-                <p className="text-[9.5px] text-zinc-500">Enter any search query or target request to scrape business leads globally.</p>
+
+                <div className="h-4 w-px bg-slate-200 shrink-0 mx-1" />
+
+                {/* Title & Info */}
+                <div className="flex items-center gap-2 truncate">
+                  <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs shadow-sm shrink-0">
+                    <MapPin size={13} />
+                  </div>
+                  <div className="truncate">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xs font-extrabold text-slate-900 truncate">Lead Discovery Scraper Engines</h3>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold text-[9px] uppercase tracking-wider flex items-center gap-1 shrink-0">
+                        <Zap size={10} /> Precision Search
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[9px] tracking-widest text-zinc-400 font-extrabold uppercase block">
-                  CITY / LOCATION (OPTIONAL)
-                </label>
-                <input
-                  type="text"
-                  value={gmapsCity}
-                  onChange={(e) => setGmapsCity(e.target.value)}
-                  placeholder="e.g. Paris, Miami, Toronto, London, Lyon..."
-                  className="w-full bg-[#080808] border border-[#222225] focus:border-emerald-500 text-xs rounded-lg px-4 py-2.5 text-white outline-none transition font-sans"
+              <div className="flex items-center gap-2 shrink-0">
+                {gmapsEngine === 'sirene' && (
+                  <button
+                    onClick={() => setGmapsEngine('playwright')}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold hover:bg-emerald-100 transition cursor-pointer flex items-center gap-1 text-[10.5px]"
+                  >
+                    ← Back to Google Maps Scrapers
+                  </button>
+                )}
+                <button 
+                  onClick={() => setGmapsModalOpen(false)}
+                  className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 flex items-center justify-center transition cursor-pointer"
+                  title="Close Modal"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+
+            {/* MODAL CONTENT BODY */}
+            {gmapsEngine === 'sirene' ? (
+              <div className="p-4 sm:p-6 overflow-y-auto flex-1 min-h-0">
+                <FrenchGouvExplorer
+                  serverUrl={serverUrl}
+                  userId={userId}
+                  onExtractLeads={handleExtractSireneLeads}
+                  onClose={() => setGmapsModalOpen(false)}
                 />
               </div>
-
-              <div className="space-y-2">
-                <label className="text-[9px] tracking-widest text-zinc-400 font-extrabold uppercase block">
-                  SCRAPER ENGINE SELECTION
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setGmapsEngine('sirene')}
-                    className={`p-3 rounded-lg border text-left transition cursor-pointer flex flex-col justify-between ${
-                      gmapsEngine === 'sirene'
-                        ? 'bg-amber-950/40 border-amber-500 text-white shadow-md shadow-amber-500/10'
-                        : 'bg-[#080808] border-[#222225] text-zinc-400 hover:border-zinc-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold flex items-center gap-1.5 text-amber-400">
-                        🏛️ French Govt SIRENE
-                      </span>
-                      <span className="text-[8px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 uppercase">
-                        INSTANT 1.5S
-                      </span>
+            ) : (
+              <div className="p-6 bg-white text-slate-800 overflow-y-auto flex-1 min-h-0">
+                <form onSubmit={handleStartGmapsScrape} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] tracking-widest text-slate-500 font-extrabold uppercase block">
+                      SEARCH REQUEST / BUSINESS NICHE <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Search size={14} className="absolute left-3.5 top-3 text-slate-400" />
+                      <input
+                        type="text"
+                        required
+                        value={gmapsQuery}
+                        onChange={(e) => setGmapsQuery(e.target.value)}
+                        placeholder="e.g. Dentists in Miami, Plumbers, Roofers, Restaurants in Paris..."
+                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-emerald-500 text-xs rounded-lg pl-10 pr-4 py-2.5 text-slate-800 outline-none transition font-sans shadow-xs"
+                      />
                     </div>
-                    <span className="text-[9.5px] text-zinc-400 leading-normal">
-                      100% official French registered business database (Gouv API). Extracts SIREN, SIRET, Director & Address for any niche.
-                    </span>
-                  </button>
+                    <p className="text-[9.5px] text-slate-400">Enter any search query or target request to scrape business leads globally.</p>
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setGmapsEngine('hyperagent')}
-                    className={`p-3 rounded-lg border text-left transition cursor-pointer flex flex-col justify-between ${
-                      gmapsEngine === 'hyperagent'
-                        ? 'bg-emerald-950/40 border-emerald-500 text-white shadow-md shadow-emerald-500/10'
-                        : 'bg-[#080808] border-[#222225] text-zinc-400 hover:border-zinc-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold flex items-center gap-1.5 text-emerald-400">
-                        ⚡ HyperAgent AI Engine
-                      </span>
-                      <span className="text-[8px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 uppercase">
-                        HYPERBROWSER
-                      </span>
-                    </div>
-                    <span className="text-[9.5px] text-zinc-400 leading-normal">
-                      Autonomous cloud stealth AI agent on Google Maps with anti-bot bypass & proxy rotation.
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setGmapsEngine('osm')}
-                    className={`p-3 rounded-lg border text-left transition cursor-pointer flex flex-col justify-between ${
-                      gmapsEngine === 'osm'
-                        ? 'bg-emerald-950/40 border-emerald-500 text-white shadow-md shadow-emerald-500/10'
-                        : 'bg-[#080808] border-[#222225] text-zinc-400 hover:border-zinc-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold flex items-center gap-1.5 text-blue-400">
-                        🗺️ OpenStreetMap Overpass
-                      </span>
-                      <span className="text-[8px] font-extrabold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 uppercase">
-                        100% FREE
-                      </span>
-                    </div>
-                    <span className="text-[9.5px] text-zinc-400 leading-normal">
-                      Instant global directory database lookup — zero quota & fast result return.
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setGmapsEngine('apify')}
-                    className={`p-3 rounded-lg border text-left transition cursor-pointer flex flex-col justify-between ${
-                      gmapsEngine === 'apify'
-                        ? 'bg-emerald-950/40 border-emerald-500 text-white shadow-md shadow-emerald-500/10'
-                        : 'bg-[#080808] border-[#222225] text-zinc-400 hover:border-zinc-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold flex items-center gap-1.5 text-amber-400">
-                        🎯 Apify Actor Engine
-                      </span>
-                      <span className="text-[8px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 uppercase">
-                        APIFY API
-                      </span>
-                    </div>
-                    <span className="text-[9.5px] text-zinc-400 leading-normal">
-                      Apify Lukaskrivka Google Maps actor extraction with phone & address details.
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setGmapsEngine('dom')}
-                    className={`p-3 rounded-lg border text-left transition cursor-pointer flex flex-col justify-between ${
-                      gmapsEngine === 'dom'
-                        ? 'bg-emerald-950/40 border-emerald-500 text-white shadow-md shadow-emerald-500/10'
-                        : 'bg-[#080808] border-[#222225] text-zinc-400 hover:border-zinc-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold flex items-center gap-1.5 text-purple-400">
-                        🌐 DOM Scraper Engine
-                      </span>
-                      <span className="text-[8px] font-extrabold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 uppercase">
-                        NATIVE DOM
-                      </span>
-                    </div>
-                    <span className="text-[9.5px] text-zinc-400 leading-normal">
-                      Local browser DOM extraction engine for custom web pages.
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[9px] tracking-widest text-zinc-400 font-extrabold uppercase block">
-                  PROSPECT WEBSITES FILTER
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setGmapsNoWebsiteOnly(!gmapsNoWebsiteOnly)}
-                  className={`w-full py-2.5 px-3.5 rounded-lg text-xs font-bold transition flex items-center justify-between border cursor-pointer ${
-                    gmapsNoWebsiteOnly 
-                      ? 'bg-pink-950/40 border-pink-500/60 text-pink-300 shadow shadow-pink-500/10' 
-                      : 'bg-[#080808] border-[#222225] text-zinc-400 hover:border-zinc-700'
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <Sparkles size={13} className={gmapsNoWebsiteOnly ? 'text-pink-400' : 'text-zinc-500'} />
-                    Target Only Prospects Without a Website
-                  </span>
-                  <span className={`text-[9px] px-2 py-0.5 rounded font-extrabold uppercase tracking-wider ${
-                    gmapsNoWebsiteOnly ? 'bg-pink-600 text-white' : 'bg-zinc-800 text-zinc-400'
-                  }`}>
-                    {gmapsNoWebsiteOnly ? 'NO WEB ONLY' : 'ALL LEADS'}
-                  </span>
-                </button>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[9px] tracking-widest text-zinc-400 font-extrabold uppercase block">
-                  NUMBER SELECTOR (HOW MANY LEADS TO SCRAPE)
-                </label>
-                <div className="flex flex-wrap items-center gap-2">
-                  {[5, 10, 20, 50, 100].map(cnt => (
-                    <button
-                      key={cnt}
-                      type="button"
-                      onClick={() => setGmapsCount(cnt)}
-                      className={`px-3.5 py-1.5 text-[10px] font-extrabold tracking-wider uppercase rounded-lg border transition cursor-pointer ${
-                        gmapsCount === cnt 
-                          ? 'bg-emerald-600 border-emerald-500 text-white shadow' 
-                          : 'bg-[#141416] border-[#222225] text-zinc-400 hover:text-white hover:border-zinc-700'
-                      }`}
-                    >
-                      {cnt} Leads
-                    </button>
-                  ))}
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    <span className="text-[9px] font-bold uppercase text-zinc-500">Custom:</span>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] tracking-widest text-slate-500 font-extrabold uppercase block">
+                      CITY / LOCATION (OPTIONAL)
+                    </label>
                     <input
-                      type="number"
-                      min="1"
-                      max="100"
-                      value={gmapsCount}
-                      onChange={(e) => setGmapsCount(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
-                      className="w-16 bg-[#080808] border border-[#222225] focus:border-emerald-500 text-xs font-mono rounded px-2 py-1 text-center text-white outline-none"
+                      type="text"
+                      value={gmapsCity}
+                      onChange={(e) => setGmapsCity(e.target.value)}
+                      placeholder="e.g. Paris, Miami, Toronto, London, Lyon..."
+                      className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-emerald-500 text-xs rounded-lg px-4 py-2.5 text-slate-800 outline-none transition font-sans shadow-xs"
                     />
                   </div>
-                </div>
-              </div>
 
-              <div className="p-3 bg-[#141418] border border-[#22222a] rounded-lg text-[10px] text-zinc-400 space-y-1">
-                <div className="flex items-center gap-1.5 text-emerald-400 font-bold uppercase tracking-wider">
-                  <Filter size={11} /> Automatic Category Classification
-                </div>
-                <p>Scraped leads will automatically be tagged and sorted by <span className="text-white font-semibold">Has Website</span> and <span className="text-white font-semibold font-sans">No Website / Non-Website</span> category filters.</p>
-              </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] tracking-widest text-slate-500 font-extrabold uppercase block">
+                      SCRAPER ENGINE / DATA SOURCE
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={gmapsEngine}
+                        onChange={(e) => setGmapsEngine(e.target.value as any)}
+                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-emerald-500 text-xs rounded-lg px-3 py-2.5 text-slate-800 outline-none font-extrabold transition shadow-xs cursor-pointer"
+                      >
+                        <option value="apify">⚡ OmniMap Deep Scraper (Socials, Emails, WhatsApp & Phone Vector)</option>
+                        <option value="playwright">📍 Google Maps Direct API Scraper (Fast Chromium Browser)</option>
+                        <option value="dom">🌐 Fast DOM & Web Search Scraper (Lightweight)</option>
+                        <option value="hyperagent">🚀 HyperAgent Cloud Stealth AI Browser Agent</option>
+                        <option value="sirene">🇫🇷 Official French Govt SIRENE Directory</option>
+                      </select>
+                    </div>
+                    <p className="text-[9.5px] text-slate-500 font-medium">
+                      {gmapsEngine === 'apify' && '⚡ OmniMap Deep Scraper cross-references Google Maps, social media, and web contacts.'}
+                      {gmapsEngine === 'playwright' && '📍 Headless Playwright Chromium scraper with live streaming and screenshot capability.'}
+                      {gmapsEngine === 'dom' && '🌐 Ultra-fast DOM parser combined with Jina AI Reader.'}
+                      {gmapsEngine === 'hyperagent' && '🚀 Autonomous AI browser agent that navigates live sites in real-time.'}
+                      {gmapsEngine === 'sirene' && '🇫🇷 Official Insee database containing all registered French companies.'}
+                    </p>
+                  </div>
 
-              <div className="pt-2 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setGmapsModalOpen(false)}
-                  className="flex-1 py-2.5 border border-[#222225] hover:bg-zinc-900 text-zinc-400 hover:text-white text-[10px] font-extrabold tracking-widest uppercase rounded-lg transition cursor-pointer"
-                >
-                  CANCEL
-                </button>
-                <button
-                  type="submit"
-                  disabled={isScrapingGmaps}
-                  className="flex-2 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold tracking-widest uppercase rounded-lg shadow-lg transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  {isScrapingGmaps ? <RefreshCw size={12} className="animate-spin" /> : <MapPin size={12} />}
-                  SCRAPE MAP LEADS NOW
-                </button>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] tracking-widest text-slate-500 font-extrabold uppercase block">
+                      PROSPECT WEBSITES FILTER
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setGmapsNoWebsiteOnly(!gmapsNoWebsiteOnly)}
+                      className={`w-full py-2.5 px-3.5 rounded-lg text-xs font-bold transition flex items-center justify-between border cursor-pointer ${
+                        gmapsNoWebsiteOnly 
+                          ? 'bg-pink-50 border-pink-500 text-pink-800 shadow-sm' 
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-400 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Sparkles size={13} className={gmapsNoWebsiteOnly ? 'text-pink-600' : 'text-slate-400'} />
+                        Target Only Prospects Without a Website
+                      </span>
+                      <span className={`text-[9px] px-2 py-0.5 rounded font-extrabold uppercase tracking-wider ${
+                        gmapsNoWebsiteOnly ? 'bg-pink-600 text-white' : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        {gmapsNoWebsiteOnly ? 'NO WEB ONLY' : 'ALL LEADS'}
+                      </span>
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[9px] tracking-widest text-slate-500 font-extrabold uppercase block">
+                      NUMBER SELECTOR (HOW MANY LEADS TO SCRAPE)
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {[5, 10, 20, 50, 100].map(cnt => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => setGmapsCount(cnt)}
+                          className={`px-3.5 py-1.5 text-[10px] font-extrabold tracking-wider uppercase rounded-lg border transition cursor-pointer ${
+                            gmapsCount === cnt 
+                              ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm' 
+                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                          }`}
+                        >
+                          {cnt} Leads
+                        </button>
+                      ))}
+                      <div className="flex items-center gap-1.5 ml-auto">
+                        <span className="text-[9px] font-bold uppercase text-slate-400">Custom:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="100"
+                          value={gmapsCount}
+                          onChange={(e) => setGmapsCount(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+                          className="w-16 bg-slate-50 border border-slate-200 focus:bg-white focus:border-emerald-500 text-xs font-mono rounded px-2 py-1 text-center text-slate-800 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-[10px] text-slate-500 space-y-1">
+                    <div className="flex items-center gap-1.5 text-emerald-700 font-bold uppercase tracking-wider">
+                      <Filter size={11} /> Automatic Category Classification
+                    </div>
+                    <p>Scraped leads will automatically be tagged and sorted by <span className="text-slate-800 font-semibold">Has Website</span> and <span className="text-slate-800 font-semibold font-sans">No Website / Non-Website</span> category filters.</p>
+                  </div>
+
+                  <div className="pt-2 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setGmapsModalOpen(false)}
+                      className="flex-1 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-slate-900 text-[10px] font-extrabold tracking-widest uppercase rounded-lg transition cursor-pointer"
+                    >
+                      CANCEL
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isScrapingGmaps}
+                      className="flex-2 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold tracking-widest uppercase rounded-lg shadow-sm hover:shadow transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isScrapingGmaps ? <RefreshCw size={12} className="animate-spin" /> : <MapPin size={12} />}
+                      SCRAPE MAP LEADS NOW
+                    </button>
+                  </div>
+                </form>
               </div>
-            </form>
+            )}
           </div>
-          )}
         </div>
+      )}
+
+      {/* In-App Ready-To-Send Email Composer Modal */}
+      {inAppEmailModalLead && (
+        <InAppEmailComposerModal
+          lead={inAppEmailModalLead}
+          onClose={() => setInAppEmailModalLead(null)}
+          serverUrl={serverUrl}
+          onNotification={showNotification}
+        />
       )}
 
       {/* Nesta Website Generator Modal */}
@@ -14166,6 +14875,12 @@ export default function App() {
           setNestaModalLead(prof);
         }}
         theme={theme}
+      />
+
+      {/* Accountant AI Onboarding Step-by-Step Interactive Modal */}
+      <AccountantOnboardingModal
+        isOpen={showAccountantModal}
+        onClose={() => setShowAccountantModal(false)}
       />
 
       {/* Prospect Segment Filter Pop-up Modal */}
@@ -14271,6 +14986,155 @@ export default function App() {
                 className="text-[#7C5335] font-black uppercase tracking-wider hover:underline"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lead Architect Avatar Picker Modal */}
+      {showAvatarPickerModal && (
+        <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#12121A] border border-slate-200 dark:border-white/10 rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500">
+                  <Camera size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white">Customize Lead Architect Profile</h3>
+                  <p className="text-[10px] text-slate-500 dark:text-zinc-400">Update your profile avatar photo across campaign views</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowAvatarPickerModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg transition cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Current Preview */}
+            <div className="flex items-center gap-4 bg-slate-100 dark:bg-zinc-900/60 p-3 rounded-xl border border-slate-200/60 dark:border-white/5">
+              <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-emerald-500 shadow-md shrink-0">
+                <img 
+                  src={customAvatarInput || architectAvatarUrl} 
+                  alt="Preview" 
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = DEFAULT_ARCHITECT_AVATAR;
+                  }}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-[9px] font-extrabold uppercase tracking-widest text-emerald-500 block">Lead Architect Avatar</span>
+                <span className="text-xs font-bold text-slate-900 dark:text-white truncate block">{profileName}</span>
+                <span className="text-[9.5px] text-slate-500 dark:text-zinc-400">Active Profile Picture</span>
+              </div>
+            </div>
+
+            {/* Preset Avatars */}
+            <div>
+              <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block mb-2">Select Curated Avatar</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { name: 'Executive', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200' },
+                  { name: 'Founder', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200' },
+                  { name: 'Creative', url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200' },
+                  { name: 'Architect', url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=200' }
+                ].map((av, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setArchitectAvatarUrl(av.url);
+                      setCustomAvatarInput('');
+                      localStorage.setItem('assix_architect_avatar', av.url);
+                      showNotification(`Updated Lead Architect photo to ${av.name}`);
+                    }}
+                    className={`p-1.5 rounded-xl border text-center transition flex flex-col items-center gap-1 group cursor-pointer ${
+                      architectAvatarUrl === av.url 
+                        ? 'border-emerald-500 bg-emerald-500/10' 
+                        : 'border-slate-200 dark:border-white/10 hover:border-slate-400 dark:hover:border-white/20'
+                    }`}
+                  >
+                    <img src={av.url} alt={av.name} className="w-10 h-10 rounded-full object-cover group-hover:scale-105 transition-transform" />
+                    <span className="text-[9px] font-bold text-slate-700 dark:text-zinc-300">{av.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom URL Input */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">Custom Image URL</label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://example.com/my-photo.jpg"
+                  value={customAvatarInput}
+                  onChange={(e) => setCustomAvatarInput(e.target.value)}
+                  className="flex-1 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                />
+                <button
+                  onClick={() => {
+                    if (customAvatarInput.trim()) {
+                      setArchitectAvatarUrl(customAvatarInput.trim());
+                      localStorage.setItem('assix_architect_avatar', customAvatarInput.trim());
+                      showNotification('Custom Lead Architect photo applied successfully!');
+                      setShowAvatarPickerModal(false);
+                    }
+                  }}
+                  disabled={!customAvatarInput.trim()}
+                  className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-black font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition cursor-pointer"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+
+            {/* Local File Upload */}
+            <div className="pt-2 border-t border-slate-200 dark:border-white/10">
+              <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block mb-1">Upload Photo File</label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                      const dataUrl = evt.target?.result as string;
+                      if (dataUrl) {
+                        setArchitectAvatarUrl(dataUrl);
+                        localStorage.setItem('assix_architect_avatar', dataUrl);
+                        showNotification('Uploaded Lead Architect photo successfully!');
+                        setShowAvatarPickerModal(false);
+                      }
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+                className="w-full text-xs text-slate-500 dark:text-zinc-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[10px] file:font-extrabold file:uppercase file:bg-emerald-500/10 file:text-emerald-500 hover:file:bg-emerald-500/20 cursor-pointer"
+              />
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-3 border-t border-slate-200 dark:border-white/10 flex items-center justify-between">
+              <button
+                onClick={() => {
+                  setArchitectAvatarUrl(DEFAULT_ARCHITECT_AVATAR);
+                  localStorage.removeItem('assix_architect_avatar');
+                  showNotification('Reset Lead Architect photo to default');
+                }}
+                className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 hover:text-red-400 hover:underline cursor-pointer"
+              >
+                Reset Default
+              </button>
+              <button
+                onClick={() => setShowAvatarPickerModal(false)}
+                className="px-4 py-1.5 bg-slate-200 dark:bg-zinc-800 hover:bg-slate-300 dark:hover:bg-zinc-700 text-slate-900 dark:text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition cursor-pointer"
+              >
+                Done
               </button>
             </div>
           </div>

@@ -37,6 +37,19 @@ export interface Conversation {
   messages: WhatsAppMessage[];
 }
 
+export function normalizePhoneNumber(phone: string): string {
+  if (!phone) return '';
+  let clean = phone.trim().replace(/[^\d+]/g, '');
+  if (clean.startsWith('+')) clean = clean.substring(1);
+  if (clean.startsWith('00')) clean = clean.substring(2);
+  
+  // Local French/European numbers starting with 0 (e.g. 0612345678 -> 33612345678)
+  if (clean.startsWith('0') && clean.length === 10) {
+    clean = '33' + clean.substring(1);
+  }
+  return clean;
+}
+
 export interface WhatsAppStatus {
   status: 'DISCONNECTED' | 'INITIALIZING' | 'QR_READY' | 'AUTHENTICATING' | 'CONNECTED';
   qrCodeDataUrl: string | null;
@@ -469,11 +482,13 @@ class WhatsAppBaileysManager {
     status: 'whatsapp' | 'non_whatsapp' | 'not_connected' | 'invalid';
     error?: string;
   }> {
-    const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
+    const rawClean = phone ? phone.replace(/\D/g, '') : '';
+    const cleanPhone = normalizePhoneNumber(phone || '');
+
     if (!cleanPhone || cleanPhone.length < 8 || cleanPhone.length > 15) {
       return {
         phone,
-        cleanPhone,
+        cleanPhone: cleanPhone || rawClean,
         exists: false,
         status: 'invalid',
         error: 'Invalid phone number format (must be 8-15 digits with country code).'
@@ -496,6 +511,13 @@ class WhatsAppBaileysManager {
       let result: any[] = [];
       if (typeof this.sock.onWhatsApp === 'function') {
         result = await this.sock.onWhatsApp(cleanPhone);
+        if ((!Array.isArray(result) || result.length === 0 || !result[0]?.exists) && rawClean !== cleanPhone) {
+          // Fallback check with rawClean if different
+          const rawResult = await this.sock.onWhatsApp(rawClean).catch(() => []);
+          if (Array.isArray(rawResult) && rawResult.length > 0 && rawResult[0]?.exists) {
+            result = rawResult;
+          }
+        }
       }
 
       if (Array.isArray(result) && result.length > 0 && result[0]?.exists) {

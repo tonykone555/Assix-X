@@ -188,10 +188,19 @@ export function buildContentPrompt(
 ): string {
   const lang = detectLanguage(lead, langOverride);
   const companyName = lead.name || lead.companyName || lead.company || lead.businessName || "Entreprise";
-  const sector = lead.sector || lead.source || lead.niche || "services";
+  
+  // Set default niche to general if not specified or is generic 'services'
+  let sector = lead.sector || lead.source || lead.niche || "general";
+  if (!sector || sector.trim() === '' || sector.toLowerCase() === 'services' || sector.toLowerCase() === 'unknown' || sector.toLowerCase() === 'other' || sector.toLowerCase() === 'none') {
+    sector = "general";
+  }
+
   const city = lead.city || lead.address || "";
   const rating = lead.rating || "4.9";
   const reviewsCount = lead.reviewsCount || "85";
+
+  // Gather any scraped text or markdown from the lead
+  const oldWebText = lead.scrapedMarkdown || lead.scrapedText || lead.originalWebsiteText || lead.markdown || existingContent || "";
 
   const langInstruction = lang === 'en' 
     ? 'Write ALL copy (titles, sub-headings, about text, services, AND ALL TESTIMONIALS/REVIEWS) in fluent, compelling professional ENGLISH.'
@@ -209,26 +218,37 @@ export function buildContentPrompt(
     ? '{ "name": "Markus S.", "text": "Ausgezeichneter Service, pünktlich und absolut professionell. Sehr zu empfehlen!", "rating": 5, "city": "' + (city || 'Berlin') + '" }'
     : '{ "name": "John D.", "text": "Outstanding service, very prompt, professional and fair pricing. Highly recommended!", "rating": 5, "city": "' + (city || 'London') + '" }';
 
-  return `You are a world-class web designer, conversion copywriter, and digital marketing strategist.
-Generate a high-converting landing page JSON payload specifically tailored for this local business.
+  return `You are an elite Lead Frontend Engineer specializing in luxury, high-converting home service websites.
+Build a single-page React component-style layout matching the exact layout and aesthetic of high-end local contractor websites.
 
-CRITICAL INSTRUCTIONS:
-1. LANGUAGE ENFORCEMENT: ${langInstruction}
-   - NEVER output English text or English reviews if the target language is French, Spanish, or German!
-   - Ensure all review/testimonial text matches the site's language.
+DYNAMIC VARIABLES:
+- Niche: ${sector} (e.g., Landscaping, Plumbing, Electrical, Roofing, Dental)
+- Company Name: ${companyName}
+- Location: ${city}
 
-2. NICHE & INDUSTRY PITCH TAILORING:
-   - Sector/Niche: "${sector}"
-   - Address/Location: "${city}"
-   - The headline, tagline, about section, services, why us, and steps MUST speak DIRECTLY to what this specific business actually does!
-     * If Plumbing: Emergency leaks, pipe repair, water heaters, 24/7 unblocking.
-     * If Electrical: Panel upgrades, wiring, short circuit repair, emergency dispatch.
-     * If Dental/Medical: Gentle care, teeth whitening, emergency appointments, implants.
-     * If Legal/Notary: Contract review, defense, estate planning, expert consultations.
-     * If Restaurant/Catering: Artisanal ingredients, event banquets, custom menus, reservation.
-     * If Real Estate: Property valuation, home sales, expert local market advisory.
-     * If Roofing/Construction: Storm repair, roof inspection, weatherproofing, custom builds.
-     * If Automotive/Garage: Engine diagnostics, brake service, certified mechanic inspections.
+---
+
+CRITICAL INSTRUCTIONS & CORE SECTIONS:
+
+1. HERO SECTION (Full Viewport Video Background support)
+   - Background: Include support for fullscreen background video loops (CDN links from Pexels/Mixkit) with a semi-transparent dark overlay for high readability.
+   - Large centered bold headline stating [LOCATION] [NICHE] (e.g. "${city.toUpperCase()} ${sector.toUpperCase()}").
+   - Dual Call-to-Action buttons.
+
+2. BEFORE & AFTER TRANSFORMATION SHOWCASE (Middle Section)
+   - Accent tag text: "--- SEE THE TRANSFORMATION" (or equivalent in target language)
+   - Bold headline with emphasis styling (e.g. "WE WALK IT IN. Then we build.")
+   - Conversational, high-trust sales copy customized to the niche.
+   - Bulleted checklist with checkmarks highlighting trust factors (Free on-site walkthroughs, Hand built by our own crew, etc.)
+   - Outlined CTA button.
+
+3. SCROLL ANIMATION SYSTEM (Framer Motion cues)
+   - Apply structured layout sections order.
+
+4. LANGUAGE ENFORCEMENT: ${langInstruction}
+
+5. BRING IN ACTUAL CONTENT FROM THE SCRAPED/OLD WEBSITE:
+   - Find the ACTUAL services, prices, unique selling propositions (USPs), business hours, emails, contact numbers, address, and specific text blocks from their original website, and modernize them to populate fields.
 
 Business Details:
 - Name: "${companyName}"
@@ -236,7 +256,7 @@ Business Details:
 - City/Location: "${city}"
 - Google Rating: ${rating} ★ (${reviewsCount} reviews)
 - Pitch Context: "${pitchContext || lead.pitch || ''}"
-- Scraped / Existing Info: "${existingContent.substring(0, 3000)}"
+- Scraped / Existing Info: "${oldWebText.substring(0, 5000)}"
 
 Return ONLY a valid JSON object matching this schema without markdown code blocks:
 {
@@ -251,7 +271,9 @@ Return ONLY a valid JSON object matching this schema without markdown code block
   "themeMode": "light",
   "fontStyle": "jakarta",
   "buttonStyle": "rounded-xl",
-  "layoutOrder": ["hero", "about", "services", "portfolio", "whyus", "steps", "reviews", "faq", "devis"],
+  "layoutOrder": ["hero", "beforeafter", "about", "services", "portfolio", "whyus", "steps", "reviews", "faq", "devis"],
+  "heroVideo": "Direct CDN URL to premium stock loop mp4 relevant to niche (Mixkit or Pexels CDN - choose a working, live, high-resolution .mp4 loop link)",
+  "section2Video": "Direct CDN URL to second premium stock loop mp4 relevant to niche showing hands-on active work or transformation (Mixkit or Pexels CDN)",
   "heroTitle": "High Impact Niche Headline for ${companyName}",
   "heroSubtitle": "Compelling value proposition highlighting speed, reliability and guaranteed quality in ${city}",
   "tagline": "Guaranteed Premium Service",
@@ -261,6 +283,16 @@ Return ONLY a valid JSON object matching this schema without markdown code block
     { "label": "Obtenir un devis personnalisé", "url": "#contact" },
     { "label": "Découvrir nos créations", "url": "#portfolio" }
   ],
+  "beforeAfterTitle": "--- ACCÈS AUX COULISSES",
+  "beforeAfterHeadline": "NOUS CONCEVONS. Then we build.",
+  "beforeAfterDescription": "High converting sales copy custom tailored to this niche and company",
+  "beforeAfterBullets": [
+    "Visite conseil gratuite et étude technique",
+    "Conception sur mesure par notre bureau d'étude",
+    "Travaux exécutés par nos compagnons compagnonnés",
+    "Zéro sous-traitance et suivi de chantier transparent"
+  ],
+  "beforeAfterBtnLabel": "Faire équipe avec ${companyName}",
   "statLabels": [
     { "value": "99.4%", "label": "Satisfaction Client" },
     { "value": "15+", "label": "Années d'Expérience" },
@@ -304,7 +336,7 @@ Return ONLY a valid JSON object matching this schema without markdown code block
     { "step": "03", "title": "Guaranteed Service", "description": "Precision execution with follow-up" }
   ],
   "reviewsSectionTitle": "Avis Clients Vérifiés",
-  "reviewsSectionSubtitle": "Ce que nos clients disent de la qualité de notre travail.",
+  "reviewsSectionSubtitle": "Ce que nos clients d'avis disent de la qualité de notre travail.",
   "testimonials": [
     ${reviewExample}
   ],
@@ -373,7 +405,14 @@ export async function generateSiteContent(
       themeMode: parsed.themeMode || "light",
       fontStyle: parsed.fontStyle || "jakarta",
       buttonStyle: parsed.buttonStyle || "rounded-xl",
-      layoutOrder: parsed.layoutOrder || ["hero", "about", "services", "portfolio", "whyus", "steps", "reviews", "faq", "devis"],
+      layoutOrder: parsed.layoutOrder || ["hero", "beforeafter", "about", "services", "portfolio", "whyus", "steps", "reviews", "faq", "devis"],
+      heroVideo: parsed.heroVideo || existingObj.heroVideo || "",
+      section2Video: parsed.section2Video || existingObj.section2Video || "",
+      beforeAfterTitle: parsed.beforeAfterTitle || "",
+      beforeAfterHeadline: parsed.beforeAfterHeadline || "",
+      beforeAfterDescription: parsed.beforeAfterDescription || "",
+      beforeAfterBullets: parsed.beforeAfterBullets || [],
+      beforeAfterBtnLabel: parsed.beforeAfterBtnLabel || "",
       heroTitle: parsed.heroTitle,
       heroSubtitle: parsed.heroSubtitle,
       ribbonText: parsed.ribbonText || (lang === 'fr' ? 'SPÉCIALISTES CERTIFIÉS 24/7' : 'CERTIFIED SPECIALISTS 24/7'),
@@ -436,7 +475,7 @@ export async function generateSiteContent(
         accentColor: "#10B981",
         themeMode: "light",
         buttonStyle: "rounded-xl",
-        layoutOrder: ["hero", "about", "services", "portfolio", "whyus", "steps", "reviews", "faq", "devis"],
+        layoutOrder: ["hero", "beforeafter", "about", "services", "portfolio", "whyus", "steps", "reviews", "faq", "devis"],
         heroTitle: `${companyName} - Premier ${sectorKey.toUpperCase()} Services in ${city || 'Your Area'}`,
         heroSubtitle: `Fast response, transparent pricing, and 100% guaranteed quality for your business and home.`,
         tagline: "Guaranteed Professional Service 24/7",
@@ -517,7 +556,7 @@ export async function generateSiteContent(
         accentColor: "#10B981",
         themeMode: "light",
         buttonStyle: "rounded-xl",
-        layoutOrder: ["hero", "about", "services", "portfolio", "whyus", "steps", "reviews", "faq", "devis"],
+        layoutOrder: ["hero", "beforeafter", "about", "services", "portfolio", "whyus", "steps", "reviews", "faq", "devis"],
         heroTitle: `${companyName} - Services d'Excellence à ${city || 'votre région'}`,
         heroSubtitle: `Intervention rapide, tarifs clairs et transparence garantie pour vos travaux et projets.`,
         tagline: "Service Professionnel & Garanti 24/7",

@@ -133,12 +133,13 @@ export async function runGoogleMapsWithEnrichment(
     if (autoEnrich) {
       let enrichedCount = 0;
       for (const lead of leads) {
-        if (lead.website && !lead.email) {
-          onProgress({ taskId: finalTaskId, step: "enriching", status: "running", data: { message: `Enriching ${lead.name} via Playwriter...` } });
+        if (lead.website && (!lead.email || !lead.phone)) {
+          onProgress({ taskId: finalTaskId, step: "enriching", status: "running", data: { message: `Enriching ${lead.name || lead.businessName} via Playwriter...` } });
           const enrichment = await enrichWebsiteViaPlaywriter(userId, sessionId, lead.website, finalTaskId);
-          lead.email = enrichment.email || lead.email;
-          lead.socialLinks = enrichment.socialLinks || lead.socialLinks;
-          if (enrichment.email) enrichedCount++;
+          if (enrichment.email) lead.email = enrichment.email;
+          if (enrichment.phone) lead.phone = enrichment.phone;
+          if (enrichment.socialLinks) lead.socialLinks = enrichment.socialLinks;
+          if (enrichment.email || enrichment.phone) enrichedCount++;
           await new Promise(r => setTimeout(r, 500));
         }
       }

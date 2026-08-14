@@ -78,6 +78,120 @@ export async function searchWebPhotos(query: string, count: number = 20): Promis
 }
 
 /**
+ * Specifically search Pinterest & web aesthetic photos for a query
+ */
+export async function searchPinterestPhotos(query: string, count: number = 20): Promise<SearchedPhoto[]> {
+  const pinterestQuery = `site:pinterest.com ${query} photo design`.trim();
+  return searchWebPhotos(pinterestQuery, count);
+}
+
+/**
+ * Automatically searches Pinterest & HD Web Photos for a given business niche
+ * and fills all empty/default image slots across the site content so it NEVER comes up empty!
+ */
+export async function autoFillContentImagesWithPinterest(content: any, lead: any): Promise<any> {
+  const updated = { ...content };
+  const niche = content?.nicheOverride || lead?.niche || lead?.sector || lead?.category || lead?.source || 'services';
+  const companyName = lead?.name || lead?.companyName || lead?.company || content?.brandName || 'Business';
+  
+  // Search query prioritizing NICHE FIRST
+  const primaryNicheQuery = `${niche} pinterest hd photo design architecture`.trim();
+  const searchQuery = `${niche} ${companyName} pinterest photo design`.trim();
+  
+  let researched: SearchedPhoto[] = [];
+  try {
+    const nichePhotos = await searchWebPhotos(primaryNicheQuery, 16);
+    const companyPhotos = await searchWebPhotos(searchQuery, 16);
+    researched = [...nichePhotos, ...companyPhotos];
+  } catch (e) {
+    researched = getUnsplashFallbackPhotos(primaryNicheQuery, 24);
+  }
+
+  if (researched.length === 0) {
+    researched = getUnsplashFallbackPhotos(niche, 24);
+  }
+
+  const urls = Array.from(new Set(researched.map(r => r.url).filter(u => !!u)));
+  if (urls.length === 0) return updated;
+
+  // 1. Ensure photos array has photos
+  const existingPhotos = Array.isArray(updated.photos) ? updated.photos : [];
+  updated.photos = Array.from(new Set([...urls, ...existingPhotos]));
+
+  let imgIdx = 0;
+  const nextPhoto = () => urls[imgIdx++ % urls.length];
+
+  // 2. Hero Image
+  if (!updated.heroImage || updated.heroImage.includes('placeholder') || updated.heroImage === '') {
+    updated.heroImage = nextPhoto();
+  }
+
+  // 3. About Image
+  if (!updated.aboutImage || updated.aboutImage.includes('placeholder') || updated.aboutImage === '') {
+    updated.aboutImage = nextPhoto();
+  }
+
+  // 4. Cutout & Feature Images
+  if (!updated.showcaseCarImage || updated.showcaseCarImage.includes('placeholder')) {
+    updated.showcaseCarImage = nextPhoto();
+  }
+  if (!updated.notebookImage || updated.notebookImage.includes('placeholder')) {
+    updated.notebookImage = nextPhoto();
+  }
+  if (!updated.tabletImage || updated.tabletImage.includes('placeholder')) {
+    updated.tabletImage = nextPhoto();
+  }
+  if (!updated.program1Image || updated.program1Image.includes('placeholder')) {
+    updated.program1Image = nextPhoto();
+  }
+  if (!updated.program2Image || updated.program2Image.includes('placeholder')) {
+    updated.program2Image = nextPhoto();
+  }
+  if (!updated.steeringWheelImage || updated.steeringWheelImage.includes('placeholder')) {
+    updated.steeringWheelImage = nextPhoto();
+  }
+  if (!updated.motorcycleImage || updated.motorcycleImage.includes('placeholder')) {
+    updated.motorcycleImage = nextPhoto();
+  }
+  if (!updated.card1Image || updated.card1Image.includes('placeholder')) {
+    updated.card1Image = nextPhoto();
+  }
+  if (!updated.card2Image || updated.card2Image.includes('placeholder')) {
+    updated.card2Image = nextPhoto();
+  }
+  if (!updated.card3Image || updated.card3Image.includes('placeholder')) {
+    updated.card3Image = nextPhoto();
+  }
+
+  // 5. Gallery Images
+  if (!Array.isArray(updated.galleryImages) || updated.galleryImages.length < 3) {
+    updated.galleryImages = [nextPhoto(), nextPhoto(), nextPhoto(), nextPhoto()];
+  }
+
+  // 6. Service Cards
+  if (Array.isArray(updated.services)) {
+    updated.services = updated.services.map((srv: any) => {
+      if (!srv.image || srv.image.includes('placeholder') || srv.image === '') {
+        return { ...srv, image: nextPhoto() };
+      }
+      return srv;
+    });
+  }
+
+  // 7. Portfolio Cards
+  if (Array.isArray(updated.portfolio)) {
+    updated.portfolio = updated.portfolio.map((port: any) => {
+      if (!port.image || port.image.includes('placeholder') || port.image === '') {
+        return { ...port, image: nextPhoto() };
+      }
+      return port;
+    });
+  }
+
+  return updated;
+}
+
+/**
  * Deep Scrape Google Maps Profile Photos
  * Clicks into the Photos tab and iteratively scrolls the gallery grid to extract ALL photos
  */
@@ -260,4 +374,257 @@ export function getUnsplashFallbackPhotos(query: string, count: number = 15): Se
     title: `${query} photo #${i + 1}`,
     source: 'unsplash'
   }));
+}
+
+export interface SearchedVideo {
+  url: string;
+  title: string;
+  source: string;
+  thumbnail?: string;
+}
+
+const TRANSLATIONS: Record<string, string> = {
+  peintre: 'painter',
+  peinture: 'painter',
+  toiture: 'roof',
+  couvreur: 'roof',
+  renovation: 'renovation',
+  construction: 'construction',
+  restoration: 'renovation',
+  nettoyage: 'cleaning',
+  menage: 'cleaning',
+  restaurant: 'restaurant',
+  barber: 'barber',
+  coiffeur: 'barber',
+  garage: 'mechanic',
+  mecanicien: 'mechanic',
+  auto: 'car',
+  immobilier: 'real-estate',
+  maison: 'house',
+  bureau: 'office',
+  comptable: 'office',
+  wellness: 'yoga',
+  sante: 'yoga',
+  sport: 'yoga'
+};
+
+function getProxiedUrl(url: string): string {
+  if (!url) return '';
+  if (url.startsWith('/api/leads/video-proxy')) return url;
+  return `/api/leads/video-proxy?url=${encodeURIComponent(url)}`;
+}
+
+/**
+ * Advanced Stock Video Curation and search engine.
+ * Delivers working, high-resolution direct .mp4 streaming files for website hero backgrounds and showcases.
+ */
+export async function searchWebVideos(query: string): Promise<SearchedVideo[]> {
+  const lower = query.toLowerCase();
+  
+  // Find clean English category slug
+  let term = lower.trim();
+  for (const [key, val] of Object.entries(TRANSLATIONS)) {
+    if (lower.includes(key)) {
+      term = val;
+      break;
+    }
+  }
+
+  // Replace spaces with dashes for clean Mixkit category slug
+  const slug = encodeURIComponent(term.replace(/\s+/g, '-'));
+  const results: SearchedVideo[] = [];
+
+  try {
+    console.log(`[Video Scraping] Querying Mixkit page for term: "${term}" (slug: "${slug}")`);
+    const res = await fetch(`https://mixkit.co/free-stock-video/${slug}/`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+
+    if (res.status === 200) {
+      const html = await res.text();
+      // Match all direct stock video mp4 assets of various sizes (-1080.mp4, -720.mp4, -360.mp4, etc.)
+      const mp4s = html.match(/https:\/\/assets\.mixkit\.co\/videos\/\d+\/\d+-[^\s\"']+\.mp4/g) || [];
+      const uniqueMp4s = Array.from(new Set(mp4s));
+
+      // Group by video ID to select the highest resolution available
+      const videoMap = new Map<string, { url: string; resolution: number }>();
+
+      for (const mp4 of uniqueMp4s) {
+        const match = mp4.match(/\/videos\/(\d+)\//);
+        if (match) {
+          const id = match[1];
+          let resolution = 360;
+          if (mp4.includes('-1080')) resolution = 1080;
+          else if (mp4.includes('-720')) resolution = 720;
+          else if (mp4.includes('-360')) resolution = 360;
+          else if (mp4.includes('large') || mp4.includes('preview')) resolution = 480;
+
+          const existing = videoMap.get(id);
+          if (!existing || resolution > existing.resolution) {
+            videoMap.set(id, { url: mp4, resolution });
+          }
+        }
+      }
+
+      for (const [id, info] of videoMap.entries()) {
+        results.push({
+          url: getProxiedUrl(info.url),
+          title: `${query.charAt(0).toUpperCase() + query.slice(1)} - Loop #${id}`,
+          source: 'mixkit',
+          thumbnail: `https://assets.mixkit.co/videos/${id}/${id}-thumb-720-0.jpg`
+        });
+      }
+
+      // If no standard assets found, fallback to legacy large previews
+      if (results.length === 0) {
+        const previewMp4s = html.match(/https:\/\/assets\.mixkit\.co\/videos\/preview\/[^\s\"']+\.mp4/g) || [];
+        const uniquePreviews = Array.from(new Set(previewMp4s));
+        for (const mp4 of uniquePreviews) {
+          const nameMatch = mp4.match(/preview\/mixkit-([^\s\"']+)-large\.mp4/);
+          const prettyName = nameMatch ? nameMatch[1].replace(/-/g, ' ') : 'Premium Scene';
+          results.push({
+            url: getProxiedUrl(mp4),
+            title: `${query.charAt(0).toUpperCase() + query.slice(1)} - ${prettyName.charAt(0).toUpperCase() + prettyName.slice(1)}`,
+            source: 'mixkit',
+            thumbnail: 'https://images.unsplash.com/photo-1581094794329-c8112a89af12?w=300&h=200&fit=crop'
+          });
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error('[Video Scraping Error]:', err.message);
+  }
+
+  // Pre-scraped static catalog as backup/supplement to ensure we ALWAYS return multiple high-quality matches
+  const videoCatalog = [
+    {
+      keywords: ['reno', 'renov', 'construct', 'build', 'house', 'maison', 'home', 'work', 'travaux', 'architecture'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-decorating-and-renovating-a-room-41580-large.mp4',
+      title: 'Home Renovation & Designing Process',
+      thumbnail: 'https://images.unsplash.com/photo-1581094794329-c8112a89af12?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['paint', 'peint', 'color', 'wall', 'mural', 'decorat'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-painter-hand-painting-a-wall-with-roller-42525-large.mp4',
+      title: 'Expert Painter Rolling Fresh Coat Loop',
+      thumbnail: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['roof', 'toit', 'roofing', 'couvreur', 'charpente'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-construction-worker-installing-a-roof-tile-42521-large.mp4',
+      title: 'Professional Roofing Installation Loop',
+      thumbnail: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['plumb', 'plomb', 'leak', 'water', 'pipe', 'tuyau', 'robinet', 'sanitaire'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-plumber-repairing-a-kitchen-sink-42171-large.mp4',
+      title: 'Plumber Repairing Sink Under Counter',
+      thumbnail: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['electric', 'electri', 'wire', 'cable', 'panel', 'disjoncteur', 'panne', 'court-circuit'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-hands-of-an-electrician-fixing-wires-42175-large.mp4',
+      title: 'Electrician Cabinet Wiring & Assembly',
+      thumbnail: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['garden', 'landscap', 'jardin', 'paysag', 'green', 'gazon', 'pelouse', 'flower', 'fleur', 'arrosage'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-gardener-mowing-the-lawn-41221-large.mp4',
+      title: 'Professional Lawn Mowing & Landscaping',
+      thumbnail: 'https://images.unsplash.com/photo-1558904541-efa8c1a68f6a?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['food', 'restau', 'traite', 'chef', 'cook', 'cuisine', 'bistro', 'gourmet', 'plat', 'repas'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-chef-plating-a-prestige-dish-in-slow-motion-41381-large.mp4',
+      title: 'Gourmet Chef Plating Culinary Masterpiece',
+      thumbnail: 'https://images.unsplash.com/photo-1555244162-803834f70033?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['salon', 'hair', 'barber', 'coiff', 'cut', 'spa', 'massage', 'esthetique', 'beaute', 'ongle', 'nail'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-hair-stylist-drying-customer-hair-41561-large.mp4',
+      title: 'Hair Salon Blow-dry Styling Routine',
+      thumbnail: 'https://images.unsplash.com/photo-1519741497674-611481863552?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['clean', 'nettoy', 'prop', 'dust', 'window', 'lavage', 'menage', 'bureau'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-vacuum-cleaner-head-moving-on-carpet-42661-large.mp4',
+      title: 'Deep Steam Cleaning & Vacuuming',
+      thumbnail: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['dentist', 'denti', 'teeth', 'dent', 'care', 'medical', 'doct', 'clinique'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-dentist-examining-patients-teeth-with-instruments-42172-large.mp4',
+      title: 'Premium Dental Care & Checkup Consultation',
+      thumbnail: 'https://images.unsplash.com/photo-1613977257363-707ba9348227?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['car', 'aut', 'garag', 'mechanic', 'repair', 'pneu', 'tire', 'moteur', 'frein'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-mechanic-repairing-a-car-engine-42173-large.mp4',
+      title: 'Certified Mechanic Engine Diagnostics',
+      thumbnail: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['immo', 'real estate', 'house', 'maison', 'agency', 'agence', 'flat', 'appartement'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-slow-motion-of-a-realtor-presenting-a-modern-apartment-43033-large.mp4',
+      title: 'Luxury Real Estate Walkthrough Tour',
+      thumbnail: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['office', 'corp', 'typing', 'comp', 'law', 'avoc', 'consult', 'bureau', 'meeting', 'tax', 'compta'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-man-typing-on-laptop-with-creative-lighting-42401-large.mp4',
+      title: 'Professional Modern Office Consultation Loop',
+      thumbnail: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=300&h=200&fit=crop'
+    },
+    {
+      keywords: ['yoga', 'fitness', 'wellness', 'coach', 'sport', 'gym', 'health', 'sante'],
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-woman-doing-yoga-exercises-at-home-43039-large.mp4',
+      title: 'Calming Yoga & Wellness Morning Routine',
+      thumbnail: 'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=300&h=200&fit=crop'
+    }
+  ];
+
+  // Supplement results with keyword matched catalog items to ensure the user gets a wide choice list!
+  const matchedCatalog = videoCatalog.filter(v =>
+    v.keywords.some(keyword => lower.includes(keyword) || term.includes(keyword))
+  );
+
+  for (const m of matchedCatalog) {
+    const proxiedTarget = getProxiedUrl(m.url);
+    if (!results.some(r => r.url === proxiedTarget)) {
+      results.push({
+        url: proxiedTarget,
+        title: m.title,
+        source: 'mixkit',
+        thumbnail: m.thumbnail
+      });
+    }
+  }
+
+  // Final absolute fallback in case both Mixkit fetch and catalog yield nothing
+  if (results.length === 0) {
+    results.push(
+      {
+        url: getProxiedUrl('https://assets.mixkit.co/videos/preview/mixkit-decorating-and-renovating-a-room-41580-large.mp4'),
+        title: 'Premium Craftsmanship & Execution Loop',
+        source: 'mixkit',
+        thumbnail: 'https://images.unsplash.com/photo-1581094794329-c8112a89af12?w=300&h=200&fit=crop'
+      },
+      {
+        url: getProxiedUrl('https://assets.mixkit.co/videos/preview/mixkit-hands-of-an-electrician-fixing-wires-42175-large.mp4'),
+        title: 'Professional Service Detail Work',
+        source: 'mixkit',
+        thumbnail: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=300&h=200&fit=crop'
+      },
+      {
+        url: getProxiedUrl('https://assets.mixkit.co/videos/preview/mixkit-gardener-mowing-the-lawn-41221-large.mp4'),
+        title: 'Professional Exterior Landscaping Work',
+        source: 'mixkit',
+        thumbnail: 'https://images.unsplash.com/photo-1558904541-efa8c1a68f6a?w=300&h=200&fit=crop'
+      }
+    );
+  }
+
+  return results.slice(0, 16); // limit to top 16 beautiful matching results
 }

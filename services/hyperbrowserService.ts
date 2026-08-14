@@ -444,18 +444,17 @@ Output format:
     }
   }
 
-  // Top up with OpenStreetMap / directory fallback if savedCount < targetCount
+  // Top up with search-based local directory fallback if savedCount < targetCount
   if (savedCount < targetCount) {
     const needed = targetCount - savedCount;
     await logAction(finalTaskId, `⚡ Top-up discovery active: Gathering ${needed} additional local business leads for "${queryStr}"...`, 'info');
     try {
-      const { scrapeOpenStreetMapLeads } = await import('./openStreetMapScraper');
-      const fallbackLeads = await scrapeOpenStreetMapLeads(
+      const { scrapeGoogleMapsSearchFast } = await import('./fastGoogleMapsScraper');
+      const fallbackLeads = await scrapeGoogleMapsSearchFast(
         params.searchTerm,
         params.location,
         needed * 2,
-        {},
-        finalTaskId
+        { taskId: finalTaskId }
       );
 
       for (const item of fallbackLeads) {

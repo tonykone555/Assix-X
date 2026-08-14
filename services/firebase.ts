@@ -240,20 +240,95 @@ export async function logAction(taskId: string, msg: string, type = 'info') {
 
 export async function saveLeadToFirestore(lead: any) {
   try {
+    const businessName = lead.businessName || lead.company || lead.name || 'Business';
+    const company = lead.company || lead.businessName || lead.name || 'Business';
+
+    // Prevent duplicate entries by querying company name in firestore
+    const existing = await db.collection('leads')
+      .where('company', '==', company)
+      .limit(1)
+      .get();
+
     const docData = {
       ...lead,
-      businessName: lead.businessName || lead.company || lead.name || 'Business',
-      company: lead.company || lead.businessName || lead.name || 'Business',
-      name: lead.name || lead.businessName || lead.company || 'Business',
+      businessName,
+      company,
+      name: lead.name || businessName || 'Business',
       createdAt: lead.createdAt || new Date().toISOString(),
       sentToClose: Boolean(lead.sentToClose),
       status: lead.status || 'new'
     };
 
-    await Promise.allSettled([
-      db.collection('leads').add(docData),
-      db.collection('assix_leads').add(docData)
-    ]);
+    if (!existing.empty) {
+      console.log(`[Firebase] Duplicate lead found for "${company}". Merging fields and linking to current task: ${lead.taskId}`);
+      const existingDoc = existing.docs[0];
+      const existingId = existingDoc.id;
+      const existingData = existingDoc.data() || {};
+
+      // Merge data: prioritize new fields (phone, email, website, etc.) if they were found or richer
+      const updatedData = {
+        ...existingData,
+        ...lead,
+        phone: lead.phone || existingData.phone || '',
+        email: lead.email || existingData.email || null,
+        website: lead.website || existingData.website || '',
+        address: lead.address || existingData.address || '',
+        taskId: lead.taskId || existingData.taskId || '',
+        sourceRun: lead.sourceRun || lead.taskId || existingData.sourceRun || '',
+        updatedAt: new Date().toISOString()
+      };
+
+      // Update the existing document in standard leads collection
+      await db.collection('leads').doc(existingId).set(updatedData, { merge: true }).catch(() => {});
+
+      // Add or update in assix_leads for the current running task
+      if (lead.taskId) {
+        const taskLeadExisting = await db.collection('assix_leads')
+          .where('company', '==', company)
+          .where('taskId', '==', lead.taskId)
+          .limit(1)
+          .get();
+
+        if (taskLeadExisting.empty) {
+          await db.collection('assix_leads').add({
+            ...updatedData,
+            leadId: existingId,
+            id: existingId,
+            createdAt: new Date().toISOString()
+          }).catch(() => {});
+        } else {
+          const assixDocId = taskLeadExisting.docs[0].id;
+          await db.collection('assix_leads').doc(assixDocId).set({
+            ...updatedData,
+            leadId: existingId,
+            id: existingId,
+            updatedAt: new Date().toISOString()
+          }, { merge: true }).catch(() => {});
+        }
+      }
+
+      return true;
+    }
+
+    // New lead creation: check if it's already in assix_leads for some reason to be perfectly safe
+    const assixExisting = lead.taskId ? await db.collection('assix_leads')
+      .where('company', '==', company)
+      .where('taskId', '==', lead.taskId)
+      .limit(1)
+      .get() : null;
+
+    if (assixExisting && !assixExisting.empty) {
+      const assixDocId = assixExisting.docs[0].id;
+      await Promise.allSettled([
+        db.collection('leads').add(docData),
+        db.collection('assix_leads').doc(assixDocId).set(docData, { merge: true })
+      ]);
+    } else {
+      await Promise.allSettled([
+        db.collection('leads').add(docData),
+        db.collection('assix_leads').add(docData)
+      ]);
+    }
     return true;
   } catch (err: any) {
     console.error('saveLeadToFirestore error:', err?.message || err);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Globe, 
   Phone, 
@@ -22,9 +22,12 @@ import {
   AlertTriangle,
   User,
   ShieldCheck,
-  RefreshCw
+  RefreshCw,
+  MoreVertical,
+  Copy
 } from 'lucide-react';
 import { WebsiteGeneratorPanel } from './WebsiteGeneratorPanel';
+import { formatBusinessName } from '../../services/nicheEmailTemplates';
 
 interface LeadCardProps {
   lead: any;
@@ -36,7 +39,9 @@ interface LeadCardProps {
   onSelectToggle?: (leadId: string) => void;
   onGenerateWebsite?: (lead: any) => void;
   onEnrichLead?: (lead: any) => Promise<void> | void;
+  isEnriching?: boolean;
   leadNumber?: number;
+  onOpenInbox?: (lead: any) => void;
 }
 
 export const LeadCard: React.FC<LeadCardProps> = ({ 
@@ -49,18 +54,38 @@ export const LeadCard: React.FC<LeadCardProps> = ({
   onSelectToggle,
   onGenerateWebsite,
   onEnrichLead,
-  leadNumber
+  isEnriching: isEnrichingProps = false,
+  leadNumber,
+  onOpenInbox
 }) => {
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedSecondaryPhone, setCopiedSecondaryPhone] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState(false);
   const [showGenerator, setShowGenerator] = useState(false);
-  const [isEnriching, setIsEnriching] = useState(false);
+  const [isEnrichingState, setIsEnrichingState] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+
+  const activeEnriching = isEnrichingProps || isEnrichingState;
   const [enrichResult, setEnrichResult] = useState<{ email?: string; phone?: string; secondaryPhone?: string; socialLinks?: any; websiteAudit?: any; uniqueness?: string } | null>(
     lead.email || lead.phone || lead.secondaryPhone || lead.socialLinks || lead.websiteAudit || lead.uniqueness || lead.pitch
       ? { email: lead.email, phone: lead.phone, secondaryPhone: lead.secondaryPhone, socialLinks: lead.socialLinks, websiteAudit: lead.websiteAudit, uniqueness: lead.uniqueness || lead.pitch } 
       : null
   );
+
+  useEffect(() => {
+    if (lead.email || lead.phone || lead.secondaryPhone || lead.socialLinks || lead.websiteAudit || lead.uniqueness || lead.pitch) {
+      setEnrichResult(prev => ({
+        ...prev,
+        email: lead.email || prev?.email,
+        phone: lead.phone || prev?.phone,
+        secondaryPhone: lead.secondaryPhone || prev?.secondaryPhone,
+        socialLinks: lead.socialLinks || prev?.socialLinks,
+        websiteAudit: lead.websiteAudit || prev?.websiteAudit,
+        uniqueness: lead.uniqueness || lead.pitch || prev?.uniqueness
+      }));
+    }
+  }, [lead.email, lead.phone, lead.secondaryPhone, lead.socialLinks, lead.websiteAudit, lead.uniqueness, lead.pitch, lead.enriched]);
 
   const handleCopyPhone = () => {
     const phone = primaryPhone || lead.phone || '';
@@ -72,7 +97,7 @@ export const LeadCard: React.FC<LeadCardProps> = ({
   };
 
   const handleEnrich = async () => {
-    setIsEnriching(true);
+    setIsEnrichingState(true);
     try {
       if (onEnrichLead) {
         await onEnrichLead(lead);
@@ -128,7 +153,7 @@ export const LeadCard: React.FC<LeadCardProps> = ({
     } catch (err) {
       console.error("Enrichment error:", err);
     } finally {
-      setIsEnriching(false);
+      setIsEnrichingState(false);
     }
   };
 
@@ -147,18 +172,34 @@ export const LeadCard: React.FC<LeadCardProps> = ({
     : (lead.secondaryPhone !== primaryPhone ? lead.secondaryPhone : null);
 
   const domain = lead.website ? lead.website.replace(/https?:\/\/|www\./g, '') : '';
-  const faviconUrl = lead.website ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(lead.website)}&sz=32` : null;
+  const faviconUrl = lead.website ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(lead.website)}&sz=64` : null;
+  const companyLogoUrl = lead.logo || lead.avatar || lead.profilePic || lead.photo || faviconUrl;
 
-  const displayName = lead.company || lead.businessName || lead.name || 'Unnamed Prospect';
+  const formatSourceTitle = (l: any) => {
+    if (l.sourceRun && l.sourceRun.trim()) return l.sourceRun.trim();
+    if (l.sourceTitle && l.sourceTitle.trim()) return l.sourceTitle.trim();
+    if (l.query && l.query.trim()) return `Query: ${l.query.trim()}`;
+    if (l.searchQuery && l.searchQuery.trim()) return `Query: ${l.searchQuery.trim()}`;
+    if (l.category && l.category.trim()) return `Category: ${l.category.trim()}`;
+    if (l.niche && l.niche.trim()) return `Niche: ${l.niche.trim()}`;
+    if (l.sector && l.sector.trim()) return `Sector: ${l.sector.trim()}`;
+    if (l.source && l.source.trim()) return `Source: ${l.source.replace(/_/g, ' ').toUpperCase()}`;
+    return 'Campaign: Discovery Run';
+  };
+
+  const sourceRunTitle = formatSourceTitle(lead);
+  const displayName = formatBusinessName(
+    lead.company || lead.businessName || lead.name || lead.title || 'Prospect Lead'
+  );
   const displaySector = lead.sector || lead.source || 'Niche';
   const displayCity = lead.city || 'City';
 
   return (
-    <div className={`bg-white dark:bg-[#0b0c14] backdrop-blur-xl border rounded-2xl overflow-hidden transition-all duration-300 flex flex-col h-full group shadow-md dark:shadow-xl dark:shadow-black/70 relative font-['SF_Pro_Text','Helvetica_Neue',Helvetica,Arial,sans-serif] ${selected ? 'border-[#7C5335] ring-2 ring-[#7C5335]/40 shadow-[#7C5335]/15' : 'border-slate-200/60 dark:border-white/[0.06] hover:border-emerald-500/40 hover:bg-slate-50/50 dark:hover:bg-[#111320] hover:shadow-emerald-500/10'}`}>
+    <div className={`bg-slate-50 dark:bg-[#070709] backdrop-blur-xl border rounded-2xl overflow-hidden transition-all duration-300 flex flex-col h-full group shadow-md dark:shadow-xl dark:shadow-black/70 relative font-['SF_Pro_Text','Helvetica_Neue',Helvetica,Arial,sans-serif] ${selected ? 'border-[#7C5335] ring-2 ring-[#7C5335]/40 shadow-[#7C5335]/15' : 'border-slate-200/80 dark:border-white/[0.08] hover:border-emerald-500/40 hover:bg-slate-100/60 dark:hover:bg-[#0d0e15] hover:shadow-emerald-500/10'}`}>
       
       {/* CARD TOP INFO ROW - Seamless Header (Faded into the card body) */}
-      <div className="p-3.5 flex items-center justify-between gap-3 bg-slate-50/60 dark:bg-white/[0.03] rounded-t-2xl border-b border-slate-100/60 dark:border-white/[0.04]">
-        <div className="flex items-center gap-2.5 truncate">
+      <div className="p-3.5 flex items-center justify-between gap-2.5 bg-slate-100/60 dark:bg-white/[0.03] rounded-t-2xl border-b border-slate-200/60 dark:border-white/[0.04]">
+        <div className="flex items-center gap-2 truncate">
           {leadNumber !== undefined && (
             <span className="px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/60 border border-blue-300/60 dark:border-blue-400/30 text-blue-800 dark:text-blue-100 font-mono text-[9px] font-black rounded-md shrink-0">
               #{leadNumber}
@@ -169,36 +210,160 @@ export const LeadCard: React.FC<LeadCardProps> = ({
               type="checkbox"
               checked={selected}
               onChange={() => onSelectToggle(lead.leadId)}
-              className="mr-1 bg-white dark:bg-zinc-900 border-slate-300 dark:border-zinc-700 rounded text-red-500 focus:ring-red-500 w-3.5 h-3.5 cursor-pointer"
+              className="mr-0.5 bg-white dark:bg-zinc-900 border-slate-300 dark:border-zinc-700 rounded text-red-500 focus:ring-red-500 w-3.5 h-3.5 cursor-pointer"
             />
           )}
-          {faviconUrl && !imgError ? (
-            <img 
-              src={faviconUrl} 
-              alt="" 
-              referrerPolicy="no-referrer"
-              className="w-5 h-5 rounded-full bg-slate-200 dark:bg-zinc-800 object-contain shrink-0"
-              onError={() => setImgError(true)}
-            />
-          ) : (
-            <div className="w-5 h-5 rounded-full bg-slate-200 dark:bg-zinc-800 text-slate-600 dark:text-zinc-200 flex items-center justify-center shrink-0 border border-slate-300/50 dark:border-zinc-700/50 select-none">
-              <User size={10} />
-            </div>
-          )}
+
+          {/* Company Logo or Website Favicon (with fallback to default avatar icon) */}
+          <div className="w-6.5 h-6.5 rounded-lg bg-white dark:bg-zinc-900 border border-slate-300/80 dark:border-zinc-700/80 text-slate-500 dark:text-zinc-400 flex items-center justify-center shrink-0 overflow-hidden select-none shadow-sm p-0.5">
+            {companyLogoUrl && typeof companyLogoUrl === 'string' && companyLogoUrl.startsWith('http') ? (
+              <img 
+                src={companyLogoUrl} 
+                alt={displayName} 
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-contain rounded" 
+                onError={(e) => { 
+                  (e.currentTarget as HTMLElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <User size={13} className="text-slate-500 dark:text-zinc-400" />
+            )}
+          </div>
+
           {lead.source?.startsWith('facebook') && (
             <Facebook className="w-3.5 h-3.5 text-[#1877F2] shrink-0" />
           )}
-          <h4 className="text-xs font-black text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition truncate" title={displayName}>
-            {displayName}
-          </h4>
+
+          <div className="truncate flex flex-col min-w-0">
+            <h4 className="text-xs font-black text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition truncate" title={displayName}>
+              {displayName}
+            </h4>
+            <span className="text-[8.5px] font-bold text-blue-600 dark:text-blue-400 opacity-90 truncate flex items-center gap-1 mt-0.5" title={`Source Campaign / Run: ${sourceRunTitle}`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block shrink-0"></span>
+              <span className="truncate">{sourceRunTitle}</span>
+            </span>
+          </div>
         </div>
 
-        {/* Demo Data Badge if applicable */}
-        {lead.isFallback && (
-          <div className="px-2 py-0.5 rounded border border-red-500/20 bg-red-500/10 text-red-500 dark:text-red-400 text-[8px] font-extrabold tracking-wider select-none shrink-0">
-            DEMO DATA
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Demo Data Badge if applicable */}
+          {lead.isFallback && (
+            <div className="px-2 py-0.5 rounded border border-red-500/20 bg-red-500/10 text-red-500 dark:text-red-400 text-[8px] font-extrabold tracking-wider select-none">
+              DEMO
+            </div>
+          )}
+
+          {/* Enrichment Status Indicator */}
+          {activeEnriching ? (
+            <div className="px-2 py-0.5 rounded-full border border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[8.5px] font-extrabold tracking-wider uppercase select-none flex items-center gap-1 animate-pulse">
+              <RefreshCw size={8} className="animate-spin text-amber-500 dark:text-amber-400" />
+              <span>Enriching...</span>
+            </div>
+          ) : lead.enriched ? (
+            <div className="px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[8.5px] font-black uppercase tracking-wider select-none flex items-center gap-1">
+              <Check size={8} />
+              <span>Enriched</span>
+            </div>
+          ) : (
+            <div className="px-2 py-0.5 rounded-full border border-slate-300 dark:border-zinc-700/60 bg-slate-100 dark:bg-zinc-800/60 text-slate-500 dark:text-zinc-400 text-[8.5px] font-bold uppercase tracking-wider select-none flex items-center gap-1">
+              <span>Unenriched</span>
+            </div>
+          )}
+
+          {/* 3 DOTS MENU BUTTON & DROPDOWN */}
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-1 rounded-lg text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-zinc-800 transition cursor-pointer"
+              title="More Options"
+            >
+              <MoreVertical size={15} />
+            </button>
+
+            {showMenu && (
+              <div 
+                className="absolute right-0 top-7 w-48 bg-white dark:bg-[#12131A] border border-slate-200 dark:border-zinc-800 rounded-xl shadow-2xl p-1.5 z-50 text-xs font-sans animate-fade-in space-y-0.5"
+                onClick={() => setShowMenu(false)}
+              >
+                <button 
+                  onClick={handleEnrich}
+                  className="w-full text-left px-2.5 py-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-800 dark:text-zinc-200 font-bold flex items-center gap-2 cursor-pointer"
+                >
+                  <RefreshCw size={12} className="text-amber-500" />
+                  <span>Enrich Lead Data</span>
+                </button>
+
+                {(currentEmail || lead.email) && (
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(currentEmail || lead.email);
+                      setCopiedEmail(true);
+                      setTimeout(() => setCopiedEmail(false), 2000);
+                    }}
+                    className="w-full text-left px-2.5 py-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-800 dark:text-zinc-200 font-medium flex items-center gap-2 cursor-pointer"
+                  >
+                    <Copy size={12} className="text-emerald-500" />
+                    <span>Copy Email Address</span>
+                  </button>
+                )}
+
+                {(primaryPhone || lead.phone) && (
+                  <button 
+                    onClick={handleCopyPhone}
+                    className="w-full text-left px-2.5 py-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-800 dark:text-zinc-200 font-medium flex items-center gap-2 cursor-pointer"
+                  >
+                    <Phone size={12} className="text-blue-500" />
+                    <span>Copy Phone Number</span>
+                  </button>
+                )}
+
+                {lead.website && (
+                  <a 
+                    href={lead.website}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full text-left px-2.5 py-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-800 dark:text-zinc-200 font-medium flex items-center gap-2 cursor-pointer"
+                  >
+                    <Globe size={12} className="text-indigo-500" />
+                    <span>Visit Website</span>
+                  </a>
+                )}
+
+                <button 
+                  onClick={() => {
+                    if (onGenerateWebsite) onGenerateWebsite(lead);
+                    else setShowGenerator(true);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-800 dark:text-zinc-200 font-medium flex items-center gap-2 cursor-pointer"
+                >
+                  <Sparkles size={12} className="text-amber-400" />
+                  <span>Pitch Website Concept</span>
+                </button>
+
+                {onPushLead && (
+                  <button 
+                    onClick={() => onPushLead(lead.leadId)}
+                    className="w-full text-left px-2.5 py-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-800 dark:text-zinc-200 font-medium flex items-center gap-2 cursor-pointer border-t border-slate-100 dark:border-zinc-800/60 pt-1.5"
+                  >
+                    <CheckCircle size={12} className="text-emerald-400" />
+                    <span>Sync to CRM</span>
+                  </button>
+                )}
+
+                {onSkip && (
+                  <button 
+                    onClick={() => onSkip(lead.leadId)}
+                    className="w-full text-left px-2.5 py-1.5 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg text-red-600 dark:text-red-400 font-medium flex items-center gap-2 cursor-pointer"
+                  >
+                    <X size={12} />
+                    <span>Remove Lead</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* CARD BODY */}
@@ -253,9 +418,48 @@ export const LeadCard: React.FC<LeadCardProps> = ({
               </div>
             )}
 
+            {/* Email Address Section */}
+            <div className="flex items-start gap-2 pt-1 border-t border-slate-200/40 dark:border-white/[0.03]">
+              <Mail className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+              <div className="flex-1 truncate">
+                <div className="flex items-center justify-between gap-1 mb-0.5">
+                  <span className="text-slate-500 dark:text-zinc-400 font-medium uppercase text-[8.5px] tracking-wider block">Email Address</span>
+                  {currentEmail ? (
+                    <span className="px-1.5 py-0.2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[8px] font-black uppercase tracking-wider rounded flex items-center gap-1 shrink-0 select-none">
+                      <Check size={9} /> Enriched
+                    </span>
+                  ) : null}
+                </div>
+                {currentEmail ? (
+                  <div className="flex items-center justify-between gap-1">
+                    <button 
+                      onClick={() => onOpenInbox ? onOpenInbox({ ...lead, email: currentEmail }) : null}
+                      className="text-slate-900 dark:text-emerald-400 hover:underline font-mono font-bold text-[11px] truncate block text-left cursor-pointer"
+                      title="Click to compose email in app"
+                    >
+                      {currentEmail}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-400 dark:text-zinc-500 italic text-[10.5px]">Not listed</span>
+                    <button
+                      onClick={handleEnrich}
+                      disabled={activeEnriching}
+                      className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500/60 rounded text-[8.5px] font-extrabold tracking-wider uppercase transition cursor-pointer flex items-center gap-1 shrink-0 shadow-sm"
+                      title="Search web & directories to discover official email"
+                    >
+                      {activeEnriching && <RefreshCw size={9} className="animate-spin text-white" />}
+                      <span>{activeEnriching ? 'Searching...' : 'Find Email'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Website Section */}
-            <div className="flex items-start gap-2">
-              <Globe className="w-3.5 h-3.5 text-[#10B981] mt-0.5 shrink-0" />
+            <div className="flex items-start gap-2 pt-1 border-t border-slate-200/40 dark:border-white/[0.03]">
+              <Globe className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 mt-0.5 shrink-0" />
               <div className="flex-1 truncate">
                 <div className="flex items-center justify-between gap-1 mb-0.5">
                   <span className="text-zinc-500 font-medium uppercase text-[8.5px] tracking-wider block">Website</span>
@@ -263,17 +467,17 @@ export const LeadCard: React.FC<LeadCardProps> = ({
                   {/* Show Enrich Lead button */}
                   {lead.enriched && currentEmail && primaryPhone && !primaryPhone.includes('Click "Enrich"') ? (
                     <span className="px-1.5 py-0.2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[8px] font-black uppercase tracking-wider rounded flex items-center gap-1 shrink-0 select-none">
-                      <Check size={9} /> Enriched
+                      <Check size={9} /> Verified
                     </span>
                   ) : (
                     <button
                       onClick={handleEnrich}
-                      disabled={isEnriching}
+                      disabled={activeEnriching}
                       className="px-2 py-0.5 bg-blue-900 hover:bg-blue-800 text-blue-100 border border-blue-700/60 rounded text-[8.5px] font-extrabold tracking-wider uppercase transition cursor-pointer flex items-center gap-1 shrink-0"
                       title="Fetch phone numbers, contact details & website via directory search"
                     >
-                      {isEnriching && <RefreshCw size={9} className="animate-spin text-blue-300" />}
-                      <span>{isEnriching ? 'Enriching...' : 'Enrich Lead'}</span>
+                      {activeEnriching && <RefreshCw size={9} className="animate-spin text-blue-300" />}
+                      <span>{activeEnriching ? 'Enriching...' : 'Enrich Lead'}</span>
                     </button>
                   )}
                 </div>
@@ -302,32 +506,67 @@ export const LeadCard: React.FC<LeadCardProps> = ({
               </div>
             </div>
 
-            {/* Extracted Email */}
-            {(enrichResult?.email || lead.email) && (
-              <div className="flex items-start gap-2 bg-[#10B981]/10 border border-[#10B981]/30 p-2 rounded">
-                <Mail className="w-3.5 h-3.5 text-[#10B981] mt-0.5 shrink-0" />
-                <div className="flex-1 truncate">
-                  <span className="text-[#10B981] font-bold uppercase text-[8px] tracking-wider block">Enriched Email</span>
-                  <a href={`mailto:${enrichResult?.email || lead.email}`} className="text-white font-mono font-bold text-[11px] hover:underline truncate block">
-                    {enrichResult?.email || lead.email}
-                  </a>
+            {/* Highlighted Verified Enriched Email Card */}
+            {currentEmail && (
+              <div className="flex items-center justify-between gap-2 bg-[#10B981]/15 border border-[#10B981]/40 p-2.5 rounded-xl shadow-sm my-1">
+                <div className="flex items-center gap-2 truncate">
+                  <div className="w-7 h-7 rounded-lg bg-[#10B981]/20 text-[#10B981] flex items-center justify-center shrink-0 border border-[#10B981]/30">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <div className="truncate">
+                    <span className="text-[#10B981] font-black uppercase text-[8px] tracking-wider block">Verified Enriched Email</span>
+                    <button 
+                      onClick={() => onOpenInbox ? onOpenInbox({ ...lead, email: currentEmail }) : null}
+                      className="text-slate-900 dark:text-white font-mono font-bold text-[11px] hover:text-[#10B981] hover:underline truncate block text-left cursor-pointer"
+                      title="Click to send email in app"
+                    >
+                      {currentEmail}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(currentEmail);
+                      setCopiedEmail(true);
+                      setTimeout(() => setCopiedEmail(false), 2000);
+                    }}
+                    className="px-2 py-1 bg-slate-200 dark:bg-zinc-800 hover:bg-slate-300 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 text-[9px] font-bold rounded-lg transition cursor-pointer"
+                    title="Copy email address"
+                  >
+                    {copiedEmail ? 'Copied!' : 'Copy'}
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (onOpenInbox) {
+                        onOpenInbox({ ...lead, email: currentEmail });
+                      }
+                    }}
+                    className="px-2.5 py-1 bg-[#10B981] hover:bg-[#059669] text-black font-extrabold text-[9px] uppercase tracking-wider rounded-lg transition cursor-pointer flex items-center gap-1 shadow-sm"
+                    title="Send email to prospect in app"
+                  >
+                    <Mail size={10} /> Send
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* Social Media Details (Instagram, Facebook, LinkedIn, Twitter) */}
+            {/* Social Media Details (Instagram, Facebook, LinkedIn, Twitter, YouTube, TikTok, WhatsApp) */}
             {(() => {
               const instagram = enrichResult?.socialLinks?.instagram || lead.socialLinks?.instagram || lead.socials?.instagram || lead.instagram || lead.instagramUrl;
               const facebook = enrichResult?.socialLinks?.facebook || lead.socialLinks?.facebook || lead.socials?.facebook || lead.facebook;
-              const linkedin = enrichResult?.socialLinks?.linkedin || lead.socialLinks?.linkedin || lead.socials?.linkedin || lead.linkedin;
+              const linkedin = enrichResult?.socialLinks?.linkedin || lead.socialLinks?.linkedin || lead.socials?.linkedin || lead.linkedin || lead.linkedinUrl;
               const twitter = enrichResult?.socialLinks?.twitter || lead.socialLinks?.twitter || lead.socials?.twitter || lead.twitter;
+              const youtube = enrichResult?.socialLinks?.youtube || lead.socialLinks?.youtube || lead.socials?.youtube || lead.youtube;
+              const tiktok = enrichResult?.socialLinks?.tiktok || lead.socialLinks?.tiktok || lead.socials?.tiktok || lead.tiktok;
+              const whatsapp = enrichResult?.socialLinks?.whatsapp || lead.socialLinks?.whatsapp || lead.whatsappPhone || (lead.phone && lead.phone.startsWith('06') ? `https://wa.me/33${lead.phone.substring(1)}` : null);
 
-              if (!instagram && !facebook && !linkedin && !twitter) return null;
+              if (!instagram && !facebook && !linkedin && !twitter && !youtube && !tiktok && !whatsapp) return null;
 
               return (
-                <div className="flex items-start gap-2 bg-slate-100/40 dark:bg-white/[0.02] p-2.5 rounded-xl">
+                <div className="flex items-start gap-2 bg-slate-100/40 dark:bg-white/[0.02] p-2.5 rounded-xl border border-slate-200/30 dark:border-white/[0.03]">
                   <div className="flex-1">
-                    <span className="text-slate-500 dark:text-zinc-300 font-bold uppercase text-[8px] tracking-wider block mb-1">Social Media Profiles</span>
+                    <span className="text-slate-500 dark:text-zinc-300 font-bold uppercase text-[8px] tracking-wider block mb-1">Social Media & Messaging</span>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {instagram && (
                         <a
@@ -377,6 +616,18 @@ export const LeadCard: React.FC<LeadCardProps> = ({
                         >
                           <Twitter className="w-3 h-3 text-zinc-300 shrink-0" />
                           <span className="truncate max-w-[120px]">Twitter / X</span>
+                        </a>
+                      )}
+                      {whatsapp && (
+                        <a
+                          href={whatsapp.startsWith('http') ? whatsapp : `https://wa.me/${whatsapp.replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 px-2 py-0.5 bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-500/40 text-emerald-300 rounded text-[10px] font-semibold transition"
+                          title="Open WhatsApp Direct Chat"
+                        >
+                          <MessageSquare className="w-3 h-3 text-emerald-400 shrink-0" />
+                          <span>WhatsApp</span>
                         </a>
                       )}
                     </div>
@@ -488,55 +739,59 @@ export const LeadCard: React.FC<LeadCardProps> = ({
             )}
           </div>
 
-          {/* NO WEBSITE NOTICE & WEBSITE BUILDER CALLOUT */}
-          {!hasRealWebsite && (
-            <div className="bg-pink-950/20 border border-pink-500/30 p-2.5 rounded-md">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-pink-300 font-extrabold text-[9px] tracking-wider uppercase flex items-center gap-1">
-                  <AlertTriangle size={11} className="text-pink-400 shrink-0" />
-                  {hasGoogleMapsOnly ? 'No Website (Google Maps Only)' : 'No Business Website'}
-                </span>
-                <button
-                  onClick={() => {
-                    if (onGenerateWebsite) onGenerateWebsite(lead);
-                    else setShowGenerator(true);
-                  }}
-                  className="px-2.5 py-1 bg-white hover:bg-zinc-200 text-black font-extrabold text-[8.5px] rounded uppercase tracking-wider transition cursor-pointer shrink-0 shadow flex items-center gap-1 border border-zinc-300"
-                >
-                  <Sparkles size={9} /> Build Site Now
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Playwriter Website Audit & Improvement Notes */}
+          {/* WEBSITE SHAPE & MODERNIZATION CALLOUT (Only shown after lead is enriched) */}
           {(() => {
-            const audit = enrichResult?.websiteAudit || lead.websiteAudit;
-            if (!audit) return null;
+            const isEnriched = lead.enriched || Boolean(enrichResult);
+            if (!isEnriched) return null;
 
-            return (
-              <div className={`p-2.5 rounded-md border font-sans text-[11px] ${
-                audit.needsRedesign 
-                  ? 'bg-pink-950/20 border-pink-500/30 text-pink-200' 
-                  : 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200'
-              }`}>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 font-bold text-[10px] tracking-wider uppercase">
-                    <Sparkles className="w-3.5 h-3.5 text-pink-400 shrink-0" />
-                    <span>{audit.needsRedesign ? '⚠️ Website Audit: Needs Redesign' : '✅ Website Audit: High Performing'}</span>
-                  </div>
-                  {audit.needsRedesign && (
+            const audit = enrichResult?.websiteAudit || lead.websiteAudit;
+            const isNoWebsite = !hasRealWebsite;
+            const isOutdated = isNoWebsite || audit?.needsRedesign || audit?.isOutdated || (audit?.score && audit?.score < 75);
+
+            if (!isOutdated && audit) {
+              return (
+                <div className="p-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-[10px]">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 font-bold text-[9.5px]">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span className="text-emerald-700 dark:text-emerald-300">Modern Website Active</span>
+                    </div>
                     <button
                       onClick={() => {
                         if (onGenerateWebsite) onGenerateWebsite(lead);
                         else setShowGenerator(true);
                       }}
-                      className="px-2.5 py-1 bg-white hover:bg-zinc-200 text-black font-extrabold text-[8.5px] rounded uppercase tracking-wider transition cursor-pointer shrink-0 shadow flex items-center gap-1 border border-zinc-300"
+                      className="px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[8.5px] rounded transition cursor-pointer shrink-0 flex items-center gap-1 shadow-sm"
                     >
-                      <Sparkles size={9} /> Remake New Site
+                      <Sparkles size={8} /> Preview Redesign
                     </button>
-                  )}
+                  </div>
                 </div>
+              );
+            }
+
+            return (
+              <div className="p-2.5 rounded-lg border border-blue-500/30 bg-blue-500/10 dark:bg-blue-950/20 text-slate-900 dark:text-blue-100 font-sans text-[10px] space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-blue-700 dark:text-blue-300 font-bold text-[9.5px] tracking-wide flex items-center gap-1.5">
+                    <AlertTriangle size={11} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                    {isNoWebsite ? 'No Website Found' : 'Website Needs Modernization'}
+                  </span>
+                  <button
+                    onClick={() => {
+                      if (onGenerateWebsite) onGenerateWebsite(lead);
+                      else setShowGenerator(true);
+                    }}
+                    className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[8.5px] rounded uppercase tracking-wider transition cursor-pointer shrink-0 flex items-center gap-1 shadow-sm"
+                    title="Generate modern website concept to pitch this prospect"
+                  >
+                    <Sparkles size={8} /> Pitch Site
+                  </button>
+                </div>
+
+                <p className="text-[9.5px] text-slate-700 dark:text-zinc-300 leading-tight">
+                  <span className="font-semibold text-blue-600 dark:text-blue-400">Pitch Strategy:</span> "Here's a modern, high-converting website concept created for {displayName}."
+                </p>
               </div>
             );
           })()}
@@ -546,14 +801,18 @@ export const LeadCard: React.FC<LeadCardProps> = ({
         <div className="pt-3.5 border-t border-[#1C1C1F] flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             {/* Email Button */}
-            {lead.email && (
-              <a 
-                href={`mailto:${lead.email}?subject=Quick Question&body=${encodeURIComponent(lead.pitch || '')}`}
+            {(currentEmail || lead.email) && (
+              <button 
+                onClick={() => {
+                  if (onOpenInbox) {
+                    onOpenInbox({ ...lead, email: currentEmail || lead.email });
+                  }
+                }}
                 className="p-1.5 bg-[#1C1C22] hover:bg-[#10B981] text-zinc-400 hover:text-white border border-[#27272A] hover:border-[#10B981] rounded transition cursor-pointer"
-                title="Send Outreach Email"
+                title={`Send Email to ${currentEmail || lead.email}`}
               >
                 <Mail size={12} />
-              </a>
+              </button>
             )}
 
             {/* LinkedIn Button */}
@@ -575,7 +834,7 @@ export const LeadCard: React.FC<LeadCardProps> = ({
                 href={`https://wa.me/${lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(
                   lead.pitch && lead.pitch.length > 20
                     ? lead.pitch
-                    : `Bonjour ${lead.name || lead.businessName || ''}, je suis tombé sur ${lead.businessName || lead.name || 'votre établissement'} et j'ai remarqué que votre site web pourrait bénéficier d'une modernisation pour booster vos conversions clients. Seriez-vous ouvert à l'idée de découvrir une maquette gratuite ?`
+                    : `Bonjour ${formatBusinessName(lead.name || lead.businessName || '')}, je suis tombé sur ${formatBusinessName(lead.businessName || lead.name || 'votre établissement')} et j'ai remarqué que votre site web pourrait bénéficier d'une modernisation pour booster vos conversions clients. Seriez-vous ouvert à l'idée de découvrir une maquette gratuite ?`
                 )}`}
                 target="_blank" 
                 rel="noreferrer" 

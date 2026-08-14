@@ -10,7 +10,35 @@ export interface JinaScrapeResult {
   emails: string[];
   phones: string[];
   socialLinks: Record<string, string>;
+  whatsapp?: string;
+  address?: string;
   error?: string;
+}
+
+export function extractAddressFromMarkdown(markdown: string): string {
+  if (!markdown) return '';
+  // Match French addresses (e.g. 12 rue de la Paix, 75002 Paris)
+  const frAddressMatch = markdown.match(/\b\d{1,4}\s+(?:rue|ave|avenue|bd|boulevard|allée|chemin|route|pl|place|cours|impasse|quai|r)\s+[^,.\n]{3,50}\s+\d{5}\s+[^,.\n]{2,30}/i);
+  if (frAddressMatch) return frAddressMatch[0].trim();
+
+  // General fallback for postcode city patterns (e.g., 75001 Paris or Austin, TX 78701)
+  const zipCityMatch = markdown.match(/(?:\b\d{1,4}\s+[^,.\n]{3,40}\s+,?\s*)?\b\d{5}\s+[A-Za-z\s-]{2,30}/);
+  if (zipCityMatch) return zipCityMatch[0].trim();
+
+  const usAddressMatch = markdown.match(/\b\d{1,4}\s+[^,.\n]{3,40}\s+(?:street|st|road|rd|avenue|ave|court|ct|boulevard|blvd|lane|ln|drive|dr|way|circle|cir)\b[^,.\n]*\b[A-Za-z]{2}\s+\d{5}/i);
+  if (usAddressMatch) return usAddressMatch[0].trim();
+
+  return '';
+}
+
+export function extractWhatsappFromMarkdown(markdown: string): string {
+  if (!markdown) return '';
+  // Match wa.me link or whatsapp explicitly
+  const waMatch = markdown.match(/wa\.me\/([0-9]+)/i) || markdown.match(/api\.whatsapp\.com\/send\?phone=([0-9]+)/i);
+  if (waMatch && waMatch[1]) {
+    return `https://wa.me/${waMatch[1]}`;
+  }
+  return '';
 }
 
 export interface JinaSearchResult {
@@ -68,29 +96,33 @@ export function extractPhonesFromMarkdown(markdown: string, contextHint: string 
 
   const found: string[] = [];
 
-  // 1. Explicit tel: links in markdown or html
-  const telMatches = [...markdown.matchAll(/(?:tel:|phone:)\s*([+\d\s().-]{7,20})/gi)].map(m => m[1]);
-  for (const tel of telMatches) {
-    const digits = tel.replace(/\D/g, '');
+  // 1. Explicit tel: links and labeled phone fields in markdown or html
+  const labelMatches = [...markdown.matchAll(/(?:tel:|phone:|tél:|téléphone:|call:|contact:|mobile:|fixe:|n°|numéro)\s*[:.]?\s*([+\d\s()./-]{8,22})/gi)].map(m => m[1]);
+  for (const match of labelMatches) {
+    const digits = match.replace(/\D/g, '');
     if (digits.length >= 8 && digits.length <= 15) {
-      found.push(tel.trim());
+      found.push(match.trim());
     }
   }
 
-  // 2. French numbers (e.g. 01 76 21 65 93 or +33 1 76 21 65 93)
-  const frMatches = [...markdown.matchAll(/(?:(?:\+33|0033)\s?|0)[1-9](?:[\s.-]?\d{2}){4}/g)].map(m => m[0]);
+  // 2. French numbers (e.g. 01 76 21 65 93, 01.76.21.65.93, 01-76-21-65-93, 01/76/21/65/93, or +33 1 76 21 65 93)
+  const frMatches = [...markdown.matchAll(/(?:(?:\+33|0033)\s?|0)[1-9](?:[\s./-]?\d{2}){4}/g)].map(m => m[0]);
   found.push(...frMatches);
 
   // 3. UK numbers (e.g. +44 20 7946 0958 or 020 7946 0958)
-  const ukMatches = [...markdown.matchAll(/(?:(?:\+44|0044)\s?|0)[1-9]\d{1,4}[\s.-]?\d{3,4}[\s.-]?\d{3,4}/g)].map(m => m[0]);
+  const ukMatches = [...markdown.matchAll(/(?:(?:\+44|0044)\s?|0)[1-9]\d{1,4}[\s./-]?\d{3,4}[\s./-]?\d{3,4}/g)].map(m => m[0]);
   found.push(...ukMatches);
 
-  // 4. US / Canada numbers (e.g. +1 305-555-0123 or (305) 555-0123)
-  const usMatches = [...markdown.matchAll(/(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g)].map(m => m[0]);
+  // 4. European numbers (e.g., Spain +34, Belgium +32, Switzerland +41, Italy +39, Germany +49)
+  const euMatches = [...markdown.matchAll(/(?:(?:\+(?:34|32|41|39|49|31|351|43))|00(?:34|32|41|39|49|31|351|43))\s?[1-9](?:[\s./-]?\d{2,4}){3,4}/g)].map(m => m[0]);
+  found.push(...euMatches);
+
+  // 5. US / Canada numbers (e.g. +1 305-555-0123 or (305) 555-0123)
+  const usMatches = [...markdown.matchAll(/(?:\+?1[\s./-]?)?\(?\d{3}\)?[\s./-]?\d{3}[\s./-]?\d{4}/g)].map(m => m[0]);
   found.push(...usMatches);
 
-  // 5. General international format (+33123456789, +49301234567, etc.)
-  const intlMatches = [...markdown.matchAll(/\+(?:[0-9][\s.-]?){8,15}\d/g)].map(m => m[0]);
+  // 6. General international format (+33123456789, +49301234567, etc.)
+  const intlMatches = [...markdown.matchAll(/\+(?:[0-9][\s./-]?){8,15}\d/g)].map(m => m[0]);
   found.push(...intlMatches);
 
   // Filter and format found numbers
@@ -114,8 +146,7 @@ export function extractPhonesFromMarkdown(markdown: string, contextHint: string 
 }
 
 /**
- * Scrape any web URL directly into clean markdown & extracted contact details using Jina AI Reader
- * Endpoint: https://r.jina.ai/<url>
+ * Scrape any web URL directly into clean markdown & extracted contact details
  */
 export async function scrapeUrlWithJina(
   targetUrl: string,
@@ -136,128 +167,111 @@ export async function scrapeUrlWithJina(
     };
   }
 
-  const jinaEndpoint = `https://r.jina.ai/${cleanUrl}`;
-  const headers: Record<string, string> = {
-    'Accept': 'application/json',
-    'X-With-Generated-Alt': 'true',
-    'X-With-Links-Summary': 'true',
-    'X-No-Cache': 'true',
-    'User-Agent': 'Mozilla/5.0 (Compatible; JinaReaderClient/1.0)'
-  };
-
-  if (options.apiKey || process.env.JINA_API_KEY) {
-    headers['Authorization'] = `Bearer ${options.apiKey || process.env.JINA_API_KEY}`;
-  }
-
+  // 1. Try Jina Reader API proxy by default
   try {
-    const response = await axios.get(jinaEndpoint, {
+    const jinaProxyUrl = `https://r.jina.ai/${cleanUrl}`;
+    const headers: Record<string, string> = {
+      'Accept': 'text/plain',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    };
+    const token = options.apiKey || process.env.JINA_API_KEY;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const jinaRes = await axios.get(jinaProxyUrl, {
       headers,
-      timeout: options.timeoutMs || 12000
+      timeout: options.timeoutMs || 15000
     });
 
-    const data = response.data?.data || response.data || {};
-    const markdown = data.content || data.markdown || (typeof response.data === 'string' ? response.data : '');
-    const title = data.title || '';
-    const description = data.description || '';
+    const markdown = typeof jinaRes.data === 'string' ? jinaRes.data : JSON.stringify(jinaRes.data);
+    
+    // Extract title from markdown
+    let title = cleanUrl;
+    const titleMatch = markdown.match(/Title:\s*(.*)/i) || markdown.match(/^#\s*(.*)/m);
+    if (titleMatch && titleMatch[1]) {
+      title = titleMatch[1].trim();
+    }
 
     const uniqueEmails = extractEmailsFromMarkdown(markdown);
     const uniquePhones = extractPhonesFromMarkdown(markdown, cleanUrl);
 
-    // Extract social media links
     const socialLinks: Record<string, string> = {};
     const linkMatches = [...markdown.matchAll(/https?:\/\/(?:www\.)?(linkedin|twitter|x|facebook|instagram|youtube|tiktok)\.com\/[A-Za-z0-9_.-]+/gi)];
     for (const match of linkMatches) {
       const platform = match[1].toLowerCase();
-      if (!socialLinks[platform]) {
-        socialLinks[platform] = match[0];
-      }
+      if (!socialLinks[platform]) socialLinks[platform] = match[0];
     }
+
+    const address = extractAddressFromMarkdown(markdown);
+    const whatsapp = extractWhatsappFromMarkdown(markdown);
 
     return {
       success: true,
       url: cleanUrl,
       title,
-      description,
-      markdown: markdown.slice(0, 30000), // Cap at 30k chars
+      description: markdown.slice(0, 500),
+      markdown: markdown,
       emails: uniqueEmails,
       phones: uniquePhones,
-      socialLinks
+      socialLinks,
+      address,
+      whatsapp
     };
-  } catch (err: any) {
-    const is402 = err?.response?.status === 402 || err?.message?.includes('402');
-    if (is402) {
-      console.log(`[JinaReader] Jina API returned 402 (Payment Required) for ${cleanUrl} - executing direct HTTP website scrape fallback...`);
-    }
-
-    // Fallback 1: simple text request via Jina without JSON headers
+  } catch (jinaErr: any) {
+    console.warn(`[scrapeUrlWithJina] Jina Reader API failed for ${cleanUrl}, running direct fallback:`, jinaErr.message);
+    
+    // 2. Direct Fallback HTTP fetch
     try {
-      const fallbackRes = await axios.get(jinaEndpoint, {
-        headers: { 'X-No-Cache': 'true' },
-        timeout: options.timeoutMs || 8000
+      const directRes = await axios.get(cleanUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        },
+        timeout: options.timeoutMs || 10000
       });
-      const text = typeof fallbackRes.data === 'string' ? fallbackRes.data : JSON.stringify(fallbackRes.data);
+      const html = typeof directRes.data === 'string' ? directRes.data : JSON.stringify(directRes.data);
+      const cleanText = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ');
+      const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      const title = titleMatch ? titleMatch[1].trim() : cleanUrl;
 
-      const uniqueEmails = extractEmailsFromMarkdown(text);
-      const uniquePhones = extractPhonesFromMarkdown(text, cleanUrl);
+      const uniqueEmails = extractEmailsFromMarkdown(html + '\n' + cleanText);
+      const uniquePhones = extractPhonesFromMarkdown(html + '\n' + cleanText, cleanUrl);
+
+      const socialLinks: Record<string, string> = {};
+      const linkMatches = [...html.matchAll(/https?:\/\/(?:www\.)?(linkedin|twitter|x|facebook|instagram|youtube|tiktok)\.com\/[A-Za-z0-9_.-]+/gi)];
+      for (const match of linkMatches) {
+        const platform = match[1].toLowerCase();
+        if (!socialLinks[platform]) socialLinks[platform] = match[0];
+      }
+
+      const address = extractAddressFromMarkdown(html + '\n' + cleanText);
+      const whatsapp = extractWhatsappFromMarkdown(html + '\n' + cleanText);
 
       return {
         success: true,
         url: cleanUrl,
-        title: cleanUrl,
-        description: '',
-        markdown: text.slice(0, 20000),
+        title,
+        description: cleanText.slice(0, 300),
+        markdown: cleanText.slice(0, 20000),
         emails: uniqueEmails,
         phones: uniquePhones,
-        socialLinks: {}
+        socialLinks,
+        address,
+        whatsapp
       };
-    } catch (fallbackErr: any) {
-      // Fallback 2: Direct HTTP fetch of target site HTML (bypasses Jina completely if 402/down)
-      try {
-        const directRes = await axios.get(cleanUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-          },
-          timeout: options.timeoutMs || 8000
-        });
-        const html = typeof directRes.data === 'string' ? directRes.data : '';
-        const cleanText = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ');
-        const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-        const title = titleMatch ? titleMatch[1].trim() : cleanUrl;
-
-        const uniqueEmails = extractEmailsFromMarkdown(html + '\n' + cleanText);
-        const uniquePhones = extractPhonesFromMarkdown(html + '\n' + cleanText, cleanUrl);
-
-        const socialLinks: Record<string, string> = {};
-        const linkMatches = [...html.matchAll(/https?:\/\/(?:www\.)?(linkedin|twitter|x|facebook|instagram|youtube|tiktok)\.com\/[A-Za-z0-9_.-]+/gi)];
-        for (const match of linkMatches) {
-          const platform = match[1].toLowerCase();
-          if (!socialLinks[platform]) socialLinks[platform] = match[0];
-        }
-
-        return {
-          success: true,
-          url: cleanUrl,
-          title,
-          description: cleanText.slice(0, 300),
-          markdown: cleanText.slice(0, 20000),
-          emails: uniqueEmails,
-          phones: uniquePhones,
-          socialLinks
-        };
-      } catch (directErr: any) {
-        return {
-          success: false,
-          url: cleanUrl,
-          title: '',
-          description: '',
-          markdown: '',
-          emails: [],
-          phones: [],
-          socialLinks: {},
-          error: directErr?.message || fallbackErr?.message || err?.message || 'Failed to scrape URL'
-        };
-      }
+    } catch (directErr: any) {
+      return {
+        success: false,
+        url: cleanUrl,
+        title: '',
+        description: '',
+        markdown: '',
+        emails: [],
+        phones: [],
+        socialLinks: {},
+        error: directErr?.message || 'Failed to scrape target URL'
+      };
     }
   }
 }
@@ -274,7 +288,7 @@ export async function searchWebDDG(query: string): Promise<JinaSearchResult[]> {
     .replace(/\s+/g, ' ')
     .trim();
   try {
-    console.log('[DDG Search] Querying DuckDuckGo Lite for:', cleanQuery);
+    console.log('[Direct DDG Search] Querying DuckDuckGo Lite for:', cleanQuery);
     const res = await axios.post('https://lite.duckduckgo.com/lite/', 'q=' + encodeURIComponent(cleanQuery), {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -284,7 +298,6 @@ export async function searchWebDDG(query: string): Promise<JinaSearchResult[]> {
       timeout: 9000
     });
     const html = res.data || '';
-    console.log('[DDG Search] HTML received length:', html.length, 'Contains result-link:', html.includes('result-link'));
     const results: JinaSearchResult[] = [];
     
     const anchors = [...html.matchAll(/<a[^>]*class=['\"]result-link['\"][^>]*>([\s\S]*?)<\/a>/gi)];
@@ -304,56 +317,22 @@ export async function searchWebDDG(query: string): Promise<JinaSearchResult[]> {
         results.push({ title, url, description: snippet, content: `${title}\n${snippet}\nURL: ${url}` });
       }
     }
-    console.log('[DDG Search] Extracted results count:', results.length);
     return results;
   } catch (err: any) {
-    console.warn('[DDG Search] Search fallback error detail:', err?.response?.status || err?.message || err);
+    console.warn('[Direct Web Search] Search error detail:', err?.response?.status || err?.message || err);
     return [];
   }
 }
 
 /**
- * Fast Web Search via Jina AI Search Reader with automatic DuckDuckGo fallback
- * Endpoint: https://s.jina.ai/<query>
+ * Fast Direct Web Search
  */
 export async function searchWithJina(
   query: string,
   options: { apiKey?: string; timeoutMs?: number } = {}
 ): Promise<JinaSearchResult[]> {
-  if (!query.trim()) return [];
-
-  const searchEndpoint = `https://s.jina.ai/${encodeURIComponent(query.trim())}`;
-  const headers: Record<string, string> = {
-    'Accept': 'application/json',
-    'X-No-Cache': 'true',
-    'User-Agent': 'Mozilla/5.0 (Compatible; JinaSearchClient/1.0)'
-  };
-
-  if (options.apiKey || process.env.JINA_API_KEY) {
-    headers['Authorization'] = `Bearer ${options.apiKey || process.env.JINA_API_KEY}`;
-  }
-
-  try {
-    const res = await axios.get(searchEndpoint, { headers, timeout: options.timeoutMs || 8000 });
-    const items = res.data?.data || [];
-    if (Array.isArray(items) && items.length > 0) {
-      return items.map((item: any) => ({
-        title: item.title || '',
-        url: item.url || '',
-        description: item.description || '',
-        content: item.content || item.markdown || ''
-      }));
-    }
-  } catch (err: any) {
-    const is402 = err?.response?.status === 402 || err?.message?.includes('402');
-    if (is402) {
-      console.log(`[JinaSearch] Jina API returned 402 Payment Required - falling back seamlessly to web search engine for query: "${query.trim()}"`);
-    } else {
-      console.log('[JinaSearch] Jina search note:', err?.message || err);
-    }
-  }
-
-  // Fallback to DuckDuckGo search if Jina fails or returns 0 results
+  if (!query || !query.trim()) return [];
+  // Directly execute search engine query without third-party Jina endpoint
   return await searchWebDDG(query);
 }
 

@@ -1,11 +1,15 @@
 import { buildPremiumDynamicTemplate } from './templates/premiumDynamicTemplate.js';
 import { buildLuxuryTemplate } from './templates/luxuryTemplate.js';
+import { buildCinematicTemplate } from './templates/cinematicTemplate.js';
 import {
   buildBehanceConstructionTemplate,
   buildBehanceCleaningTemplate,
   buildBehancePlumbingTemplate,
   buildBehanceRestaurantTemplate
 } from './templates/behanceTemplates.js';
+import { buildTasteMinimalTemplate, buildTasteEditorialTemplate } from './templates/tasteTemplate.js';
+import { buildDrivingSchoolTemplate } from './templates/drivingSchoolTemplate.js';
+import { buildOutlandHomesTemplate } from './templates/outlandHomesTemplate.js';
 
 export const DEFAULT_GALLERY: Record<string, string[]> = {
   restaurant: [
@@ -215,6 +219,13 @@ export interface SiteContent {
   photos?: string[];
   uploadedImages?: string[];
   customCss?: string;
+  heroVideo?: string;
+  section2Video?: string;
+  beforeAfterTitle?: string;
+  beforeAfterHeadline?: string;
+  beforeAfterDescription?: string;
+  beforeAfterBullets?: string[];
+  beforeAfterBtnLabel?: string;
 }
 
 export function getSectorKey(sectorStr: string = ''): string {
@@ -690,7 +701,18 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
   const nicheKey = (content as any).nicheOverride || detectNicheKey(lead);
   const lang = detectLanguage(lead);
 
-  // Behance Portfolio Template Styles
+  // 1. Explicit templateStyle checks (highest priority)
+  if (content.templateStyle === 'outland-homes' || content.templateStyle === 'outland' || content.templateStyle === 'airbnb' || content.templateStyle === 'main-outland' || content.templateStyle === 'main-template') {
+    return buildOutlandHomesTemplate(lead, content, nicheKey);
+  }
+  if (content.templateStyle === 'cinematic-luxury' || (content.templateStyle && content.templateStyle.includes('cinematic'))) {
+    return buildCinematicTemplate(lead, content, nicheKey);
+  }
+  if (content.templateStyle === 'driving-school' || content.templateStyle === 'autoecole' || content.templateStyle === 'main-neumorphic' || content.templateStyle === 'behance-cutout') {
+    return buildDrivingSchoolTemplate(lead, content, nicheKey);
+  }
+
+  // 2. Behance Portfolio Template Styles
   if (content.templateStyle === 'behance-construction') {
     return buildBehanceConstructionTemplate(lead, content, lang);
   }
@@ -704,9 +726,22 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
     return buildBehanceRestaurantTemplate(lead, content, lang);
   }
 
+  // 3. Leon Taste-Skill Premium Layout Templates
+  if (content.templateStyle === 'taste-minimal') {
+    return buildTasteMinimalTemplate(lead, content, lang);
+  }
+  if (content.templateStyle === 'taste-editorial') {
+    return buildTasteEditorialTemplate(lead, content, lang);
+  }
   if (content.templateStyle === 'luxury-serif') {
     return buildLuxuryTemplate(lead, content, nicheKey);
   }
+
+  // 4. Fallback niche checks if templateStyle is unassigned
+  if (nicheKey === 'autoecole' || nicheKey === 'driving_school' || nicheKey === 'drivingschool') {
+    return buildDrivingSchoolTemplate(lead, content, nicheKey);
+  }
+
   if (content.templateStyle !== 'classic') {
     return buildPremiumDynamicTemplate(lead, content, nicheKey);
   }
@@ -814,11 +849,17 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
       case 'hero':
         return `
         <!-- HERO SECTION -->
-        <section class="relative py-24 lg:py-32 bg-slate-950 text-white overflow-hidden">
+        <section class="relative py-24 lg:py-32 bg-slate-950 text-white overflow-hidden min-h-[85vh] flex items-center">
+          ${content.heroVideo ? `
+          <video autoplay loop muted playsinline class="absolute inset-0 w-full h-full object-cover z-0 opacity-40">
+            <source src="${content.heroVideo}" type="video/mp4">
+          </video>
+          ` : `
           <div class="absolute inset-0 z-0 opacity-25 bg-cover bg-center" style="background-image: url('${heroBgImage}');"></div>
-          <div class="absolute inset-0 z-0 bg-gradient-to-r from-slate-950 via-slate-950/90 to-slate-950/60"></div>
+          `}
+          <div class="absolute inset-0 z-0 bg-gradient-to-r from-slate-950 via-slate-950/90 to-slate-950/45"></div>
 
-          <div class="max-w-7xl mx-auto px-6 relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+          <div class="max-w-7xl mx-auto px-6 relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center w-full">
             <div class="lg:col-span-7 text-left space-y-6">
               <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm" style="background-color: ${accentColor}26; color: ${accentColor}; border: 1px solid ${accentColor}40;">
                 <span class="w-1.5 h-1.5 rounded-full" style="background-color: ${accentColor}"></span>
@@ -873,6 +914,70 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
             </div>
           </div>
         </section>`;
+
+      case 'beforeafter': {
+        const transVideo = content.section2Video || "https://assets.mixkit.co/videos/preview/mixkit-decorating-and-renovating-a-room-41580-large.mp4";
+        const transTitle = content.beforeAfterTitle || "--- ACCÈS AUX COULISSES";
+        const transHeadline = content.beforeAfterHeadline || "NOUS CONCEVONS. <span class='text-amber-400'>Puis nous réalisons.</span>";
+        const transDescription = content.beforeAfterDescription || `Chez ${companyName}, chaque projet à ${city || 'votre région'} est mené de main de maître. Nous étudions l'existant, éliminons les défauts et concevons des installations modernes et esthétiques.`;
+        const transBullets = content.beforeAfterBullets || [
+          "Visite conseil gratuite et étude technique",
+          "Conception sur mesure par notre bureau d'étude",
+          "Travaux exécutés par nos compagnons compagnonnés",
+          "Zéro sous-traitance et suivi de chantier transparent"
+        ];
+        const transBtnLabel = content.beforeAfterBtnLabel || `Faire équipe avec ${companyName}`;
+
+        return `
+        <!-- BEFORE & AFTER TRANSFORMATION SHOWCASE -->
+        <section class="py-24 ${isDarkTheme ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-900'} border-b border-slate-800/30" id="transformation">
+          <div class="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-12 gap-16 items-center">
+            
+            <!-- Left Column: Video Transformation Showcase -->
+            <div class="lg:col-span-6 relative">
+              <div class="relative rounded-3xl overflow-hidden shadow-2xl border border-white/10 aspect-video group bg-black">
+                <video autoplay loop muted playsinline class="w-full h-full object-cover">
+                  <source src="${transVideo}" type="video/mp4">
+                </video>
+                <div class="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent"></div>
+                <div class="absolute top-4 left-4 px-4 py-1.5 rounded-full bg-slate-900/95 border border-amber-500/30 text-amber-400 text-[10px] font-bold tracking-widest uppercase flex items-center gap-1.5 shadow-md">
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                  TRANSFORMATION EN DIRECT
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Column: Conversion Copy -->
+            <div class="lg:col-span-6 space-y-6 text-left">
+              <span class="text-xs font-bold uppercase tracking-widest text-amber-500 block">${transTitle}</span>
+              <h2 class="text-3xl sm:text-5xl font-black leading-tight tracking-tight">
+                ${transHeadline}
+              </h2>
+              <p class="${isDarkTheme ? 'text-slate-300' : 'text-slate-600'} text-base leading-relaxed">
+                ${transDescription}
+              </p>
+
+              <div class="space-y-3 pt-2">
+                ${transBullets.map(bullet => `
+                  <div class="flex items-start gap-3 text-sm font-semibold">
+                    <div class="w-5 h-5 rounded-full bg-amber-500/25 text-amber-400 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">✓</div>
+                    <span class="${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}">${bullet}</span>
+                  </div>
+                `).join('')}
+              </div>
+
+              <div class="pt-4">
+                <a href="#devis" class="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl border-2 border-amber-500 text-amber-500 hover:bg-amber-500 hover:text-black font-bold text-xs uppercase tracking-widest transition-all">
+                  <span>${transBtnLabel}</span>
+                  <span>→</span>
+                </a>
+              </div>
+            </div>
+
+          </div>
+        </section>
+        `;
+      }
 
       case 'about':
         return `
@@ -1180,10 +1285,15 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
   };
 
   // Determine section layout order
-  const defaultLayout = ['hero', 'about', 'services', 'portfolio', 'whyus', 'steps', 'reviews', 'faq', 'devis', 'map'];
-  const layout = (content.layoutOrder && content.layoutOrder.length > 0)
-    ? content.layoutOrder
-    : defaultLayout;
+  const defaultLayout = ['hero', 'beforeafter', 'about', 'services', 'portfolio', 'whyus', 'steps', 'reviews', 'faq', 'devis', 'map'];
+  let layout = (content.layoutOrder && content.layoutOrder.length > 0)
+    ? [...content.layoutOrder]
+    : [...defaultLayout];
+
+  // Guarantee that map/location is always present on all templates
+  if (!layout.includes('map') && !layout.includes('location')) {
+    layout.push('map');
+  }
 
   const renderedBodySections = layout.map(sec => renderSection(sec)).join('\n');
 
@@ -1309,6 +1419,24 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
     </div>
   </footer>
 
+  <script>
+    // Force play for video backgrounds on interaction / load
+    document.addEventListener('DOMContentLoaded', function() {
+      var vids = document.querySelectorAll('video');
+      vids.forEach(function(video) {
+        video.play().catch(function(err) {
+          console.log('Video autoplay blocked:', err);
+          var playOnInteract = function() {
+            video.play().catch(function() {});
+            document.removeEventListener('click', playOnInteract);
+            document.removeEventListener('touchstart', playOnInteract);
+          };
+          document.addEventListener('click', playOnInteract);
+          document.addEventListener('touchstart', playOnInteract);
+        });
+      });
+    });
+  </script>
 </body>
 </html>`;
 }

@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { db } from '../firebase-client-wrapper';
 import { callAI } from '../services/aiService';
 import { formatPhone } from '../services/firebase';
-import { scrapeOpenStreetMapLeads } from '../services/openStreetMapScraper';
 import { trySelectorWithHeal } from '../services/autoHeal';
 
 const delay = (min: number, max: number = min) => new Promise(r => setTimeout(r, Math.floor(Math.random() * (max - min + 1)) + min));
@@ -131,11 +130,11 @@ export default async function handler(req: any, res: any) {
     const initialTask = {
       taskId,
       taskType: 'google_maps_scrape',
-      label: `OpenStreetMap Scrape [${cleanedQuery} in ${city}]`,
+      label: `Google Maps Scrape [${cleanedQuery} in ${city}]`,
       config: { query: cleanedQuery, city, count: targetCount },
       status: 'running',
       step: 'discovering',
-      description: `Querying OpenStreetMap global database for ${cleanedQuery} in ${city}...`,
+      description: `Querying local databases for ${cleanedQuery} in ${city}...`,
       leadsCount: 0,
       progress: 0,
       total: targetCount,
@@ -214,14 +213,14 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({ success: true, taskId, savedCount });
 
   } catch (err: any) {
-    console.error('OpenStreetMap task error:', err);
+    console.error('Google Maps task error:', err);
     const errMsg = err?.message || String(err);
     await updateFirestore({
       status: 'failed',
       step: 'error',
       description: errMsg
     });
-    await logAction(`OpenStreetMap scraping error: ${errMsg}`, 'error');
+    await logAction(`Google Maps scraping error: ${errMsg}`, 'error');
     broadcastUpdate('task_error', { status: 'failed', error: errMsg });
     return res.status(500).json({ error: errMsg });
   }

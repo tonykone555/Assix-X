@@ -252,7 +252,7 @@ Return JSON ONLY:
 
 /**
  * Fast Real Google Maps / Search Scraper
- * Uses OpenStreetMap + DuckDuckGo Real Web Search + Jina AI Reader with ZERO synthetic/fake data.
+ * Uses Direct Web Search & HTML Scraping Engine with ZERO synthetic/fake data.
  */
 export async function scrapeGoogleMapsSearchFast(
   searchTerm: string,
@@ -272,52 +272,6 @@ export async function scrapeGoogleMapsSearchFast(
 
   const rawLeads: { businessName: string; company: string; phone: string; website: string; email: string; address: string; city: string; category: string }[] = [];
   const seen = new Set<string>();
-
-  // 1. OpenStreetMap Discovery (Real spatial mapped places)
-  try {
-    const q = `${cleanTerm} ${cleanLoc}`.trim();
-    const nomRes = await axios.get('https://nominatim.openstreetmap.org/search', {
-      params: { q, format: 'json', addressdetails: 1, extratags: 1, limit: Math.min(targetCount * 2, 50) },
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AssixPlatform/1.0' },
-      timeout: 3500
-    });
-
-    if (Array.isArray(nomRes.data)) {
-      for (const item of nomRes.data) {
-        if (rawLeads.length >= targetCount) break;
-        const extra = item.extratags || {};
-        const addr = item.address || {};
-        const name = item.name || extra.name || extra.brand || (item.display_name ? item.display_name.split(',')[0] : '');
-
-        if (!name || seen.has(name.toLowerCase().trim())) continue;
-
-        let rawPhone = extra.phone || extra['contact:phone'] || extra['phone:mobile'] || '';
-        let website = cleanWebUrl(extra.website || extra['contact:website'] || extra.url || '');
-        let email = extra.email || extra['contact:email'] || '';
-
-        const street = addr.road || addr.pedestrian || '';
-        const houseNum = addr.house_number || '';
-        const foundCity = addr.city || addr.town || cleanLoc;
-        const fullAddress = [houseNum, street, foundCity, addr.postcode].filter(Boolean).join(', ') || item.display_name || cleanLoc;
-
-        if (options.noWebsiteOnly && website) continue;
-
-        seen.add(name.toLowerCase().trim());
-        rawLeads.push({
-          businessName: name,
-          company: name,
-          phone: '', // Clean empty phone during DOM discovery; populated during Website Enrichment
-          website: website,
-          email: email,
-          address: fullAddress,
-          city: foundCity || cleanLoc,
-          category: extra.amenity || extra.shop || cleanTerm
-        });
-      }
-    }
-  } catch (err: any) {
-    if (taskId) await logAction(taskId, `Directory spatial search note: ${err.message || err}`, 'warning').catch(() => {});
-  }
 
   // 2. DuckDuckGo Real Web Search Discovery if we need more real places
   if (rawLeads.length < targetCount) {

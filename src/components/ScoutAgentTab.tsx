@@ -242,7 +242,7 @@ export default function ScoutAgentTab({ serverUrl = '' }: ScoutAgentTabProps) {
             <Terminal className="w-3.5 h-3.5 text-indigo-400" /> yt-dlp & gh Installed
           </span>
           <span className="px-2.5 py-1 text-xs bg-[#1E1E26] border border-[#27272A] rounded-md text-[#A1A1AA] flex items-center gap-1.5">
-            <Globe className="w-3.5 h-3.5 text-cyan-400" /> r.jina.ai & Overpass Active
+            <Globe className="w-3.5 h-3.5 text-cyan-400" /> Direct Web Reader & Overpass Active
           </span>
         </div>
       </div>
@@ -268,7 +268,7 @@ export default function ScoutAgentTab({ serverUrl = '' }: ScoutAgentTabProps) {
               : 'text-[#A1A1AA] hover:text-white hover:bg-[#1E1E28]'
           }`}
         >
-          <FileText className="w-3.5 h-3.5 text-cyan-400" /> Jina Reader
+          <FileText className="w-3.5 h-3.5 text-cyan-400" /> Direct Web Reader
         </button>
 
         <button
@@ -312,7 +312,7 @@ export default function ScoutAgentTab({ serverUrl = '' }: ScoutAgentTabProps) {
               : 'text-[#A1A1AA] hover:text-white hover:bg-[#1E1E28]'
           }`}
         >
-          <MapPin className="w-3.5 h-3.5 text-rose-400" /> Overpass POI Engine
+          <MapPin className="w-3.5 h-3.5 text-rose-400" /> Local Business Search
         </button>
 
         <button
@@ -431,7 +431,7 @@ export default function ScoutAgentTab({ serverUrl = '' }: ScoutAgentTabProps) {
                 {scoutResult.overpassPoiData && (
                   <div className="p-4 bg-[#14141E] border border-[#27272A] rounded-xl space-y-3">
                     <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5" /> Overpass OpenStreetMap POIs ({scoutResult.overpassPoiData.length})
+                      <MapPin className="w-3.5 h-3.5" /> Local Business Search ({scoutResult.overpassPoiData.length})
                     </h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       {scoutResult.overpassPoiData.map((poi: any, idx: number) => (
@@ -484,11 +484,11 @@ export default function ScoutAgentTab({ serverUrl = '' }: ScoutAgentTabProps) {
                   </div>
                 )}
 
-                {/* Jina Web Markdown Content */}
+                {/* Web Reader Content */}
                 {scoutResult.jinaWebMarkdown && (
                   <div className="p-4 bg-[#14141E] border border-[#27272A] rounded-xl space-y-3">
                     <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5" /> Jina Reader Web Content
+                      <FileText className="w-3.5 h-3.5" /> Direct Web Content
                     </h4>
                     <div className="max-h-64 overflow-y-auto p-3 bg-[#050508] border border-[#27272A] rounded-lg font-mono text-[11px] text-[#D4D4D8] whitespace-pre-wrap">
                       {scoutResult.jinaWebMarkdown}
@@ -500,12 +500,12 @@ export default function ScoutAgentTab({ serverUrl = '' }: ScoutAgentTabProps) {
           </div>
         )}
 
-        {/* SUBTAB 2: Jina Reader */}
+        {/* SUBTAB 2: Web Reader */}
         {activeSubTab === 'jina' && (
           <div className="space-y-4">
             <div className="p-4 rounded-xl bg-[#14141E] border border-[#27272A] space-y-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <FileText className="w-4 h-4 text-cyan-400" /> Jina Reader Engine (r.jina.ai)
+                <FileText className="w-4 h-4 text-cyan-400" /> Direct Web Reader Engine
               </h3>
               <p className="text-xs text-[#71717A]">
                 Converts any web URL into LLM-friendly clean markdown, stripping ads and resolving client-side rendering.
@@ -706,10 +706,10 @@ export default function ScoutAgentTab({ serverUrl = '' }: ScoutAgentTabProps) {
           <div className="space-y-4">
             <div className="p-4 rounded-xl bg-[#14141E] border border-[#27272A] space-y-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-rose-400" /> OpenStreetMap Overpass Turbo POI Engine
+                <MapPin className="w-4 h-4 text-rose-400" /> Local Business Search
               </h3>
               <p className="text-xs text-[#71717A]">
-                Queries OpenStreetMap Overpass API for exact business amenities, phone numbers, addresses, and coordinates.
+                Queries web search indices and public local directories for exact business listings, phone numbers, and addresses.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <input
@@ -732,7 +732,7 @@ export default function ScoutAgentTab({ serverUrl = '' }: ScoutAgentTabProps) {
                 disabled={loading}
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5"
               >
-                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />} Query Overpass POIs
+                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />} Search Local Listings
               </button>
             </div>
 

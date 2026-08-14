@@ -120,6 +120,36 @@ export async function enrichWebsiteViaPlaywriter(
         result.socialLinks = socialLinks;
       }
       result.description = cleanText.slice(0, 300).trim();
+      // Fast heuristic website audit from direct HTML if already extracted
+      const hasViewport = /name=["']viewport["']/i.test(html);
+      const isHttps = websiteUrl.startsWith('https:');
+      const hasForm = /<form|iframe[^>]*src=["'][^"']*form/i.test(html);
+      const hasCta = /href=["'][^"']*(contact|book|devis|reservation)/i.test(html) || /<button|<input[^>]*type=["']submit["']/i.test(html);
+      const points: string[] = [];
+      if (!hasViewport) points.push("Missing mobile responsive viewport meta tag");
+      if (!isHttps) points.push("Insecure HTTP connection (missing SSL certificate)");
+      if (!hasCta) points.push("No clear conversion call-to-action or booking button");
+      if (!hasForm) points.push("Lacks instant lead capture or booking form");
+
+      const needsRedesign = points.length >= 2 || !hasViewport || !hasCta || !isHttps;
+      result.websiteAudit = {
+        needsRedesign,
+        qualityNote: needsRedesign 
+          ? "Website is poorly built or outdated. Prime opportunity to offer a modern redesign!" 
+          : "Website is functional but can be upgraded with modern lead capture and faster performance.",
+        improvements: points.length > 0 ? points : [
+          "Upgrade to modern high-converting typography & layout",
+          "Add instant online appointment booking & automated quotes"
+        ]
+      };
+
+      // If BOTH email and phone were successfully found by fast HTTP direct scrape, return instantly!
+      if (result.email && result.phone) {
+        if (taskId) {
+          await logAction(taskId, `⚡ Fast web contact extraction succeeded for ${websiteUrl} (Email: ${result.email || 'N/A'}, Phone: ${result.phone || 'N/A'})`, 'success').catch(() => {});
+        }
+        return result;
+      }
     } catch (httpErr: any) {
       console.warn('[WebsiteEnrichment] Direct HTTP scrape note:', httpErr?.message);
     }

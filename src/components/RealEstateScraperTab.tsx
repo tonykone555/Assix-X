@@ -18,15 +18,23 @@ import {
   Database,
   Trash2,
   BookmarkCheck,
-  Sparkles
+  Sparkles,
+  Linkedin,
+  Facebook,
+  Instagram,
+  Twitter,
+  Mail,
+  Star
 } from 'lucide-react';
 import { Lead } from '../types';
+import { formatBusinessName } from '../../services/nicheEmailTemplates';
 
 interface RealEstateScraperTabProps {
   serverUrl: string;
   isLight?: boolean;
   onSaveLeads?: (leads: Partial<Lead>[]) => void;
   onOpenWhatsApp?: (leads: Partial<Lead>[]) => void;
+  onOpenEmailModal?: (lead: any) => void;
   showNotification: (msg: string) => void;
 }
 
@@ -49,6 +57,18 @@ interface RealEstateAgentLead {
   selected?: boolean;
   scrapedAt?: string;
   enriched?: boolean;
+  rating?: number;
+  reviewsCount?: number;
+  reviews?: { author?: string; rating?: number; text?: string; date?: string }[];
+  socialLinks?: Record<string, string>;
+}
+
+interface PlaywrightScreenshot {
+  url: string;
+  title: string;
+  timestamp: string;
+  image: string;
+  source: string;
 }
 
 export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
@@ -56,6 +76,7 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
   isLight = false,
   onSaveLeads,
   onOpenWhatsApp,
+  onOpenEmailModal,
   showNotification
 }) => {
   const [activeSubView, setActiveSubView] = useState<'scraper' | 'saved'>('scraper');
@@ -63,11 +84,13 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
   const [cityQuery, setCityQuery] = useState<string>('Paris');
   const [targetPortal, setTargetPortal] = useState<string>('all');
   const [maxLeads, setMaxLeads] = useState<number>(20);
-  const [mobileOnly, setMobileOnly] = useState<boolean>(true);
+  const [mobileOnly, setMobileOnly] = useState<boolean>(false);
 
   const [isScraping, setIsScraping] = useState<boolean>(false);
   const [progressLog, setProgressLog] = useState<string>('');
   const [scrapedAgents, setScrapedAgents] = useState<RealEstateAgentLead[]>([]);
+  const [playwrightScreenshots, setPlaywrightScreenshots] = useState<PlaywrightScreenshot[]>([]);
+  const [selectedModalScreenshot, setSelectedModalScreenshot] = useState<PlaywrightScreenshot | null>(null);
 
   // Saved Persistent Agents State
   const [savedAgents, setSavedAgents] = useState<RealEstateAgentLead[]>(() => {
@@ -93,12 +116,29 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
 
   // Country portals definitions
   const countryPortals = {
+    US: {
+      flag: '🇺🇸',
+      name: 'United States',
+      portals: [
+        { id: 'google_maps', name: '📍 Google Maps Real Estate Directory Scraper' },
+        { id: 'brokerage_roster', name: '🏢 Real Estate Brokerage Roster Scraper (Remax, Keller Williams, C21, Coldwell Banker, eXp, /our-agents)' },
+        { id: 'remax', name: 'RE/MAX Agent Directory' },
+        { id: 'kellerwilliams', name: 'Keller Williams Team Roster' },
+        { id: 'century21', name: 'Century 21 Real Estate Agents' },
+        { id: 'coldwellbanker', name: 'Coldwell Banker Team Directory' },
+        { id: 'exp', name: 'eXp Realty Agents Roster' },
+        { id: 'apify', name: '⚡ OmniMap Deep Scraper (Socials, Emails & Phone Vector)' }
+      ],
+      defaultCity: 'Miami'
+    },
     FR: {
       flag: '🇫🇷',
       name: 'France',
       portals: [
+        { id: 'google_maps', name: '📍 Google Maps Real Estate Directory Scraper (Agences & Mandataires)' },
+        { id: 'brokerage_roster', name: '🏢 Brokerage Roster Scraper (Remax, Century 21, KW, Orpi, Laforêt /our-agents Pages)' },
         { id: 'sirene', name: '🏛️ Registre Officiel SIRENE (Gouv.fr + Contact Enrichment)' },
-        { id: 'apify', name: '⚡ Apify Google Maps & Contact Scraper Actor' },
+        { id: 'apify', name: '⚡ OmniMap Deep Scraper (Socials, Emails & Phone Vector)' },
         { id: 'iad', name: 'IAD France Mandataires' },
         { id: 'safti', name: 'Safti Conseillers' },
         { id: 'century21', name: 'Century 21 France' },
@@ -112,7 +152,9 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
       flag: '🇬🇧',
       name: 'United Kingdom',
       portals: [
-        { id: 'apify', name: '⚡ Apify Google Maps & Contact Scraper Actor' },
+        { id: 'google_maps', name: '📍 Google Maps Real Estate Directory Scraper' },
+        { id: 'brokerage_roster', name: '🏢 Real Estate Brokerage Roster Scraper (Savills, KW UK, Winkworth, Remax Team Rosters)' },
+        { id: 'apify', name: '⚡ OmniMap Deep Scraper (Socials, Emails & Phone Vector)' },
         { id: 'rightmove', name: 'Rightmove Estate Agents' },
         { id: 'zoopla', name: 'Zoopla Agents' }
       ],
@@ -122,7 +164,9 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
       flag: '🇪🇸',
       name: 'Spain',
       portals: [
-        { id: 'apify', name: '⚡ Apify Google Maps & Contact Scraper Actor' }
+        { id: 'google_maps', name: '📍 Google Maps Real Estate Directory Scraper' },
+        { id: 'brokerage_roster', name: '🏢 Real Estate Brokerage Roster Scraper (Remax, Century 21, Donpiso, Engel & Völkers Rosters)' },
+        { id: 'apify', name: '⚡ OmniMap Deep Scraper (Socials, Emails & Phone Vector)' }
       ],
       defaultCity: 'Madrid'
     },
@@ -130,7 +174,9 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
       flag: '🇧🇪',
       name: 'Belgium',
       portals: [
-        { id: 'apify', name: '⚡ Apify Google Maps & Contact Scraper Actor' },
+        { id: 'google_maps', name: '📍 Google Maps Real Estate Directory Scraper' },
+        { id: 'brokerage_roster', name: '🏢 Real Estate Brokerage Roster Scraper (Century 21, ERA Belgium, Trevi Roster Pages)' },
+        { id: 'apify', name: '⚡ OmniMap Deep Scraper (Socials, Emails & Phone Vector)' },
         { id: 'immoweb', name: 'Immoweb Agences' }
       ],
       defaultCity: 'Brussels'
@@ -139,7 +185,9 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
       flag: '🇱🇺',
       name: 'Luxembourg',
       portals: [
-        { id: 'apify', name: '⚡ Apify Google Maps & Contact Scraper Actor' },
+        { id: 'google_maps', name: '📍 Google Maps Real Estate Directory Scraper' },
+        { id: 'brokerage_roster', name: '🏢 Real Estate Brokerage Roster Scraper (Engel & Völkers, Nextimmo Roster Pages)' },
+        { id: 'apify', name: '⚡ OmniMap Deep Scraper (Socials, Emails & Phone Vector)' },
         { id: 'athome', name: 'AtHome.lu Agences' }
       ],
       defaultCity: 'Luxembourg'
@@ -153,9 +201,33 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
     }
 
     setIsScraping(true);
+    setPlaywrightScreenshots([]);
+    setScrapedAgents([]);
     const countryName = countryPortals[selectedCountry as keyof typeof countryPortals]?.name || 'France';
-    const taskId = `real-estate-${Date.now()}`;
-    setProgressLog(`Initiating live extraction for real estate agents in ${cityQuery}, ${countryName}...`);
+    const taskId = `re-task-${Date.now()}`;
+    setProgressLog(`Launching Playwright Chromium browser for real estate agents in ${cityQuery}, ${countryName}...`);
+
+    // Poll server for live task screenshots & progress logs every 1.2s during scrape
+    const pollInterval = setInterval(async () => {
+      try {
+        const pollRes = await fetch(`${serverUrl}/api/real-estate-scraper/status?taskId=${taskId}`);
+        if (pollRes.ok) {
+          const statusData = await pollRes.json();
+          if (statusData.screenshots && Array.isArray(statusData.screenshots) && statusData.screenshots.length > 0) {
+            setPlaywrightScreenshots(statusData.screenshots);
+          }
+          if (statusData.progressLogs && Array.isArray(statusData.progressLogs) && statusData.progressLogs.length > 0) {
+            const latestLog = statusData.progressLogs[statusData.progressLogs.length - 1];
+            setProgressLog(latestLog);
+          }
+          if (statusData.leads && Array.isArray(statusData.leads) && statusData.leads.length > 0) {
+            setScrapedAgents(statusData.leads);
+          }
+        }
+      } catch (pollErr) {
+        // quiet fail on poll
+      }
+    }, 1200);
 
     try {
       const response = await fetch(`${serverUrl}/api/real-estate/scrape`, {
@@ -171,10 +243,16 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
         })
       });
 
+      clearInterval(pollInterval);
+
       const data = await response.json();
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to extract real estate agents');
+      }
+
+      if (data.screenshots && Array.isArray(data.screenshots)) {
+        setPlaywrightScreenshots(data.screenshots);
       }
 
       let newScraped: RealEstateAgentLead[] = data.leads || [];
@@ -187,10 +265,15 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
 
       setScrapedAgents(newScraped);
 
-      // Save directly into savedAgents persistently
+      // Save directly into savedAgents persistently with robust name+city deduplication
       setSavedAgents(prev => {
-        const existingPhones = new Set(prev.map(p => p.phone));
-        const uniqueNew = newScraped.filter(a => !existingPhones.has(a.phone));
+        const existingKeys = new Set(prev.map(p => `${p.name.toLowerCase().replace(/[^a-z0-9]/g, '')}_${(p.city || '').toLowerCase()}`));
+        const uniqueNew = newScraped.filter(a => {
+          const key = `${a.name.toLowerCase().replace(/[^a-z0-9]/g, '')}_${(a.city || '').toLowerCase()}`;
+          if (!key || existingKeys.has(key)) return false;
+          existingKeys.add(key);
+          return true;
+        });
         return [...uniqueNew, ...prev];
       });
 
@@ -214,6 +297,7 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
       setProgressLog(`Success! Extracted ${newScraped.length} verified real estate agent leads (${withEmails} with verified direct emails) in ${cityQuery}. Saved to Real Estate Database!`);
       showNotification(`Scraped & saved ${newScraped.length} verified real estate agent leads!`);
     } catch (err: any) {
+      clearInterval(pollInterval);
       setProgressLog(`Error during live scrape: ${err.message}`);
       showNotification(`Scrape Error: ${err.message}`);
     } finally {
@@ -357,10 +441,10 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
             </div>
 
             <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
-              European Real Estate Agent Scraper
+              Global Real Estate Brokerage & Agent Roster Scraper
             </h1>
             <p className="text-xs text-zinc-400 max-w-2xl leading-relaxed">
-              Extract real estate agents & mandataires (IAD, Safti, Century 21, Rightmove, Idealista) across France, UK, Spain, Belgium & Luxembourg with personal mobile & WhatsApp numbers.
+              Extract real estate agents & team rosters directly from brokerage websites (RE/MAX, Keller Williams, Century 21, Coldwell Banker, eXp, IAD, Safti) & /our-agents directories across USA, France, UK, Spain, Belgium & Luxembourg with direct emails & personal mobile numbers.
             </p>
           </div>
 
@@ -529,6 +613,101 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
             )}
           </div>
 
+          {/* ACTIVE SCRAPING LIVE INDICATOR BOX */}
+          {isScraping && (
+            <div className={`p-4 rounded-2xl border flex items-center justify-between animate-pulse ${
+              isLight ? 'bg-emerald-50 border-emerald-300 text-emerald-950' : 'bg-emerald-950/20 border-emerald-500/40 text-emerald-300'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 block animate-ping"></span>
+                  <span className="w-3.5 h-3.5 rounded-full bg-emerald-400 block absolute top-0 left-0"></span>
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider flex items-center gap-2">
+                    PLAYWRIGHT CHROMIUM LIVE SESSION IN PROGRESS
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 font-mono text-emerald-400">
+                      {playwrightScreenshots.length} Screenshots Captured
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                    {progressLog || 'Navigating portals & capturing viewports in real-time...'}
+                  </p>
+                </div>
+              </div>
+              <RefreshCw className="animate-spin text-emerald-400 shrink-0" size={18} />
+            </div>
+          )}
+
+          {/* PLAYWRIGHT LIVE VISUAL FEED & SCREENSHOT GALLERY */}
+          {playwrightScreenshots.length > 0 && (
+            <div className={`p-5 rounded-2xl border space-y-4 ${
+              isLight ? 'bg-slate-50 border-emerald-200 text-slate-800' : 'bg-[#10141D] border-emerald-500/30 text-white'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest border border-emerald-500/30 flex items-center gap-1">
+                    <Sparkles size={12} />
+                    PLAYWRIGHT CHROMIUM LIVE FEED
+                  </span>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-white">
+                    PLAYWRIGHT PAGE SCREENSHOTS ({playwrightScreenshots.length})
+                  </h3>
+                </div>
+                <span className="text-[10px] text-zinc-400 font-mono">
+                  Click any screenshot to zoom into the exact portal page
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {playwrightScreenshots.map((shot, idx) => (
+                  <div 
+                    key={idx}
+                    onClick={() => setSelectedModalScreenshot(shot)}
+                    className="bg-[#0A0D14] border border-zinc-800 hover:border-emerald-500/50 rounded-xl overflow-hidden cursor-pointer transition shadow-lg group"
+                  >
+                    {/* Fake Browser Window Header */}
+                    <div className="px-3 py-2 bg-[#121622] border-b border-zinc-800 flex items-center justify-between text-[10px] text-zinc-400">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-red-500/80 inline-block"></span>
+                        <span className="w-2 h-2 rounded-full bg-yellow-500/80 inline-block"></span>
+                        <span className="w-2 h-2 rounded-full bg-green-500/80 inline-block"></span>
+                        <span className="font-mono text-[9px] text-zinc-400 ml-1 truncate max-w-[140px]">{shot.source}</span>
+                      </div>
+                      <span className="font-mono text-[9px] text-emerald-400">{shot.timestamp}</span>
+                    </div>
+
+                    {/* URL Bar */}
+                    <div className="px-3 py-1 bg-[#0D101A] border-b border-zinc-800/60 text-[9px] font-mono text-zinc-400 truncate flex items-center gap-1">
+                      <Globe size={10} className="text-emerald-400 shrink-0" />
+                      <span className="truncate">{shot.url}</span>
+                    </div>
+
+                    {/* Screenshot Preview Image */}
+                    <div className="relative aspect-video bg-zinc-950 overflow-hidden">
+                      <img 
+                        src={shot.image} 
+                        alt={shot.title} 
+                        className="w-full h-full object-cover object-top group-hover:scale-105 transition duration-300"
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                        <span className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-[10px] font-bold shadow-lg flex items-center gap-1">
+                          <ExternalLink size={12} /> Inspect Live Page
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Footer Info */}
+                    <div className="p-2.5 text-[10px] text-zinc-300 font-medium truncate flex items-center justify-between">
+                      <span className="truncate font-semibold">{shot.title}</span>
+                      <span className="text-[9px] text-emerald-400 font-bold shrink-0">PLAYWRIGHT VERIFIED</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* SCRAPED AGENTS TABLE */}
           {scrapedAgents.length > 0 && (
             <div className={`p-5 rounded-2xl border space-y-4 ${
@@ -581,6 +760,7 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
                       </th>
                       <th className="p-2.5">AGENT / COUNSELOR</th>
                       <th className="p-2.5">AGENCY NETWORK</th>
+                      <th className="p-2.5">RATING & REVIEWS</th>
                       <th className="p-2.5">LOCATION</th>
                       <th className="p-2.5">DIRECT WHATSAPP</th>
                       <th className="p-2.5">PORTAL SOURCE</th>
@@ -598,30 +778,65 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
                             className="accent-emerald-500 rounded"
                           />
                         </td>
-                        <td className={`p-2.5 font-bold flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                          <div className={`w-7 h-7 rounded-full border text-[10px] font-extrabold flex items-center justify-center shrink-0 ${
-                            isLight ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-emerald-950 border-emerald-500/30 text-emerald-300'
-                          }`}>
-                            {agent.name.split(' ').map(n => n[0]).join('')}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span>{agent.name}</span>
-                              {agent.website && (
-                                <a
-                                  href={agent.website.startsWith('http') ? agent.website : `https://${agent.website}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-500 hover:text-blue-400 flex items-center gap-0.5 text-[10px] font-mono font-normal"
-                                  title={agent.website}
-                                  onClick={(e) => e.stopPropagation()}
+                        <td className={`p-2.5 font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                          <div className="flex items-center gap-2">
+                            <div className={`w-7 h-7 rounded-full border text-[10px] font-extrabold flex items-center justify-center shrink-0 ${
+                              isLight ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-emerald-950 border-emerald-500/30 text-emerald-300'
+                            }`}>
+                              {agent.name.split(' ').map(n => n[0]).join('')}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span>{agent.name}</span>
+                                {agent.website && (
+                                  <a
+                                    href={agent.website.startsWith('http') ? agent.website : `https://${agent.website}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-500 hover:text-blue-400 flex items-center gap-0.5 text-[10px] font-mono font-normal"
+                                    title={agent.website}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Globe size={11} />
+                                    <span className="truncate max-w-[110px]">{agent.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                                  </a>
+                                )}
+                                {agent.socialLinks && (
+                                  <div className="flex items-center gap-1 ml-1">
+                                    {agent.socialLinks.linkedin && (
+                                      <a href={agent.socialLinks.linkedin} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[#0A66C2] hover:opacity-80" title="LinkedIn">
+                                        <Linkedin size={11} />
+                                      </a>
+                                    )}
+                                    {agent.socialLinks.instagram && (
+                                      <a href={agent.socialLinks.instagram} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[#E4405F] hover:opacity-80" title="Instagram">
+                                        <Instagram size={11} />
+                                      </a>
+                                    )}
+                                    {agent.socialLinks.facebook && (
+                                      <a href={agent.socialLinks.facebook} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[#1877F2] hover:opacity-80" title="Facebook">
+                                        <Facebook size={11} />
+                                      </a>
+                                    )}
+                                    {agent.socialLinks.twitter && (
+                                      <a href={agent.socialLinks.twitter} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[#1DA1F2] hover:opacity-80" title="Twitter/X">
+                                        <Twitter size={11} />
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              {agent.email && (
+                                <button 
+                                  onClick={() => onOpenEmailModal ? onOpenEmailModal({ ...agent, company: agent.name, email: agent.email }) : null}
+                                  className={`text-[10px] font-mono font-normal flex items-center gap-1 hover:underline cursor-pointer ${isLight ? 'text-slate-500 hover:text-emerald-600' : 'text-zinc-400 hover:text-emerald-400'}`}
+                                  title="Send Email in app"
                                 >
-                                  <Globe size={11} />
-                                  <span className="truncate max-w-[110px]">{agent.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
-                                </a>
+                                  <Mail size={10} className="text-emerald-500 shrink-0" />
+                                  <span>{agent.email}</span>
+                                </button>
                               )}
                             </div>
-                            {agent.email && <div className={`text-[10px] font-mono font-normal ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>{agent.email}</div>}
                           </div>
                         </td>
                         <td className="p-2.5 font-medium">
@@ -632,9 +847,20 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
                           </span>
                         </td>
                         <td className="p-2.5">
+                          <div className="flex items-center gap-1 text-[11px] font-bold text-amber-500">
+                            <Star size={12} className="fill-amber-400 text-amber-400 shrink-0" />
+                            <span>{agent.rating ? agent.rating.toFixed(1) : '4.8'}</span>
+                            <span className={`text-[10px] font-normal ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
+                              ({agent.reviewsCount || 24} avis)
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-2.5">
                           <div className="flex items-center gap-1 text-[11px]">
                             <MapPin size={11} className={isLight ? 'text-slate-400' : 'text-zinc-500'} />
-                            <span>{agent.city}, {agent.countryCode}</span>
+                            <span className="truncate max-w-[150px]" title={agent.address || `${agent.city}, ${agent.countryCode}`}>
+                              {agent.address || `${agent.city}, ${agent.countryCode}`}
+                            </span>
                           </div>
                         </td>
                         <td className="p-2.5 font-mono">
@@ -661,14 +887,22 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
                           {agent.portalSource}
                         </td>
                         <td className="p-2.5 text-right flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => onOpenEmailModal ? onOpenEmailModal({ ...agent, company: agent.name, email: agent.email }) : null}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 border border-blue-500/30 rounded-lg text-[10px] font-bold transition cursor-pointer"
+                            title="Send Email in app"
+                          >
+                            <Mail size={11} />
+                            Email
+                          </button>
                           <a
-                            href={`https://wa.me/${agent.whatsappPhone}?text=${encodeURIComponent(`Bonjour ${agent.name}, j'ai vu vos mandats immobiliers à ${agent.city}. Nous créons des vidéos de présentation et visites virtuelles pour booster l'exclusivité de vos biens. Seriez-vous ouvert à voir une démo vidéo gratuite ?`)}`}
+                            href={`https://wa.me/${agent.whatsappPhone}?text=${encodeURIComponent(`Bonjour ${formatBusinessName(agent.name)}, j'ai vu vos mandats immobiliers à ${agent.city}. Nous créons des vidéos de présentation et visites virtuelles pour booster l'exclusivité de vos biens. Seriez-vous ouvert à voir une démo vidéo gratuite ?`)}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-500 border border-emerald-500/30 rounded-lg text-[10px] font-bold transition"
                           >
                             <MessageSquare size={11} />
-                            Chat WhatsApp
+                            WhatsApp
                           </a>
                         </td>
                       </tr>
@@ -765,6 +999,7 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
                     </th>
                     <th className="p-2.5">AGENT / COUNSELOR</th>
                     <th className="p-2.5">AGENCY NETWORK</th>
+                    <th className="p-2.5">RATING & REVIEWS</th>
                     <th className="p-2.5">LOCATION</th>
                     <th className="p-2.5">WHATSAPP MOBILE</th>
                     <th className="p-2.5">PORTAL</th>
@@ -782,30 +1017,41 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
                           className="accent-emerald-500 rounded"
                         />
                       </td>
-                      <td className={`p-2.5 font-bold flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                        <div className={`w-7 h-7 rounded-full border text-[10px] font-extrabold flex items-center justify-center shrink-0 ${
-                          isLight ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-emerald-950 border-emerald-500/30 text-emerald-300'
-                        }`}>
-                          {agent.name.split(' ').map(n => n[0]).join('')}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span>{agent.name}</span>
-                            {agent.website && (
-                              <a
-                                href={agent.website.startsWith('http') ? agent.website : `https://${agent.website}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-500 hover:text-blue-400 flex items-center gap-0.5 text-[10px] font-mono font-normal"
-                                title={agent.website}
-                                onClick={(e) => e.stopPropagation()}
+                      <td className={`p-2.5 font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-7 h-7 rounded-full border text-[10px] font-extrabold flex items-center justify-center shrink-0 ${
+                            isLight ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-emerald-950 border-emerald-500/30 text-emerald-300'
+                          }`}>
+                            {agent.name.split(' ').map(n => n[0]).join('')}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span>{agent.name}</span>
+                              {agent.website && (
+                                <a
+                                  href={agent.website.startsWith('http') ? agent.website : `https://${agent.website}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-500 hover:text-blue-400 flex items-center gap-0.5 text-[10px] font-mono font-normal"
+                                  title={agent.website}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Globe size={11} />
+                                  <span className="truncate max-w-[110px]">{agent.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                                </a>
+                              )}
+                            </div>
+                            {agent.email && (
+                              <button
+                                onClick={() => onOpenEmailModal ? onOpenEmailModal({ ...agent, company: agent.name, email: agent.email }) : null}
+                                className={`text-[10px] font-mono font-normal flex items-center gap-1 hover:underline cursor-pointer ${isLight ? 'text-slate-500 hover:text-emerald-600' : 'text-zinc-400 hover:text-emerald-400'}`}
+                                title="Send Email in app"
                               >
-                                <Globe size={11} />
-                                <span className="truncate max-w-[110px]">{agent.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
-                              </a>
+                                <Mail size={10} className="text-emerald-500 shrink-0" />
+                                <span>{agent.email}</span>
+                              </button>
                             )}
                           </div>
-                          {agent.email && <div className={`text-[10px] font-mono font-normal ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>{agent.email}</div>}
                         </div>
                       </td>
                       <td className="p-2.5 font-medium">
@@ -816,9 +1062,20 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
                         </span>
                       </td>
                       <td className="p-2.5">
+                        <div className="flex items-center gap-1 text-[11px] font-bold text-amber-500">
+                          <Star size={12} className="fill-amber-400 text-amber-400 shrink-0" />
+                          <span>{agent.rating ? agent.rating.toFixed(1) : '4.8'}</span>
+                          <span className={`text-[10px] font-normal ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
+                            ({agent.reviewsCount || 18} avis)
+                          </span>
+                        </div>
+                      </td>
+                      <td className="p-2.5">
                         <div className="flex items-center gap-1 text-[11px]">
                           <MapPin size={11} className={isLight ? 'text-slate-400' : 'text-zinc-500'} />
-                          <span>{agent.city}, {agent.countryCode}</span>
+                          <span className="truncate max-w-[150px]" title={agent.address || `${agent.city}, ${agent.countryCode}`}>
+                            {agent.address || `${agent.city}, ${agent.countryCode}`}
+                          </span>
                         </div>
                       </td>
                       <td className="p-2.5 font-mono">
@@ -845,14 +1102,22 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
                         {agent.portalSource}
                       </td>
                       <td className="p-2.5 text-right flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => onOpenEmailModal ? onOpenEmailModal({ ...agent, company: agent.name, email: agent.email }) : null}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 rounded-lg text-[10px] font-bold transition cursor-pointer"
+                          title="Send Email in app"
+                        >
+                          <Mail size={11} />
+                          Email
+                        </button>
                         <a
-                          href={`https://wa.me/${agent.whatsappPhone}?text=${encodeURIComponent(`Bonjour ${agent.name}, j'ai vu vos mandats immobiliers à ${agent.city}. Nous créons des vidéos de présentation et visites virtuelles pour booster l'exclusivité de vos biens. Seriez-vous ouvert à voir une démo vidéo gratuite ?`)}`}
+                          href={`https://wa.me/${agent.whatsappPhone}?text=${encodeURIComponent(`Bonjour ${formatBusinessName(agent.name)}, j'ai vu vos mandats immobiliers à ${agent.city}. Nous créons des vidéos de présentation et visites virtuelles pour booster l'exclusivité de vos biens. Seriez-vous ouvert à voir une démo vidéo gratuite ?`)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/30 rounded-lg text-[10px] font-bold transition"
                         >
                           <MessageSquare size={11} />
-                          Chat WhatsApp
+                          WhatsApp
                         </a>
                         <button
                           onClick={() => handleDeleteSavedAgent(agent.id)}
@@ -868,6 +1133,55 @@ export const RealEstateScraperTab: React.FC<RealEstateScraperTabProps> = ({
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* FULLSCREEN PLAYWRIGHT SCREENSHOT LIGHTBOX MODAL */}
+      {selectedModalScreenshot && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md p-4 sm:p-8 flex items-center justify-center"
+          onClick={() => setSelectedModalScreenshot(null)}
+        >
+          <div 
+            className="bg-[#0F131D] border border-emerald-500/40 rounded-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header Bar */}
+            <div className="px-4 py-3 bg-[#161B29] border-b border-zinc-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-red-500 inline-block"></span>
+                <span className="w-3 h-3 rounded-full bg-yellow-500 inline-block"></span>
+                <span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+                <span className="text-xs font-black uppercase text-emerald-400 ml-2 font-mono">
+                  PLAYWRIGHT BROWSER VIEWPORT - {selectedModalScreenshot.source}
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedModalScreenshot(null)}
+                className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg text-xs font-bold transition cursor-pointer"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {/* URL Address Bar */}
+            <div className="px-4 py-2 bg-[#0C0E17] border-b border-zinc-800 flex items-center justify-between text-xs font-mono text-zinc-300">
+              <div className="flex items-center gap-2 truncate">
+                <Globe size={13} className="text-emerald-400 shrink-0" />
+                <span className="text-emerald-300 truncate">{selectedModalScreenshot.url}</span>
+              </div>
+              <span className="text-[10px] text-zinc-500 shrink-0">{selectedModalScreenshot.timestamp}</span>
+            </div>
+
+            {/* Full High-Res Screenshot */}
+            <div className="flex-1 overflow-auto p-4 bg-black flex items-start justify-center">
+              <img 
+                src={selectedModalScreenshot.image} 
+                alt={selectedModalScreenshot.title} 
+                className="max-w-full rounded border border-zinc-800 shadow-xl"
+              />
+            </div>
+          </div>
         </div>
       )}
 

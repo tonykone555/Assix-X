@@ -273,4 +273,41 @@
   fill: #4B5563 !important;
 }
 
+/* Light mode transparent website generator panel & modal styling */
+.light .bg-transparent {
+  background-color: transparent !important;
+}
+
+.light .website-generator-panel {
+  background-color: transparent !important;
+  color: #1e293b !important;
+  border-color: #e2e8f0 !important;
+}
+
+.light .website-generator-panel select,
+.light .website-generator-panel option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+.light .website-generator-panel .preview-toolbar {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #334155 !important;
+}
+
+.light .bg-\[\#0F0F12\]\/80 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.12) !important;
+}
+
+.light .bg-zinc-950\/20,
+.light .bg-zinc-950\/10,
+.light .bg-zinc-900\/30 {
+  background-color: rgba(241, 245, 249, 0.85) !important;
+}
+
 
