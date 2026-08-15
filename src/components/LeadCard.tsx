@@ -26,7 +26,6 @@ import {
   MoreVertical,
   Copy
 } from 'lucide-react';
-import { WebsiteGeneratorPanel } from './WebsiteGeneratorPanel';
 import { formatBusinessName } from '../../services/nicheEmailTemplates';
 
 interface LeadCardProps {
@@ -61,7 +60,6 @@ export const LeadCard: React.FC<LeadCardProps> = ({
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedSecondaryPhone, setCopiedSecondaryPhone] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
-  const [showGenerator, setShowGenerator] = useState(false);
   const [isEnrichingState, setIsEnrichingState] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -332,8 +330,7 @@ export const LeadCard: React.FC<LeadCardProps> = ({
 
                 <button 
                   onClick={() => {
-                    if (onGenerateWebsite) onGenerateWebsite(lead);
-                    else setShowGenerator(true);
+                    onGenerateWebsite?.(lead);
                   }}
                   className="w-full text-left px-2.5 py-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-800 dark:text-zinc-200 font-medium flex items-center gap-2 cursor-pointer"
                 >
@@ -758,8 +755,7 @@ export const LeadCard: React.FC<LeadCardProps> = ({
                     </div>
                     <button
                       onClick={() => {
-                        if (onGenerateWebsite) onGenerateWebsite(lead);
-                        else setShowGenerator(true);
+                        onGenerateWebsite?.(lead);
                       }}
                       className="px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[8.5px] rounded transition cursor-pointer shrink-0 flex items-center gap-1 shadow-sm"
                     >
@@ -779,8 +775,7 @@ export const LeadCard: React.FC<LeadCardProps> = ({
                   </span>
                   <button
                     onClick={() => {
-                      if (onGenerateWebsite) onGenerateWebsite(lead);
-                      else setShowGenerator(true);
+                      onGenerateWebsite?.(lead);
                     }}
                     className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[8.5px] rounded uppercase tracking-wider transition cursor-pointer shrink-0 flex items-center gap-1 shadow-sm"
                     title="Generate modern website concept to pitch this prospect"
@@ -874,8 +869,6 @@ export const LeadCard: React.FC<LeadCardProps> = ({
               onClick={() => {
                 if (onGenerateWebsite) {
                   onGenerateWebsite(lead);
-                } else {
-                  setShowGenerator(!showGenerator);
                 }
               }}
               className="px-2.5 py-1 bg-white hover:bg-zinc-200 text-black border border-zinc-300 rounded transition cursor-pointer flex items-center gap-1.5 text-[10px] font-extrabold shadow-sm"
@@ -916,13 +909,6 @@ export const LeadCard: React.FC<LeadCardProps> = ({
             )}
           </div>
         </div>
-
-        {/* EXPANDABLE WEBSITE GENERATOR PANEL */}
-        {showGenerator && (
-          <div className="pt-2 border-t border-[#1C1C1F]">
-            <WebsiteGeneratorPanel lead={lead} />
-          </div>
-        )}
       </div>
     </div>
   );

@@ -16,6 +16,7 @@ import {
   CheckCircle, 
   RefreshCw, 
   Sliders, 
+  Loader2, 
   Database, 
   Save, 
   Zap, 
@@ -78,7 +79,6 @@ try {
 } catch (e) {}
 import { LeadCard } from './components/LeadCard';
 import { LeadRow } from './components/LeadRow';
-import { WebsiteGeneratorPanel } from './components/WebsiteGeneratorPanel';
 import { NestaWebsiteModal } from './components/NestaWebsiteModal';
 import { WhatsAppBulkSend } from './components/WhatsAppBulkSend';
 import { SwipeableTaskItem } from './components/SwipeableTaskItem';
@@ -3083,6 +3083,7 @@ export default function App() {
   const [isEditingProfileName, setIsEditingProfileName] = useState<boolean>(false);
   const DEFAULT_ARCHITECT_AVATAR = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120';
   const [architectAvatarUrl, setArchitectAvatarUrl] = useState<string>(() => localStorage.getItem('assix_architect_avatar') || DEFAULT_ARCHITECT_AVATAR);
+  const [netlifyTokenSettings, setNetlifyTokenSettings] = useState<string>(() => localStorage.getItem('NETLIFY_AUTH_TOKEN') || '');
   const [showAvatarPickerModal, setShowAvatarPickerModal] = useState<boolean>(false);
   const [customAvatarInput, setCustomAvatarInput] = useState<string>('');
   const [inAppEmailModalLead, setInAppEmailModalLead] = useState<any | null>(null);
@@ -3211,6 +3212,10 @@ export default function App() {
 
   // Leads manager states
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [csvModalOpen, setCsvModalOpen] = useState<boolean>(false);
+  const [csvCampaignName, setCsvCampaignName] = useState<string>('');
+  const [csvFilename, setCsvFilename] = useState<string>('');
+  const [csvParsedContacts, setCsvParsedContacts] = useState<any[]>([]);
   const [leadsFilter, setLeadsFilter] = useState<'all' | 'no-website' | 'has-website' | 'whatsapp' | 'non-whatsapp' | 'facebook_ads' | 'facebook_groups'>('all');
   const [leadsSearch, setLeadsSearch] = useState<string>('');
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
@@ -3611,7 +3616,9 @@ export default function App() {
     return () => clearInterval(interval);
   }, [activeTask?.taskId, activeTask?.status]);
 
-  // CSV Contact Upload Handler
+  const [isProcessingCsv, setIsProcessingCsv] = useState<boolean>(false);
+
+  // CSV Contact Upload Handler - Parses on client and prompts user for campaign name in custom modal
   const handleCsvContactUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -3671,26 +3678,14 @@ export default function App() {
           return;
         }
 
-        showNotification(`Uploading ${contacts.length} contacts from CSV...`);
-
-        const res = await fetch(`${serverUrl}/api/leads/import-csv`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contacts,
-            userId: userId || 'system',
-            taskId: activeTask?.taskId || undefined
-          })
-        });
-
-        const data = await res.json();
-        if (data.status === 'success') {
-          showNotification(`Successfully imported ${data.count} contacts from CSV!`);
-          fetchLeads();
-          fetchTasks();
-        } else {
-          alert(`CSV import error: ${data.error || 'Failed to import contacts'}`);
-        }
+        // Set state for custom campaign modal confirmation
+        const cleanFilename = file.name;
+        const defaultCampaignName = `CSV Campaign: ${cleanFilename.replace(/\.[^/.]+$/, "")} (${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})`;
+        
+        setCsvFilename(cleanFilename);
+        setCsvParsedContacts(contacts);
+        setCsvCampaignName(defaultCampaignName);
+        setCsvModalOpen(true);
       } catch (err: any) {
         alert(`Error reading CSV: ${err.message || String(err)}`);
       } finally {
@@ -3698,6 +3693,59 @@ export default function App() {
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleConfirmCsvImport = async () => {
+    if (csvParsedContacts.length === 0) return;
+    setIsProcessingCsv(true);
+
+    showNotification(`Uploading ${csvParsedContacts.length} contacts for Campaign "${csvCampaignName}"...`);
+    try {
+      const res = await fetch(`${serverUrl}/api/leads/import-csv`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contacts: csvParsedContacts,
+          userId: userId || 'system',
+          campaignName: csvCampaignName || `CSV Import: ${csvFilename || 'leads.csv'}`,
+          filename: csvFilename
+        })
+      });
+
+      const data = await res.json();
+      if (data.status === 'success') {
+        showNotification(`Successfully imported ${data.count} contacts to Campaign "${csvCampaignName}"!`);
+        fetchLeads();
+        fetchTasks();
+        setCsvModalOpen(false);
+        setCsvParsedContacts([]);
+        setCsvCampaignName('');
+        setCsvFilename('');
+        
+        if (data.taskId) {
+          const newTaskObj: Task = {
+            taskId: data.taskId,
+            label: csvCampaignName,
+            taskType: 'csv_import',
+            status: 'complete',
+            progress: data.count,
+            total: data.count,
+            config: {},
+            createdAt: new Date().toISOString()
+          };
+          
+          setTasks(prev => [newTaskObj, ...prev]);
+          selectTask(newTaskObj, false);
+          setSearchStep('complete');
+        }
+      } else {
+        alert(`CSV import error: ${data.error || 'Failed to import contacts'}`);
+      }
+    } catch (err: any) {
+      alert(`Error importing CSV: ${err.message || String(err)}`);
+    } finally {
+      setIsProcessingCsv(false);
+    }
   };
 
   const handleExtractSireneLeads = (
@@ -8474,8 +8522,10 @@ export default function App() {
           <div className="flex-1 flex gap-5 min-h-0 overflow-hidden relative">
 
             {/* LEADS LEFT SIDEBAR (FLOATING MAC-STYLE MATCHING VOICE TAB) */}
-            <aside className={`fixed md:static inset-y-2 left-2 z-50 w-72 md:w-64 shrink-0 rounded-[28px] p-5 flex flex-col justify-between border shadow-2xl backdrop-blur-2xl transition-all duration-300 ${
-              leadsSidebarOpen ? 'translate-x-0 opacity-100' : '-translate-x-[120%] md:translate-x-0 opacity-0 md:opacity-100 pointer-events-none md:pointer-events-auto'
+            <aside className={`fixed md:static inset-y-2 left-2 z-50 shrink-0 rounded-[28px] flex flex-col justify-between border shadow-2xl backdrop-blur-2xl transition-all duration-300 ${
+              leadsSidebarOpen
+                ? 'w-72 md:w-64 p-5 opacity-100 translate-x-0'
+                : 'w-0 p-0 md:w-0 border-0 opacity-0 -translate-x-[120%] md:-translate-x-full overflow-hidden pointer-events-none'
             } ${
               isLight
                 ? 'bg-white/70 backdrop-blur-2xl border-white/80 text-slate-800 shadow-blue-950/20'
@@ -8483,11 +8533,20 @@ export default function App() {
             }`}>
               <div className="space-y-5 overflow-y-auto pr-1 select-none flex-1">
                 
-                {/* MAC OS TRAFFIC LIGHT BUTTONS (🔴 🟡 🟢) */}
-                <div className="flex items-center gap-2 pb-1">
-                  <div className="w-3 h-3 rounded-full bg-[#FF5F56] shadow-sm hover:opacity-80 transition-opacity cursor-pointer" />
-                  <div className="w-3 h-3 rounded-full bg-[#FFBD2E] shadow-sm hover:opacity-80 transition-opacity cursor-pointer" />
-                  <div className="w-3 h-3 rounded-full bg-[#27C93F] shadow-sm hover:opacity-80 transition-opacity cursor-pointer" />
+                {/* MAC OS TRAFFIC LIGHT BUTTONS (🔴 🟡 🟢) + HIDE BUTTON */}
+                <div className="flex items-center justify-between pb-1">
+                  <div className="flex items-center gap-2">
+                    <div onClick={() => setLeadsSidebarOpen(false)} title="Hide Side Panel" className="w-3 h-3 rounded-full bg-[#FF5F56] shadow-sm hover:opacity-80 transition-opacity cursor-pointer" />
+                    <div className="w-3 h-3 rounded-full bg-[#FFBD2E] shadow-sm hover:opacity-80 transition-opacity cursor-pointer" />
+                    <div className="w-3 h-3 rounded-full bg-[#27C93F] shadow-sm hover:opacity-80 transition-opacity cursor-pointer" />
+                  </div>
+                  <button
+                    onClick={() => setLeadsSidebarOpen(false)}
+                    className="p-1 rounded-lg text-xs text-zinc-400 hover:text-white hover:bg-zinc-800 transition cursor-pointer flex items-center gap-1 font-mono text-[10px]"
+                    title="Collapse Side Panel to view full screen"
+                  >
+                    <ChevronLeft size={12} /> Hide Panel
+                  </button>
                 </div>
 
                 {/* PROFILE HEADER (EXACT MATCH FOR ATTACHED DESIGN) */}
@@ -9324,6 +9383,35 @@ export default function App() {
                             </button>
                           );
                         })}
+
+                        {/* Source Campaign Dropdown Selector */}
+                        <div className="flex items-center gap-1.5 ml-auto pl-4 shrink-0">
+                          <span className="text-[9px] font-black uppercase tracking-wider text-zinc-500">Campaign Source:</span>
+                          <select
+                            value={activeTask?.taskId || 'all'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === 'all') {
+                                selectTask({ taskId: '' } as any, false);
+                              } else {
+                                const matched = tasks.find(t => t.taskId === val);
+                                if (matched) selectTask(matched, false);
+                              }
+                            }}
+                            className={`text-[9px] font-extrabold uppercase tracking-wider border rounded-lg px-2.5 py-1 focus:outline-none cursor-pointer ${
+                              isLight
+                                ? 'bg-white border-slate-300 text-slate-800 focus:border-[#7C5335]'
+                                : 'bg-[#14141E] border-[#2A2A38] text-amber-400 focus:border-amber-500'
+                            }`}
+                          >
+                            <option value="all">📂 ALL CAMPAIGNS & RUNS</option>
+                            {tasks.filter(t => t.taskType === 'lead_generation' || t.taskType === 'google_maps_scrape' || t.taskType === 'csv_import' || t.taskType === 'pages_jaunes_scrape' || t.taskType === 'sirene' || (t.taskType && !['chat', 'system'].includes(t.taskType))).map((t, idx) => (
+                              <option key={t.taskId || idx} value={t.taskId}>
+                                📁 {t.label || t.taskId || 'Sourcing Run'} ({t.progress}/{t.total})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
 
                       {/* Simple Inline Draw-Down Panel */}
@@ -13500,7 +13588,7 @@ export default function App() {
           </div>
         </section>
       )}
-
+      
       {/* CORE SETTINGS PROFILE */}
       {tab === 'settings' && (
         <section className="flex-1 flex flex-col p-6 overflow-y-auto shrink-0 bg-[#080808]">
@@ -13581,6 +13669,46 @@ export default function App() {
                     className="px-5 py-2 bg-[#7C5335] hover:bg-[#694226] text-white text-[10px] font-bold tracking-widest uppercase rounded transition cursor-pointer"
                   >
                     Save
+                  </button>
+                </div>
+              </div>
+
+              <div className="h-px bg-[#1A1A1A]" />
+
+              {/* Netlify Deployment Integration Token */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold text-[#F5F5F5] tracking-widest uppercase flex items-center gap-2">
+                    <Globe size={14} className="text-cyan-400" /> NETLIFY PERSONAL ACCESS TOKEN
+                  </h4>
+                  <a 
+                    href="https://app.netlify.com/user/applications#personal-access-tokens" 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    className="text-[10px] text-cyan-400 hover:underline font-mono"
+                  >
+                    Get Token ↗
+                  </a>
+                </div>
+                <p className="text-[11px] text-[#52525B] leading-relaxed mb-4">
+                  Provide your Netlify Personal Access Token (<code className="text-cyan-300">nfp_...</code>) for 1-click automated website deployments. When set, Assix builds the full site ZIP package and deploys it live to Netlify in seconds.
+                </p>
+                <div className="flex gap-3">
+                  <input 
+                    type="password" 
+                    value={netlifyTokenSettings}
+                    onChange={(e) => setNetlifyTokenSettings(e.target.value)}
+                    placeholder="Paste your Netlify Personal Access Token (nfp_...)"
+                    className="flex-1 bg-[#121214] border border-[#222225] text-xs rounded px-3.5 py-2 text-white outline-none focus:border-cyan-500 font-mono"
+                  />
+                  <button 
+                    onClick={() => {
+                      localStorage.setItem('NETLIFY_AUTH_TOKEN', netlifyTokenSettings.trim());
+                      showNotification('Netlify Personal Access Token saved!');
+                    }}
+                    className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-bold tracking-widest uppercase rounded transition cursor-pointer"
+                  >
+                    Save Token
                   </button>
                 </div>
               </div>
@@ -14876,6 +15004,117 @@ export default function App() {
         }}
         theme={theme}
       />
+
+      {/* CSV CAMPAIGN IMPORT MODAL */}
+      {csvModalOpen && (
+        <div className="fixed inset-0 z-[999999] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
+            onClick={() => {
+              if (!isProcessingCsv) setCsvModalOpen(false);
+            }}
+          />
+
+          {/* Modal Container */}
+          <div className={`relative w-full max-w-md rounded-2xl border p-6 shadow-2xl z-10 transition-all ${
+            theme === 'light'
+              ? 'bg-white border-slate-200 text-slate-900'
+              : 'bg-[#0E0E14] border-[#252536] text-white'
+          }`}>
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-800/20 dark:border-zinc-800/40 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 rounded-xl bg-[#7C5335] text-white shadow-md">
+                  <Upload size={16} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-[#7C5335]">Campaign Pipeline</h3>
+                  <h2 className="text-sm font-extrabold tracking-tight mt-0.5">Initialize CSV Sourcing Run</h2>
+                </div>
+              </div>
+              {!isProcessingCsv && (
+                <button 
+                  onClick={() => setCsvModalOpen(false)}
+                  className="text-zinc-500 hover:text-zinc-300 transition cursor-pointer p-1"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+
+            {/* Form Fields */}
+            <div className="space-y-4">
+              <div className={`p-3.5 rounded-xl border space-y-1.5 ${
+                theme === 'light' ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950/40 border-zinc-800/50'
+              }`}>
+                <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-zinc-500">
+                  <span>Source File</span>
+                  <span className="font-mono text-emerald-500 lowercase">{csvParsedContacts.length} contacts found</span>
+                </div>
+                <div className="text-xs font-bold truncate flex items-center gap-1.5">
+                  <Database size={13} className="text-[#7C5335]" /> {csvFilename}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500 block mb-1.5">
+                  Source Run Campaign Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Q3 Hospitality Outbound"
+                  value={csvCampaignName}
+                  onChange={(e) => setCsvCampaignName(e.target.value)}
+                  disabled={isProcessingCsv}
+                  className={`w-full px-3.5 py-2 text-xs border rounded-lg focus:outline-none focus:ring-1 focus:ring-[#7C5335] ${
+                    theme === 'light' 
+                      ? 'bg-slate-50 border-slate-300 text-slate-800' 
+                      : 'bg-zinc-950 border-zinc-800 text-zinc-100'
+                  }`}
+                />
+                <p className="text-[10px] text-zinc-500 mt-1">
+                  Assigning a custom name creates a unique, isolated, filterable Sourcing Run under your Campaigns list.
+                </p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-zinc-800/20 dark:border-zinc-800/40">
+              <button
+                type="button"
+                onClick={() => setCsvModalOpen(false)}
+                disabled={isProcessingCsv}
+                className={`px-4 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg border transition cursor-pointer ${
+                  theme === 'light' 
+                    ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700' 
+                    : 'bg-transparent hover:bg-zinc-900 border-zinc-800 text-zinc-400'
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCsvImport}
+                disabled={isProcessingCsv || !csvCampaignName.trim()}
+                className="px-4 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white shadow-md shadow-emerald-600/10 transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {isProcessingCsv ? (
+                  <>
+                    <Loader2 size={12} className="animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={12} />
+                    Create Campaign Run
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Accountant AI Onboarding Step-by-Step Interactive Modal */}
       <AccountantOnboardingModal

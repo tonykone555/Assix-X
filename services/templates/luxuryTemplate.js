@@ -400,7 +400,7 @@ export function buildLuxuryTemplate(lead, content = {}, nicheKey = 'traiteur') {
   const displayPhone = lead.phone || '01 89 00 00 00';
   const phoneClean = (lead.phone || '').replace(/\D/g, '') || '33189000000';
   const phoneHref = lead.phone ? `tel:${lead.phone}` : '#devis';
-  const displayAddress = lead.address || (displayCity ? `${displayCity} & environs` : 'France');
+  const displayAddress = currentContent.mapAddress || currentContent.address || lead.address || (displayCity ? `${displayCity} & environs` : 'France');
   const accentColor = currentContent.accentColor || config.accent || '#C9A96E';
 
   const brandWords = brandName.split(' ');
@@ -1810,12 +1810,18 @@ footer {
   </div>
 </section>
 
+${(currentContent.showGoogleMaps !== false && currentContent.showMap !== false) ? `
 <!-- GOOGLE MAPS LOCATION -->
 <section id="localisation" style="padding: 60px 20px; background: var(--noir, #0e0d0b); border-top: 1px solid rgba(255, 255, 255, 0.08); text-align: center;">
   <div style="max-width: 1100px; margin: 0 auto;">
     <h2 style="font-family: var(--font-serif); font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 8px;">Plan & Localisation</h2>
-    <p style="color: #999; font-size: 14px; margin-bottom: 30px;">${displayAddress} — ${displayCity}</p>
-    <div style="border-radius: 16px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.12); height: 380px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+    <p style="color: #999; font-size: 14px; margin-bottom: 20px;">📍 ${displayAddress} — ${displayCity}</p>
+    <div style="margin-bottom: 24px;">
+      <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress || (brandName + ' ' + displayCity))}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; background: #C5A059; color: #000; font-weight: 800; text-decoration: none; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 15px rgba(197, 160, 89, 0.3);">
+        📍 Ouvrir sur Google Maps
+      </a>
+    </div>
+    <div style="border-radius: 16px; overflow: hidden; border: 1px solid rgba(197, 160, 89, 0.3); height: 380px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
       <iframe
         title="Google Maps - ${brandName}"
         width="100%"
@@ -1828,6 +1834,7 @@ footer {
     </div>
   </div>
 </section>
+` : ''}
 
 <!-- FOOTER -->
 <footer>

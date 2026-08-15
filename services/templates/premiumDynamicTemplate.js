@@ -1244,11 +1244,20 @@ export function buildPremiumDynamicTemplate(lead, content, niche = 'traiteur') {
   </div>
 </div>
 
-<section style="padding: 60px 20px; background: rgba(10, 10, 15, 0.6); border-top: 1px solid rgba(255, 255, 255, 0.08); text-align: center;">
-  <div style="max-w: 1100px; margin: 0 auto;">
-    <h2 style="font-size: 28px; font-weight: 800; color: #fff; margin-bottom: 8px;">${lang === 'fr' ? 'Localisation & Accès' : 'Location & Access'}</h2>
-    <p style="color: #999; font-size: 14px; margin-bottom: 30px;">${lead.address || (displayCity ? displayCity + ' & Environs' : 'Notre Établissement')}</p>
-    <div style="border-radius: 20px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.1); height: 380px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.4);">
+${(currentContent.showGoogleMaps !== false && currentContent.showMap !== false) ? `
+<section id="location" style="padding: 60px 20px; background: rgba(10, 10, 15, 0.7); border-top: 1px solid rgba(255, 255, 255, 0.08); text-align: center;">
+  <div style="max-width: 1100px; margin: 0 auto;">
+    <span style="display: inline-block; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: #3b82f6; background: rgba(59, 130, 246, 0.12); padding: 4px 12px; border-radius: 9999px; margin-bottom: 12px; border: 1px solid rgba(59, 130, 246, 0.25);">
+      📍 ${lang === 'fr' ? 'Localisation & Accès' : 'Location & Access'}
+    </span>
+    <h2 style="font-size: 28px; font-weight: 800; color: #fff; margin-bottom: 8px;">${brandName} — ${displayCity || 'Notre Établissement'}</h2>
+    <p style="color: #a1a1aa; font-size: 14px; margin-bottom: 20px;">📍 ${currentContent.mapAddress || currentContent.address || lead.address || (displayCity ? displayCity + ' & Environs' : 'Notre Établissement')}</p>
+    <div style="margin-bottom: 24px;">
+      <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(currentContent.mapAddress || currentContent.address || lead.address || (brandName + ' ' + (displayCity || '')))}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); color: #fff; font-weight: 700; text-decoration: none; border-radius: 12px; font-size: 13px; box-shadow: 0 8px 20px rgba(59, 130, 246, 0.35); transition: transform 0.2s;">
+        📍 ${lang === 'fr' ? 'Ouvrir dans Google Maps' : 'Open in Google Maps'}
+      </a>
+    </div>
+    <div style="border-radius: 20px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.12); height: 380px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
       <iframe
         title="Google Maps Location"
         width="100%"
@@ -1256,11 +1265,12 @@ export function buildPremiumDynamicTemplate(lead, content, niche = 'traiteur') {
         style="border:0;"
         loading="lazy"
         allowfullscreen
-        src="https://maps.google.com/maps?q=${encodeURIComponent(lead.address || (brandName + ' ' + (displayCity || '')))}&t=&z=14&ie=UTF8&iwloc=&output=embed">
+        src="https://maps.google.com/maps?q=${encodeURIComponent(currentContent.mapAddress || currentContent.address || lead.address || (brandName + ' ' + (displayCity || '')))}&t=&z=14&ie=UTF8&iwloc=&output=embed">
       </iframe>
     </div>
   </div>
 </section>
+` : ''}
 
 <footer>
   <p>© ${new Date().getFullYear()} ${brandName}. ${displayCity} & Environs. ${lang === 'fr' ? 'Tous droits réservés.' : 'All rights reserved.'}</p>

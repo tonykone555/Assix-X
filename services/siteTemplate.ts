@@ -143,6 +143,9 @@ export interface SiteContent {
   email?: string;
   contactAddress?: string;
   address?: string;
+  mapAddress?: string;
+  showGoogleMaps?: boolean;
+  showMap?: boolean;
   templateStyle?: 'premium-dark' | 'luxury-serif' | 'classic' | 'behance-construction' | 'behance-cleaning' | 'behance-plumbing' | 'behance-restaurant' | string;
   nicheOverride?: string;
   primaryColor?: string;
@@ -1252,16 +1255,23 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
 
       case 'map':
       case 'location': {
-        const mapSearch = address || (companyName + ' ' + (city || ''));
+        if (content.showGoogleMaps === false || content.showMap === false) {
+          return '';
+        }
+        const mapSearch = content.mapAddress || content.address || address || (companyName + ' ' + (city || ''));
         const mapUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapSearch)}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
+        const directMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapSearch)}`;
         return `
         <!-- GOOGLE MAPS LOCATION SECTION -->
-        <section class="py-16 ${isDarkTheme ? 'bg-slate-900' : 'bg-slate-100'} border-t border-slate-800/30" id="location">
+        <section class="py-16 ${isDarkTheme ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-900'} border-t ${isDarkTheme ? 'border-slate-800/60' : 'border-slate-200'}" id="location">
           <div class="max-w-7xl mx-auto px-6">
-            <div class="text-center max-w-2xl mx-auto mb-10">
+            <div class="text-center max-w-2xl mx-auto mb-8">
               <span class="text-xs font-bold uppercase tracking-wider text-blue-500 block mb-2">${lang === 'fr' ? 'Localisation & Accès' : 'Location & Access'}</span>
               <h2 class="text-2xl sm:text-3xl font-black mb-2">${companyName} — ${city || 'Notre Établissement'}</h2>
-              <p class="text-slate-400 text-sm">${address ? address : (city ? `Retrouvez-nous au cœur de ${city} et ses environs.` : 'Localisez facilement notre établissement.')}</p>
+              <p class="${isDarkTheme ? 'text-slate-400' : 'text-slate-600'} text-sm mb-4">📍 ${mapSearch}</p>
+              <a href="${directMapsUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition shadow-lg shadow-blue-500/25">
+                📍 ${lang === 'fr' ? 'Ouvrir dans Google Maps' : 'Open in Google Maps'}
+              </a>
             </div>
             
             <div class="rounded-3xl overflow-hidden shadow-2xl border ${isDarkTheme ? 'border-slate-800' : 'border-slate-200'} h-[380px] w-full relative bg-slate-900">

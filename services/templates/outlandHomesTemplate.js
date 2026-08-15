@@ -47,6 +47,7 @@ export function buildOutlandHomesTemplate(lead = {}, content = {}, nicheKey = 'r
   ])).filter(Boolean);
 
   const getPhoto = (idx, fallback) => photoPool[idx] || fallback;
+  const heroVideoUrl = currentContent.heroVideoUrl || currentContent.heroVideo || currentContent.videoBackgroundUrl || null;
 
   // Niche Default Photos
   let defaultHero = 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1800&q=80';
@@ -1049,10 +1050,185 @@ export function buildOutlandHomesTemplate(lead = {}, content = {}, nicheKey = 'r
       .contact-card { padding: 40px 24px 24px; margin: 20px 10px; }
     }
   </style>
+  <style>
+    /* Immersive Hero Video Scroll Scrub styles */
+    .hero-scrub-section {
+      position: relative;
+      height: 300vh;
+      background: #000;
+    }
+    .hero-sticky-container {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      width: 100%;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .hero-bg-video {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      min-width: 100%;
+      min-height: 100%;
+      width: auto;
+      height: auto;
+      object-fit: cover;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .hero-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.6) 100%);
+      z-index: 1;
+      pointer-events: none;
+    }
+    .hero-content-wrapper {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .video-loading-indicator {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 3;
+      color: white;
+      font-size: 14px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      opacity: 0.7;
+    }
+    .scrub-progress-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.3);
+      width: 100%;
+      z-index: 4;
+    }
+    .scrub-progress {
+      height: 100%;
+      background: #fff;
+      width: 0%;
+      transition: width 0.1s ease-out;
+    }
+  </style>
 </head>
 <body>
 
   <!-- 1. HERO SECTION -->
+  ${heroVideoUrl ? `
+  <section class="hero-scrub-section" id="home">
+    <div class="hero-sticky-container">
+      <video class="hero-bg-video" id="scrubVideo" src="${heroVideoUrl}" muted playsinline></video>
+      <div class="hero-overlay"></div>
+      <div class="video-loading-indicator" id="videoLoader">Loading immersive experience...</div>
+      
+      <div class="hero-content-wrapper">
+        <nav class="nav-bar">
+          <div class="logo-mark">${brandName.charAt(0) || '▲'}</div>
+          <ul class="nav-links">
+            <li><a href="#home">${i18n.navHome}</a></li>
+            <li><a href="#about">${i18n.navAbout}</a></li>
+            <li><a href="#catalog">${i18n.navCatalog}</a></li>
+            <li><a href="#contact">${i18n.navContact}</a></li>
+          </ul>
+          <a href="#contact" class="btn-outline">${i18n.bookViewing}</a>
+        </nav>
+
+        <div class="hero-giant-title fade-in" style="transform: translateY(0);">
+          ${i18n.giantWordMain}
+          <span>${i18n.giantWordSub}</span>
+        </div>
+
+        <div class="hero-bottom-content fade-in fade-in-delay-1" style="padding: 0 48px 48px;">
+          <div class="hero-description">
+            <h2>${i18n.heroTitle}</h2>
+            <p>${i18n.heroDesc}</p>
+            <a href="#catalog" class="btn-white">${i18n.heroBtn}</a>
+          </div>
+
+          <div class="hero-stat-cards">
+            <div class="stat-card-small">
+              <h3>${i18n.stat1Num}</h3>
+              <p>${i18n.stat1Sub}</p>
+            </div>
+            <div class="stat-card-large">
+              <img src="${statCardImg}" alt="Feature thumbnail">
+              <div class="num">${i18n.stat2Num}</div>
+              <div class="sub">${i18n.stat2Sub}</div>
+            </div>
+          </div>
+        </div>
+        <div class="scrub-progress-bar"><div class="scrub-progress" id="scrubProgress"></div></div>
+      </div>
+    </div>
+  </section>
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      const video = document.getElementById('scrubVideo');
+      const loader = document.getElementById('videoLoader');
+      const progressBar = document.getElementById('scrubProgress');
+      const scrubSection = document.getElementById('home');
+      
+      if (video && scrubSection) {
+        // Pause to allow scrub control
+        video.pause();
+        
+        let isLoaded = false;
+        if (video.readyState >= 2) {
+          isLoaded = true;
+          if(loader) loader.style.display = 'none';
+        } else {
+          video.addEventListener('loadeddata', () => {
+            isLoaded = true;
+            if(loader) loader.style.display = 'none';
+          });
+        }
+
+        let reqId;
+        const updateVideo = () => {
+          if (!isLoaded || !video.duration) return;
+          
+          const rect = scrubSection.getBoundingClientRect();
+          // rect.top is 0 when at top of page, goes negative as we scroll down
+          const totalScrollable = scrubSection.offsetHeight - window.innerHeight;
+          let scrollY = -rect.top;
+          
+          if (scrollY < 0) scrollY = 0;
+          if (scrollY > totalScrollable) scrollY = totalScrollable;
+          
+          let progress = scrollY / totalScrollable;
+          if (isNaN(progress)) progress = 0;
+          
+          video.currentTime = progress * video.duration;
+          if(progressBar) progressBar.style.width = (progress * 100) + '%';
+        };
+
+        window.addEventListener('scroll', () => {
+          if (reqId) cancelAnimationFrame(reqId);
+          reqId = requestAnimationFrame(updateVideo);
+        });
+        
+        // Initial call
+        updateVideo();
+      }
+    });
+  </script>
+  ` : `
   <section class="hero-section" id="home">
     <img class="hero-bg" id="heroBgImg" src="${heroBgImg}" alt="${brandName}">
     
@@ -1092,6 +1268,7 @@ export function buildOutlandHomesTemplate(lead = {}, content = {}, nicheKey = 'r
       </div>
     </div>
   </section>
+  `}
 
   <!-- 2. ABOUT SECTION -->
   <section class="section-padding container" id="about">
@@ -1247,6 +1424,56 @@ export function buildOutlandHomesTemplate(lead = {}, content = {}, nicheKey = 'r
       </div>
     </div>
   </section>
+
+  ${currentContent.showMenu !== false ? `
+  <!-- 6b. MENU SECTION -->
+  <section class="section-padding container" id="menu">
+    <div class="section-grid">
+      <div class="section-label fade-in">${lang === 'fr' ? 'À LA CARTE' : 'MENU'}</div>
+      <div class="menu-container">
+        ${(currentContent.menuText || (lang === 'fr' 
+          ? 'Filet de Bœuf Wellington | Accompagné de sa purée truffée | 45€\nSaumon Gravlax | Citron vert et baies roses | 18€\nFondant au Chocolat Noir | Cœur coulant au caramel beurre salé | 12€'
+          : 'Beef Wellington | Served with truffle puree | $45\nGravlax Salmon | Lime and pink peppercorn | $18\nDark Chocolate Fondant | Molten salted caramel center | $12'
+        )).split('\n').map(line => {
+          const parts = line.split('|').map(p => p.trim());
+          if (parts.length >= 3) {
+            return '<div class="menu-item fade-in"><div class="menu-title-container"><h3>' + parts[0] + '</h3><p>' + parts[1] + '</p></div><div class="menu-price">' + parts[2] + '</div></div>';
+          } else if (parts.length > 0 && parts[0]) {
+            return '<div class="menu-item fade-in"><div class="menu-title-container"><h3>' + parts[0] + '</h3></div></div>';
+          }
+          return '';
+        }).join('')}
+      </div>
+    </div>
+  </section>
+  ` : ''}
+
+  ${(currentContent.showGoogleMaps !== false && currentContent.showMap !== false) ? `
+  <!-- GOOGLE MAPS LOCATION SECTION -->
+  <section class="section-padding container" id="location" style="border-top: 1px solid rgba(255,255,255,0.08);">
+    <div style="max-width: 1100px; margin: 0 auto; text-align: center;">
+      <div class="section-label fade-in" style="margin-bottom: 8px; justify-content: center;">${lang === 'fr' ? 'LOCALISATION & ACCÈS' : 'LOCATION & ACCESS'}</div>
+      <h2 class="fade-in" style="font-size: 28px; font-weight: 800; color: #fff; margin-bottom: 8px;">${brandName} — ${displayCity}</h2>
+      <p class="fade-in" style="color: #a1a1aa; font-size: 14px; margin-bottom: 20px;">📍 ${displayAddress}</p>
+      <div class="fade-in" style="margin-bottom: 24px;">
+        <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress || (brandName + ' ' + displayCity))}" target="_blank" rel="noopener noreferrer" class="btn-white" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; font-size: 13px; text-decoration: none;">
+          📍 ${lang === 'fr' ? 'Ouvrir dans Google Maps' : 'Open in Google Maps'}
+        </a>
+      </div>
+      <div class="fade-in" style="border-radius: 20px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.12); height: 380px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+        <iframe
+          title="Google Maps Location"
+          width="100%"
+          height="100%"
+          style="border:0;"
+          loading="lazy"
+          allowfullscreen
+          src="https://maps.google.com/maps?q=${encodeURIComponent(displayAddress || (brandName + ' ' + (displayCity || '')))}&t=&z=14&ie=UTF8&iwloc=&output=embed">
+        </iframe>
+      </div>
+    </div>
+  </section>
+  ` : ''}
 
   <!-- 7. CONTACT FORM SECTION -->
   <section class="contact-card" id="contact">

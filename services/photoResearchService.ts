@@ -418,7 +418,7 @@ function getProxiedUrl(url: string): string {
  * Advanced Stock Video Curation and search engine.
  * Delivers working, high-resolution direct .mp4 streaming files for website hero backgrounds and showcases.
  */
-export async function searchWebVideos(query: string): Promise<SearchedVideo[]> {
+export async function searchWebVideos(query: string, source: string = 'mixkit', page: number = 1): Promise<SearchedVideo[]> {
   const lower = query.toLowerCase();
   
   // Find clean English category slug
@@ -430,11 +430,53 @@ export async function searchWebVideos(query: string): Promise<SearchedVideo[]> {
     }
   }
 
-  // Replace spaces with dashes for clean Mixkit category slug
-  const slug = encodeURIComponent(term.replace(/\s+/g, '-'));
   const results: SearchedVideo[] = [];
 
   try {
+    if (source === 'pexels' && process.env.PEXELS_API_KEY) {
+      console.log(`[Video API] Querying Pexels for "${term}", page ${page}`);
+      const res = await fetch(`https://api.pexels.com/videos/search?query=${encodeURIComponent(term)}&per_page=15&page=${page}`, {
+        headers: { 'Authorization': process.env.PEXELS_API_KEY }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        for (const video of data.videos || []) {
+          const file = video.video_files?.find((f: any) => f.quality === 'hd') || video.video_files?.[0];
+          if (file) {
+            results.push({
+              url: getProxiedUrl(file.link),
+              title: `Pexels Video #${video.id}`,
+              source: 'pexels',
+              thumbnail: video.image
+            });
+          }
+        }
+      }
+      return results;
+    }
+    
+    if (source === 'pixabay' && process.env.PIXABAY_API_KEY) {
+      console.log(`[Video API] Querying Pixabay for "${term}", page ${page}`);
+      const res = await fetch(`https://pixabay.com/api/videos/?key=${process.env.PIXABAY_API_KEY}&q=${encodeURIComponent(term)}&page=${page}`);
+      if (res.ok) {
+        const data = await res.json();
+        for (const hit of data.hits || []) {
+          const file = hit.videos?.large || hit.videos?.medium || hit.videos?.small;
+          if (file?.url) {
+            results.push({
+              url: getProxiedUrl(file.url),
+              title: `Pixabay Video #${hit.id}`,
+              source: 'pixabay',
+              thumbnail: hit.picture_id ? `https://i.vimeocdn.com/video/${hit.picture_id}_640x360.jpg` : undefined
+            });
+          }
+        }
+      }
+      return results;
+    }
+
+    // Default to Mixkit web scrape (No pagination naturally natively available via simple fetch without API, but we just return results)
+    const slug = encodeURIComponent(term.replace(/\s+/g, '-'));
     console.log(`[Video Scraping] Querying Mixkit page for term: "${term}" (slug: "${slug}")`);
     const res = await fetch(`https://mixkit.co/free-stock-video/${slug}/`, {
       headers: {

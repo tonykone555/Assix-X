@@ -1,7 +1,7 @@
-import { Stagehand } from '@browserbasehq/stagehand';
 import Steel from 'steel-sdk';
 
 export async function launchStagehandSession() {
+  const { Stagehand } = await import('@browserbasehq/stagehand');
   const apiKey = process.env.STEEL_API_KEY;
 
   // 1. Primary Engine: Steel Cloud Remote Browser Session (if STEEL_API_KEY is configured)
@@ -17,7 +17,8 @@ export async function launchStagehandSession() {
       const liveViewUrl = session.sessionViewerUrl || session.debugUrl || (session.id ? `https://app.steel.dev/sessions/${session.id}` : "");
 
       console.log(`[stagehandSession] Connecting Stagehand over CDP to Steel session ${session.id}...`);
-      const stagehand = new Stagehand({
+      const StagehandConstructor = Stagehand as any;
+      const stagehand = new StagehandConstructor({
         env: "LOCAL",
         localBrowserLaunchOptions: {
           cdpUrl: session.websocketUrl,
@@ -27,7 +28,7 @@ export async function launchStagehandSession() {
         modelBaseUrl: process.env.GEMINI_BASE_URL,
         selfHeal: true,
         domSettleTimeout: 30000,
-      } as any);
+      });
 
       await stagehand.init();
       const sessionId = session.id;
@@ -43,7 +44,8 @@ export async function launchStagehandSession() {
   // 2. Fallback: Local Playwright Browser for Stagehand
   try {
     console.log(`[stagehandSession] Attempting to launch Stagehand with local Playwright browser...`);
-    const stagehand = new Stagehand({
+    const StagehandConstructor = Stagehand as any;
+    const stagehand = new StagehandConstructor({
       env: "LOCAL",
       headless: true,
       model: "google/gemini-2.5-flash",
@@ -51,7 +53,7 @@ export async function launchStagehandSession() {
       modelBaseUrl: process.env.GEMINI_BASE_URL,
       selfHeal: true,
       domSettleTimeout: 30000,
-    } as any);
+    });
 
     await stagehand.init();
     console.log(`[stagehandSession] Stagehand local browser session initialized successfully.`);

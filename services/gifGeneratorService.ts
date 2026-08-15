@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
-import { GIFEncoder, quantize, applyPalette } from 'gifenc';
+import gifenc from 'gifenc';
+const { GIFEncoder, quantize, applyPalette } = gifenc;
 import jpeg from 'jpeg-js';
 import { db } from '../firebase-client-wrapper';
 

@@ -5087,7 +5087,7 @@ app.get('/api/instagram/profile-stats/:username', async (req, res) => {
     const { username } = req.params;
     const cleanUser = (username || '').replace(/^@/, '').trim();
     
-    const hash = Array.from(cleanUser || 'user').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const hash: number = (cleanUser || 'user').split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
     const followers = Math.floor(1450 + (hash * 43) % 95000);
     const following = Math.floor(180 + (hash * 17) % 1900);
     const posts = Math.floor(18 + (hash * 9) % 520);
@@ -5871,7 +5871,7 @@ Return ONLY a valid JSON array of objects with the following fields:
     }
 
     // Default dynamic ad generator matching keyword
-    const hashBase = Array.from(keyword.toLowerCase()).reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    const hashBase: number = (keyword || '').toLowerCase().split('').reduce((acc: number, c: string) => acc + c.charCodeAt(0), 0);
     const cleanKw = keyword.replace(/[^\w\sàâäéèêëîïôöùûüç]/gi, '');
     const capitalizedKw = cleanKw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -8346,13 +8346,14 @@ app.get('/api/leads/no-website', async (req, res) => {
 
 app.post('/api/leads/import-csv', async (req, res) => {
   try {
-    const { contacts, taskId, userId } = req.body;
+    const { contacts, taskId, userId, campaignName, filename } = req.body;
     if (!Array.isArray(contacts) || contacts.length === 0) {
       return res.status(400).json({ error: 'No contacts array provided' });
     }
 
     const importTaskId = taskId || `csv-import-${Date.now()}`;
     const cleanUserId = userId || 'system';
+    const cleanCampaignName = campaignName || `CSV Import: ${filename || 'leads.csv'}`;
     let savedCount = 0;
 
     for (const raw of contacts) {
@@ -8403,6 +8404,21 @@ app.post('/api/leads/import-csv', async (req, res) => {
       
       savedCount++;
     }
+
+    // CREATE A DEDICATED SOURCING RUN TASK DOCUMENT FOR THIS CSV IMPORT
+    const taskDoc = {
+      taskId: importTaskId,
+      userId: cleanUserId,
+      label: cleanCampaignName,
+      taskType: 'csv_import',
+      status: 'complete',
+      progress: savedCount,
+      total: savedCount,
+      progressPct: 100,
+      createdAt: new Date().toISOString(),
+      results: `Imported ${savedCount} leads from ${filename || 'CSV file'}.`
+    };
+    await db.collection('assix_tasks').doc(importTaskId).set(taskDoc);
 
     res.json({ status: 'success', count: savedCount, taskId: importTaskId });
   } catch (err: any) {
@@ -9247,13 +9263,27 @@ function setInSiteCache(siteId: string, siteRecord: any) {
 // 1. Generate Site Preview
 app.post('/api/leads/generate-site-preview', async (req, res) => {
   try {
-    const { lead, existingContent, pitchContext, langOverride, designFramework, templateStyle } = req.body;
+    const { lead, existingContent, pitchContext, langOverride, designFramework, templateStyle, layoutMap } = req.body;
     if (!lead || (!lead.name && !lead.businessName && !lead.company)) {
       return res.status(400).json({ error: 'Missing lead details' });
     }
 
     const siteId = `site_${uuidv4().substring(0, 8)}`;
-    let content = await generateSiteContent(lead, existingContent || '', pitchContext || '', langOverride);
+    
+    // Inject visual layout specifications from Vision AI mapping directly into content generation
+    let effectivePitchContext = pitchContext || '';
+    if (layoutMap) {
+      effectivePitchContext += `\n\n[MAPPED LAYOUT SCHEME FROM VISION AI ANALYSIS]:\n` + 
+        `Theme Mood: ${layoutMap.theme?.mood || 'modern'}\n` +
+        `Suggested Typography: ${layoutMap.theme?.typography || 'sans-serif'}\n` +
+        `Primary Color: ${layoutMap.theme?.colors?.primary || ''}\n` +
+        `Secondary Color: ${layoutMap.theme?.colors?.secondary || ''}\n` +
+        `Aesthetic Summary: ${layoutMap.aestheticSummary || ''}\n` +
+        `Sections Structure:\n` + 
+        (layoutMap.sections || []).map((s: any) => `- Section [${s.id}]: "${s.title}" (${s.description}). Components: ${(s.components || []).join(', ')}`).join('\n');
+    }
+
+    let content = await generateSiteContent(lead, existingContent || '', effectivePitchContext, langOverride);
 
     // Auto-fill missing photos from Pinterest/web so generated site is never empty!
     try {
@@ -9264,6 +9294,15 @@ app.post('/api/leads/generate-site-preview', async (req, res) => {
 
     const requestedStyle = templateStyle || (typeof existingContent === 'object' ? existingContent?.templateStyle : null);
     content.templateStyle = requestedStyle || content.templateStyle || 'premium-dark';
+
+    // If layoutMap contains colors or design guidance, preserve them inside content
+    if (layoutMap && layoutMap.theme) {
+      if (layoutMap.theme.colors?.primary) content.primaryColor = layoutMap.theme.colors.primary;
+      if (layoutMap.theme.colors?.secondary) content.accentColor = layoutMap.theme.colors.secondary;
+      if (layoutMap.theme.colors?.background) content.backgroundColor = layoutMap.theme.colors.background;
+      if (layoutMap.theme.colors?.text) content.textColor = layoutMap.theme.colors.text;
+      if (layoutMap.theme.typography) content.fontStyle = layoutMap.theme.typography;
+    }
 
     const html = buildHTMLTemplate(lead, content, designFramework || 'modern');
 
@@ -9294,6 +9333,76 @@ app.post('/api/leads/generate-site-preview', async (req, res) => {
   } catch (err: any) {
     console.error('[Generate Site Preview Error]:', err);
     res.status(500).json({ error: err.message || 'Failed to generate site preview' });
+  }
+});
+
+// 1.5 Analyze Layout/Screenshot via Vision AI
+app.post('/api/leads/analyze-screenshot', async (req, res) => {
+  try {
+    const { image, mimeType, prompt } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: 'Missing image data' });
+    }
+
+    const cleanMimeType = mimeType || 'image/png';
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    
+    const userPrompt = prompt || "Analyze this design/layout screenshot.";
+    const fullPrompt = `You are an elite UX/UI designer and system architect.
+Analyze this layout/design screenshot or image, and map out a structured layout specification for a highly modern responsive web page that mirrors this aesthetic, structure, or content details.
+
+Your response must be in JSON format matching this schema:
+{
+  "theme": {
+    "colors": {
+      "primary": "dominant primary color (hex)",
+      "secondary": "secondary color (hex)",
+      "background": "page background color description (hex or styling)",
+      "text": "text color description (hex or styling)"
+    },
+    "typography": "pairing suggestion (serif, sans-serif, slab, custom names)",
+    "mood": "clean, brutalist, minimal, luxury, etc."
+  },
+  "sections": [
+    {
+      "id": "hero | features | testimonials | gallery | footer etc.",
+      "title": "Clear visual title for this section",
+      "description": "Short explanation of the layout structure, alignment, content elements found/inspired",
+      "components": [
+        "element 1 (e.g., split grid, visual card, badge, primary CTA button)",
+        "element 2"
+      ]
+    }
+  ],
+  "aestheticSummary": "Paragraph summarizing why this layout looks high-end and how to rebuild it perfectly."
+}`;
+
+    const imagePart = {
+      inlineData: {
+        mimeType: cleanMimeType,
+        data: base64Data,
+      },
+    };
+
+    const textPart = {
+      text: `${userPrompt}\n\n${fullPrompt}`,
+    };
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.7-flash",
+      contents: [imagePart, textPart],
+      config: {
+        responseMimeType: "application/json",
+      }
+    });
+
+    const parsedData = JSON.parse(response.text || '{}');
+    res.json(parsedData);
+  } catch (err: any) {
+    console.error('[Analyze Screenshot Error]:', err);
+    res.status(500).json({ error: err.message || 'Failed to analyze screenshot' });
   }
 });
 
@@ -9895,27 +10004,80 @@ Return ONLY the raw JSON array. Do not wrap it in markdown codeblocks. Just retu
   }
 });
 
-// Vision AI Multimodal Image-to-HTML Design Reconstruction Endpoint
+// Vision AI Multimodal Image-to-HTML Design Reconstruction Endpoint (Supports Single & Multi-Screenshot Blending)
 app.post('/api/leads/vision-convert-design', async (req, res) => {
   try {
-    const { imageUrl, imageBase64, lead, langOverride } = req.body;
-    if (!imageUrl && !imageBase64) {
-      return res.status(400).json({ error: 'Please provide an image URL or image base64 payload.' });
+    const { imageUrl, imageBase64, images, imageUrls, imagesBase64, lead, langOverride } = req.body;
+    
+    // Normalize input into an array of image source promises
+    const rawImagesList: Array<{ url?: string; b64?: string }> = [];
+    if (images && Array.isArray(images) && images.length > 0) {
+      images.forEach(img => {
+        if (typeof img === 'string') {
+          if (img.startsWith('data:') || img.length > 300) rawImagesList.push({ b64: img });
+          else rawImagesList.push({ url: img });
+        } else if (img && typeof img === 'object') {
+          rawImagesList.push({ url: img.url, b64: img.b64 || img.imageBase64 });
+        }
+      });
+    }
+    if (imageUrls && Array.isArray(imageUrls)) {
+      imageUrls.forEach(url => rawImagesList.push({ url }));
+    }
+    if (imagesBase64 && Array.isArray(imagesBase64)) {
+      imagesBase64.forEach(b64 => rawImagesList.push({ b64 }));
+    }
+    if (rawImagesList.length === 0) {
+      if (imageBase64) rawImagesList.push({ b64: imageBase64 });
+      if (imageUrl) rawImagesList.push({ url: imageUrl });
     }
 
-    let b64Data = imageBase64;
-    let mimeType = 'image/jpeg';
-
-    if (!b64Data && imageUrl) {
-      const imgRes = await fetch(imageUrl);
-      const arrayBuf = await imgRes.arrayBuffer();
-      b64Data = Buffer.from(arrayBuf).toString('base64');
-      const contentType = imgRes.headers.get('content-type');
-      if (contentType) mimeType = contentType.split(';')[0];
+    if (rawImagesList.length === 0) {
+      return res.status(400).json({ error: 'Please provide at least one image URL or image base64 payload.' });
     }
 
     if (!process.env.GEMINI_API_KEY) {
       return res.status(400).json({ error: 'GEMINI_API_KEY environment variable is required for Vision processing.' });
+    }
+
+    // Process all images into Gemini inlineData parts
+    const imageParts: Array<{ inlineData: { mimeType: string; data: string } }> = [];
+    for (const item of rawImagesList.slice(0, 5)) { // Max 5 screenshots per request for optimal token limit
+      try {
+        let b64Data = item.b64 || '';
+        let mimeType = 'image/jpeg';
+
+        if (b64Data.startsWith('data:')) {
+          const match = b64Data.match(/^data:(.*?);base64,(.*)$/);
+          if (match) {
+            mimeType = match[1];
+            b64Data = match[2];
+          }
+        }
+
+        if (!b64Data && item.url) {
+          const imgRes = await fetch(item.url);
+          const arrayBuf = await imgRes.arrayBuffer();
+          b64Data = Buffer.from(arrayBuf).toString('base64');
+          const contentType = imgRes.headers.get('content-type');
+          if (contentType) mimeType = contentType.split(';')[0];
+        }
+
+        if (b64Data) {
+          imageParts.push({
+            inlineData: {
+              mimeType: mimeType.includes('image/') ? mimeType : 'image/jpeg',
+              data: b64Data
+            }
+          });
+        }
+      } catch (err: any) {
+        console.warn('[Vision Processing Warning] Skipped unreadable image:', err?.message);
+      }
+    }
+
+    if (imageParts.length === 0) {
+      return res.status(400).json({ error: 'Failed to process provided screenshot images for Vision AI.' });
     }
 
     const ai = new GoogleGenAI({
@@ -9928,8 +10090,11 @@ app.post('/api/leads/vision-convert-design', async (req, res) => {
     const lang = langOverride || (lead?.market?.includes('english') ? 'en' : 'fr');
 
     const promptText = `You are a world-class UI/UX designer and expert frontend engineer.
-Analyze this UI design mockup image / Behance screenshot with 100% precision.
-Reconstruct the EXACT visual layout, color palette (hex codes), typography hierarchy, flex/grid layouts, padding, card styling, buttons, hero section, pricing components, and section order into a complete, self-contained, high-converting HTML document using Tailwind CSS (<script src="https://cdn.tailwindcss.com"></script>).
+You are provided with ${imageParts.length} design mockup screenshot(s) / Behance showcase image(s).
+Analyze ALL provided screenshots with 100% precision. Each screenshot represents a section or page element (e.g. Hero Section, Features/Services Grid, Testimonials/Portfolio, Pricing Table, Footer/Contact Form).
+
+Your Goal:
+Synthesize and reconstruct the EXACT visual layout, color palette (hex codes), typography hierarchy, flex/grid layouts, card styling, buttons, and section sequence from these screenshots into ONE unified, complete, self-contained, high-converting responsive HTML document using Tailwind CSS (<script src="https://cdn.tailwindcss.com"></script>).
 
 Target Business Details to Inject:
 - Business Name: ${companyName}
@@ -9939,10 +10104,11 @@ Target Business Details to Inject:
 - Email Address: ${lead?.email || 'contact@' + companyName.toLowerCase().replace(/[^a-z]/g, '') + '.com'}
 
 Key Instructions:
-1. Replicate the visual style, section hierarchy, dark/light theme, card borders, gradients, and typography of the provided design image accurately.
-2. Generate rich, persuasive copy in ${lang === 'fr' ? 'French' : 'English'} for ${companyName}.
-3. Include working interactive features (e.g. estimate cost calculators, tabbed menus, lead capture forms, call-to-action buttons).
-4. Return ONLY the raw HTML starting with <!DOCTYPE html> and ending with </html>. Do not include markdown or explanations.`;
+1. Replicate the exact visual style, colors, dark/light theme, card borders, gradients, and typography captured across all screenshots accurately.
+2. Ensure every section captured in the screenshots is faithfully rendered in proper top-to-bottom vertical order.
+3. Generate rich, persuasive copy in ${lang === 'fr' ? 'French' : 'English'} tailored specifically for ${companyName}.
+4. Include working interactive features (e.g. estimate calculators, tabbed menus, contact forms, call-to-action buttons).
+5. Return ONLY the raw HTML starting with <!DOCTYPE html> and ending with </html>. Do not include markdown or explanations.`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -9950,12 +10116,7 @@ Key Instructions:
         {
           role: 'user',
           parts: [
-            {
-              inlineData: {
-                mimeType,
-                data: b64Data
-              }
-            },
+            ...imageParts,
             { text: promptText }
           ]
         }
@@ -10314,12 +10475,12 @@ app.get('/api/leads/video-proxy', async (req, res) => {
 
 app.post('/api/leads/research-videos', async (req, res) => {
   try {
-    const { query } = req.body;
+    const { query, source, page } = req.body;
     if (!query) {
       return res.status(400).json({ error: 'Missing search query for video research' });
     }
-    console.log(`[Video Research API] Querying stock videos for: "${query}"`);
-    const results = await searchWebVideos(query);
+    console.log(`[Video Research API] Querying stock videos for: "${query}" from source: ${source || 'mixkit'} page: ${page || 1}`);
+    const results = await searchWebVideos(query, source || 'mixkit', page || 1);
     res.json({
       success: true,
       videos: results

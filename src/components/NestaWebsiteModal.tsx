@@ -88,6 +88,54 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
   // Device Viewport Mode State for Translucent Website Frame
   const [viewMode, setViewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
 
+  // Google Maps & Location Settings State
+  const [mapAddressInput, setMapAddressInput] = useState<string>('');
+
+  useEffect(() => {
+    if (siteData?.content) {
+      const addr = siteData.content.mapAddress || siteData.content.address || siteData.content.contactAddress || lead?.address || '';
+      setMapAddressInput(addr);
+    }
+  }, [siteData, lead]);
+
+  const handleUpdateMapSettings = async (showMapVal: boolean, addressVal?: string) => {
+    if (!siteData) return;
+    const finalAddress = addressVal !== undefined ? addressVal : mapAddressInput;
+    const updatedContent = {
+      ...siteData.content,
+      showGoogleMaps: showMapVal,
+      showMap: showMapVal,
+      mapAddress: finalAddress,
+      address: finalAddress,
+      contactAddress: finalAddress
+    };
+
+    setModifying(true);
+    try {
+      const res = await fetch('/api/leads/modify-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId: siteData.siteId,
+          currentContent: siteData.content,
+          directContent: updatedContent,
+          lead
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSiteData(data);
+        if (data.content) {
+          setJsonText(JSON.stringify(data.content, null, 2));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update Google Maps settings:', err);
+    } finally {
+      setModifying(false);
+    }
+  };
+
   // Behance Multi-Portfolio Search & Research Engine States
   const [behanceSearchQuery, setBehanceSearchQuery] = useState(() => {
     const company = lead?.name || lead?.companyName || lead?.businessName || '';
@@ -203,7 +251,10 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
   const [uploadedVideos, setUploadedVideos] = useState<string[]>([]);
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const [videoSearchQuery, setVideoSearchQuery] = useState('');
+  const [videoSearchSource, setVideoSearchSource] = useState('pexels');
+  const [videoSearchPage, setVideoSearchPage] = useState(1);
   const [isSearchingVideos, setIsSearchingVideos] = useState(false);
+  const [isLoadingMoreVideos, setIsLoadingMoreVideos] = useState(false);
   const [researchedVideosList, setResearchedVideosList] = useState<any[]>([]);
   const [videoPrompt, setVideoPrompt] = useState('');
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
@@ -946,16 +997,21 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
     }
   };
 
-  const handleVisionConvertDesign = async (targetImageUrl?: string, imageBase64?: string) => {
+  const handleVisionConvertDesign = async (targetImageUrl?: string | string[], imageBase64?: string | string[]) => {
     setLoading(true);
     try {
       const targetLang = selectedLang !== 'auto' ? selectedLang : (lead.market?.includes('english') ? 'en' : 'fr');
+      const imagesList = Array.isArray(targetImageUrl) ? targetImageUrl : (targetImageUrl ? [targetImageUrl] : []);
+      const imagesB64List = Array.isArray(imageBase64) ? imageBase64 : (imageBase64 ? [imageBase64] : []);
+
       const res = await fetch('/api/leads/vision-convert-design', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          imageUrl: targetImageUrl,
-          imageBase64,
+          imageUrl: typeof targetImageUrl === 'string' ? targetImageUrl : undefined,
+          imageBase64: typeof imageBase64 === 'string' ? imageBase64 : undefined,
+          images: imagesList,
+          imagesBase64: imagesB64List,
           lead,
           langOverride: targetLang
         })
@@ -1204,26 +1260,45 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
     }
   };
 
-  const handleSearchVideos = async (overrideQuery?: string) => {
+  const handleSearchVideos = async (overrideQuery?: string, overrideSource?: string, overridePage?: number) => {
     const q = overrideQuery || videoSearchQuery;
+    const s = overrideSource || videoSearchSource;
+    const p = overridePage || 1;
     if (!q || !q.trim()) return;
 
-    setIsSearchingVideos(true);
+    if (p === 1) {
+      setIsSearchingVideos(true);
+      setResearchedVideosList([]);
+    } else {
+      setIsLoadingMoreVideos(true);
+    }
+
     try {
       const res = await fetch('/api/leads/research-videos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q })
+        body: JSON.stringify({ query: q, source: s, page: p })
       });
       const data = await res.json();
       if (data.success && Array.isArray(data.videos)) {
-        setResearchedVideosList(data.videos);
+        if (p === 1) {
+          setResearchedVideosList(data.videos);
+        } else {
+          setResearchedVideosList(prev => [...prev, ...data.videos]);
+        }
       }
     } catch (err) {
       console.error('Failed to search videos:', err);
     } finally {
       setIsSearchingVideos(false);
+      setIsLoadingMoreVideos(false);
     }
+  };
+
+  const loadMoreVideos = () => {
+    const nextPage = videoSearchPage + 1;
+    setVideoSearchPage(nextPage);
+    handleSearchVideos(videoSearchQuery, videoSearchSource, nextPage);
   };
 
   const handleGenerateVideo = async () => {
@@ -1944,7 +2019,7 @@ Set nicheOverride to "${activeNiche}".`;
                 onChange={(e) => handleTemplateStyleChange(e.target.value)}
                 className="bg-transparent text-xs text-white font-semibold focus:outline-none cursor-pointer"
               >
-                <option value="outland-homes" className="bg-[#18181B]">🌲 Outland Homes & Nature Airbnb (Main)</option>
+                <option value="outland-homes" className="bg-[#18181B]">🌲 Outland Restaurant (Dark Premium)</option>
                 <option value="main-neumorphic" className="bg-[#18181B]">🔮 Main Neumorphic Cutouts (All-Niches)</option>
                 <option value="cinematic-luxury" className="bg-[#18181B]">🎥 Cinematic Luxury & Multi-Niche</option>
                 <option value="premium-dark" className="bg-[#18181B]">✨ Premium Dark Ribbon</option>
@@ -2033,43 +2108,43 @@ Set nicheOverride to "${activeNiche}".`;
         </div>
 
         {/* CONTROLS BAR & TABS */}
-        <div className="px-6 py-3 border-b border-[#1F1F23] bg-[#0F0F12] flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-2 bg-[#18181B] p-1 rounded-xl border border-zinc-800">
+        <div className="px-3 sm:px-6 py-2 sm:py-3 border-b border-[#1F1F23] bg-[#0F0F12] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 sm:gap-4 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 bg-[#18181B] p-1 rounded-xl border border-zinc-800 overflow-x-auto max-w-full select-none shrink-0 scrollbar-none">
             <button
               onClick={() => setActiveTab('preview')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeTab === 'preview' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${activeTab === 'preview' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
             >
-              <Globe size={13} className="inline mr-1.5" /> Interactive Preview
+              <Globe size={13} className="inline mr-1" /> Preview
             </button>
             <button
               onClick={() => setActiveTab('schema')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeTab === 'schema' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${activeTab === 'schema' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
             >
-              <Code size={13} className="inline mr-1.5" /> JSON Schema & Copy
+              <Code size={13} className="inline mr-1" /> JSON
             </button>
             <button
               onClick={() => setActiveTab('export')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeTab === 'export' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${activeTab === 'export' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
             >
-              <Share2 size={13} className="inline mr-1.5" /> API / Webhook Export
+              <Share2 size={13} className="inline mr-1" /> Export
             </button>
             <button
               onClick={() => setActiveTab('media')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeTab === 'media' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${activeTab === 'media' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
             >
-              <Image size={13} className="inline mr-1.5" /> Photos & Media ({uploadedImages.length + (lead.photos?.length || 0)})
+              <Image size={13} className="inline mr-1" /> Photos ({uploadedImages.length + (lead.photos?.length || 0)})
             </button>
             <button
               onClick={() => setActiveTab('gif')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'gif' ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-md shadow-blue-500/25' : 'text-blue-400 hover:text-blue-300'}`}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1 ${activeTab === 'gif' ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-md' : 'text-blue-400 hover:text-blue-300'}`}
             >
-              <Zap size={13} /> Outreach GIF Generator
+              <Zap size={13} /> GIF
             </button>
             <button
               onClick={() => setActiveTab('templates')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'templates' ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20' : 'text-amber-400 hover:text-amber-300'}`}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1 ${activeTab === 'templates' ? 'bg-amber-500 text-black shadow-md' : 'text-amber-400 hover:text-amber-300'}`}
             >
-              <Sparkles size={13} /> Behance Templates ({BEHANCE_TEMPLATES_LIST.length})
+              <Sparkles size={13} /> Templates
             </button>
           </div>
 
@@ -2077,11 +2152,11 @@ Set nicheOverride to "${activeNiche}".`;
           <div className="flex-1 max-w-xl flex items-center gap-2">
             <input
               type="text"
-              placeholder="Ask AI to change anything: layout, button styles, colors, text, fonts, or theme..."
+              placeholder="Ask AI to change anything: layout, button styles, colors, text, fonts, or Google Maps..."
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleModifyWithAI()}
-              className="flex-1 bg-[#18181B] border border-zinc-800 focus:border-blue-500 rounded-xl px-3.5 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none"
+              className="flex-1 bg-[#18181B] border border-zinc-800 focus:border-blue-500 rounded-xl px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none"
             />
             <button
               onClick={handleModifyWithAI}
@@ -2105,27 +2180,71 @@ Set nicheOverride to "${activeNiche}".`;
           ) : (
             <>
               {activeTab === 'preview' && (
-                <div className="w-full h-full p-3 sm:p-5 flex flex-col relative overflow-hidden bg-gradient-to-b from-black/40 via-zinc-950/60 to-black/80 backdrop-blur-2xl">
-                  {/* TOP ACTIONS RIBBON */}
-                  <div className="mb-2 px-3 py-1.5 bg-[#121218]/90 backdrop-blur-xl border border-amber-500/20 rounded-xl flex items-center justify-between gap-3 shrink-0 shadow-lg select-none">
-                    <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
-                      <Sparkles size={13} className="text-amber-400" />
-                      <span>Niche Website Live Preview</span>
+                <div className="w-full h-full p-2 sm:p-5 flex flex-col relative overflow-hidden bg-gradient-to-b from-black/40 via-zinc-950/60 to-black/80 backdrop-blur-2xl">
+                  {/* GOOGLE MAPS & LOCATION SETTINGS TOOLBAR */}
+                  <div className="mb-2 px-3 py-2 bg-[#121218]/95 backdrop-blur-xl border border-blue-500/30 rounded-xl flex flex-wrap items-center justify-between gap-2.5 shrink-0 shadow-lg select-none">
+                    <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[260px]">
+                      {/* TOGGLE GOOGLE MAPS */}
+                      <label className="flex items-center gap-2 cursor-pointer bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1 rounded-lg border border-blue-500/30 transition shrink-0">
+                        <MapPin size={14} className="text-blue-400 shrink-0" />
+                        <span className="text-xs font-extrabold text-blue-200">Google Maps</span>
+                        <input
+                          type="checkbox"
+                          checked={siteData?.content?.showGoogleMaps !== false && siteData?.content?.showMap !== false}
+                          onChange={(e) => handleUpdateMapSettings(e.target.checked)}
+                          className="w-4 h-4 rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                      </label>
+
+                      {/* ADDRESS INPUT IF MAP IS ACTIVE */}
+                      {(siteData?.content?.showGoogleMaps !== false && siteData?.content?.showMap !== false) && (
+                        <div className="flex-1 flex items-center gap-1.5 min-w-[200px]">
+                          <div className="relative flex-1">
+                            <input
+                              type="text"
+                              value={mapAddressInput}
+                              onChange={(e) => setMapAddressInput(e.target.value)}
+                              onBlur={() => handleUpdateMapSettings(true, mapAddressInput)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleUpdateMapSettings(true, mapAddressInput)}
+                              placeholder={lead?.address || "Saisir une adresse (ex: 15 Rue de la Paix, Paris)..."}
+                              className="w-full bg-[#18181B] border border-zinc-700 focus:border-blue-500 rounded-lg pl-7 pr-2.5 py-1 text-xs text-white placeholder-zinc-500 focus:outline-none"
+                            />
+                            <MapPin size={12} className="absolute left-2 top-2 text-zinc-400 pointer-events-none" />
+                          </div>
+                          <button
+                            onClick={() => handleUpdateMapSettings(true, mapAddressInput)}
+                            disabled={modifying}
+                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg transition shrink-0 cursor-pointer"
+                            title="Appliquer l'adresse à la carte"
+                          >
+                            {modifying ? <RefreshCw size={12} className="animate-spin" /> : "Appliquer"}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
-                    <button
-                      onClick={() => {
-                        const niche = siteData?.content?.nicheOverride || lead?.niche || lead?.sector || 'services';
-                        const q = `${niche} ${companyName} pinterest photo design`;
-                        handleResearchPhotos(q);
-                      }}
-                      disabled={researchingPhotos}
-                      className="px-3 py-1 bg-gradient-to-r from-rose-500 via-pink-500 to-purple-600 hover:from-rose-400 hover:to-purple-500 text-white font-extrabold text-xs rounded-lg flex items-center gap-1.5 shrink-0 shadow-md shadow-rose-500/25 border border-pink-400/30 cursor-pointer"
-                      title="Search Pinterest automatically based on niche first & fill missing site photos"
-                    >
-                      <Search size={12} className={researchingPhotos ? "animate-spin" : ""} />
-                      <span>{researchingPhotos ? "Searching..." : "📌 Auto-Fill Pinterest Images"}</span>
-                    </button>
+                    {/* ALERT IF NO ADDRESS ON LEAD */}
+                    {(!lead?.address && !siteData?.content?.mapAddress && !siteData?.content?.address) && (
+                      <div className="text-[11px] text-amber-300 font-medium flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-lg shrink-0">
+                        <span>⚠️ Aucune adresse contact. Renseignez l'adresse ci-dessus.</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => {
+                          const niche = siteData?.content?.nicheOverride || lead?.niche || lead?.sector || 'services';
+                          const q = `${niche} ${companyName} pinterest photo design`;
+                          handleResearchPhotos(q);
+                        }}
+                        disabled={researchingPhotos}
+                        className="px-2.5 py-1 bg-gradient-to-r from-rose-500 via-pink-500 to-purple-600 hover:from-rose-400 hover:to-purple-500 text-white font-extrabold text-xs rounded-lg flex items-center gap-1.5 shrink-0 shadow-md border border-pink-400/30 cursor-pointer"
+                        title="Search Pinterest automatically based on niche first & fill missing site photos"
+                      >
+                        <Search size={12} className={researchingPhotos ? "animate-spin" : ""} />
+                        <span className="hidden sm:inline">{researchingPhotos ? "Searching..." : "📌 Pinterest Photos"}</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* TRANSLUCENT FROSTED EDGE CONTAINER */}
@@ -2268,6 +2387,72 @@ Set nicheOverride to "${activeNiche}".`;
                     <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 font-semibold flex items-center gap-2">
                       <Check size={14} className="text-emerald-400" />
                       {zipSuccessMessage}
+                    </div>
+                  )}
+
+                  {siteData?.content?.templateStyle === 'outland-homes' && (
+                    <div className="mb-6 bg-[#0F0F12] border border-zinc-800 rounded-xl p-4 text-left">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                            🍷 Restaurant Menu Block
+                          </h4>
+                          <p className="text-[10px] text-zinc-400 mt-1">Paste your menu items below (one per line) using | to separate Name, Description, and Price.</p>
+                        </div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <span className="text-[10px] font-bold text-zinc-300 uppercase">Show Menu Section</span>
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 rounded bg-zinc-900 border-zinc-700 cursor-pointer" 
+                            checked={siteData.content.showMenu !== false}
+                            onChange={async (e) => {
+                              try {
+                                const parsed = JSON.parse(jsonText);
+                                parsed.showMenu = e.target.checked;
+                                setJsonText(JSON.stringify(parsed, null, 2));
+                                
+                                setModifying(true);
+                                const res = await fetch('/api/leads/modify-content', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ siteId: siteData.siteId, currentContent: siteData.content, directContent: parsed, lead })
+                                });
+                                const data = await res.json();
+                                if (data.success) setSiteData(data);
+                                setModifying(false);
+                              } catch(err){ setModifying(false); }
+                            }}
+                          />
+                        </label>
+                      </div>
+                      
+                      {siteData.content.showMenu !== false && (
+                        <div className="space-y-2">
+                          <textarea
+                            defaultValue={siteData.content.menuText || ''}
+                            onBlur={async (e) => {
+                              try {
+                                const parsed = JSON.parse(jsonText);
+                                parsed.menuText = e.target.value;
+                                setJsonText(JSON.stringify(parsed, null, 2));
+                                
+                                setModifying(true);
+                                const res = await fetch('/api/leads/modify-content', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ siteId: siteData.siteId, currentContent: siteData.content, directContent: parsed, lead })
+                                });
+                                const data = await res.json();
+                                if (data.success) setSiteData(data);
+                                setModifying(false);
+                              } catch(err){ setModifying(false); }
+                            }}
+                            placeholder="Filet de Bœuf Wellington | Accompagné de sa purée truffée | 45€&#10;Saumon Gravlax | Citron vert et baies roses | 18€"
+                            className="w-full bg-[#0A0A0C] border border-zinc-800 rounded-lg p-3 font-mono text-xs text-amber-400 focus:outline-none focus:border-blue-500 resize-none h-32"
+                          />
+                          <p className="text-[9px] text-zinc-500 text-right">Click outside the text box to automatically save and update the preview.</p>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -3700,12 +3885,26 @@ Set nicheOverride to "${activeNiche}".`;
                         </div>
 
                         {/* HERO VIDEO SLOT */}
-                        <div className="bg-[#121217] border border-amber-500/40 rounded-xl p-2 space-y-1.5 flex flex-col justify-between">
+                        <div className="bg-[#121217] border border-amber-500/40 rounded-xl p-2 space-y-1.5 flex flex-col justify-between group">
                           <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center justify-between">
                             <span>Hero Video</span>
-                            <Video size={10} className="text-amber-400" />
+                            <div className="flex items-center gap-2">
+                              {siteData.content.heroVideo && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAssignImage('', { type: 'heroVideo' });
+                                  }}
+                                  className="text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  title="Clear Hero Video"
+                                >
+                                  <X size={10} />
+                                </button>
+                              )}
+                              <Video size={10} className="text-amber-400" />
+                            </div>
                           </div>
-                          <div className="h-16 rounded-lg overflow-hidden border border-zinc-800 bg-black/50 flex items-center justify-center">
+                          <div className="h-16 rounded-lg overflow-hidden border border-zinc-800 bg-black/50 flex items-center justify-center relative">
                             {siteData.content.heroVideo ? (
                               <span className="text-[9px] text-amber-300 font-mono truncate px-1">{siteData.content.heroVideo}</span>
                             ) : (
@@ -4009,16 +4208,29 @@ Set nicheOverride to "${activeNiche}".`;
                           <span className="text-xs font-bold text-zinc-300 uppercase tracking-wide">Search Stock Video Clips</span>
                           <span className="text-[10px] text-zinc-500">Curated loopable streams</span>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col sm:flex-row items-center gap-2">
                           <input
                             type="text"
                             value={videoSearchQuery}
                             onChange={(e) => setVideoSearchQuery(e.target.value)}
-                            placeholder="e.g. renovation, gourmet chef, hair salon..."
+                            onKeyDown={(e) => { if (e.key === 'Enter') { setVideoSearchPage(1); handleSearchVideos(e.currentTarget.value, videoSearchSource, 1); } }}
+                            placeholder="e.g. cinematic lighting, 4K, shallow depth of field..."
                             className="px-3 py-2 bg-[#121216] border border-zinc-700 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 w-full"
                           />
+                          <select 
+                            value={videoSearchSource}
+                            onChange={(e) => {
+                              setVideoSearchSource(e.target.value);
+                              setVideoSearchPage(1);
+                            }}
+                            className="px-3 py-2 bg-[#121216] border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500 shrink-0"
+                          >
+                            <option value="pexels">Pexels (Best Hero)</option>
+                            <option value="pixabay">Pixabay (Massive)</option>
+                            <option value="mixkit">Mixkit (Cinematic)</option>
+                          </select>
                           <button
-                            onClick={() => handleSearchVideos()}
+                            onClick={() => { setVideoSearchPage(1); handleSearchVideos(); }}
                             disabled={isSearchingVideos}
                             className="px-4 py-2 bg-[#16161D] hover:bg-zinc-800 text-zinc-200 font-bold text-xs rounded-xl border border-zinc-700 hover:border-zinc-600 transition disabled:opacity-50 flex items-center gap-1.5 shrink-0 cursor-pointer"
                           >
@@ -4036,7 +4248,7 @@ Set nicheOverride to "${activeNiche}".`;
                           {['renovation', 'roofing', 'plumbing', 'chef', 'salon', 'lawn'].map((tag) => (
                             <button
                               key={tag}
-                              onClick={() => { setVideoSearchQuery(tag); handleSearchVideos(tag); }}
+                              onClick={() => { setVideoSearchQuery(tag); setVideoSearchPage(1); handleSearchVideos(tag, videoSearchSource, 1); }}
                               className="px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-300 text-[10px] border border-zinc-800 transition cursor-pointer"
                             >
                               #{tag}
@@ -4163,6 +4375,20 @@ Set nicheOverride to "${activeNiche}".`;
                             </div>
                           ))}
                         </div>
+                        {researchedVideosList.length >= 15 && videoSearchSource !== 'mixkit' && (
+                          <div className="pt-2 flex justify-center">
+                            <button
+                              onClick={loadMoreVideos}
+                              disabled={isLoadingMoreVideos}
+                              className="px-5 py-2 bg-zinc-900 border border-zinc-800 hover:border-amber-500/50 hover:bg-zinc-800 rounded-xl text-xs font-bold text-zinc-300 transition flex items-center gap-2"
+                            >
+                              {isLoadingMoreVideos ? (
+                                <RefreshCw size={13} className="animate-spin text-amber-400" />
+                              ) : null}
+                              Load More {videoSearchSource} Videos
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -4630,13 +4856,24 @@ Set nicheOverride to "${activeNiche}".`;
                           </button>
 
                           {scrapedBehanceData.images.length > 0 && (
-                            <button
-                              onClick={() => handleVisionConvertDesign(scrapedBehanceData.images[0])}
-                              disabled={loading}
-                              className="w-full sm:w-auto py-3 px-5 bg-purple-600 hover:bg-purple-500 text-white font-black rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-purple-600/30 border border-purple-400/30"
-                            >
-                              <Sparkles size={14} /> {loading ? 'Processing Vision...' : '👁️ Vision AI: Reconstruct HTML 1:1 From Mockup Image'}
-                            </button>
+                            <div className="flex flex-col sm:flex-row gap-2.5 w-full sm:w-auto">
+                              <button
+                                onClick={() => handleVisionConvertDesign(scrapedBehanceData.images.slice(0, 5))}
+                                disabled={loading}
+                                className="w-full sm:w-auto py-3 px-5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-purple-600/30 border border-purple-400/30"
+                                title="Synthesizes up to 5 extracted Behance screenshots into 1 full HTML page using Gemini Vision"
+                              >
+                                <Sparkles size={14} /> {loading ? 'Synthesizing Vision...' : `👁️ Vision AI: Merge ${Math.min(scrapedBehanceData.images.length, 5)} Screenshots to 1:1 HTML`}
+                              </button>
+                              <button
+                                onClick={() => handleVisionConvertDesign(scrapedBehanceData.images[0])}
+                                disabled={loading}
+                                className="w-full sm:w-auto py-3 px-3.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition cursor-pointer border border-zinc-700"
+                                title="Reconstruct from 1st hero screenshot"
+                              >
+                                Single Frame
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>
