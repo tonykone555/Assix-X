@@ -111,6 +111,7 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
     'Bonjour {name}, je suis tombé sur {businessName} et j\'ai remarqué que votre site web aurait besoin d\'une modernisation pour booster vos conversions clients. Seriez-vous ouvert à voir une maquette gratuite ?'
   );
   const [bulkDelaySeconds, setBulkDelaySeconds] = useState(6);
+  const [attachWebsiteScreenshot, setAttachWebsiteScreenshot] = useState(true);
   const [selectedLeadIdsForBulk, setSelectedLeadIdsForBulk] = useState<string[]>(initialSelectedLeadIds);
   const [bulkSearchQuery, setBulkSearchQuery] = useState('');
   const [selectedSourceRun, setSelectedSourceRun] = useState('ALL');
@@ -402,7 +403,8 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
         body: JSON.stringify({
           leads: leadsToTarget,
           messageTemplate: bulkMessageTemplate,
-          delaySeconds: bulkDelaySeconds
+          delaySeconds: bulkDelaySeconds,
+          attachScreenshot: attachWebsiteScreenshot
         })
       });
 
@@ -1277,6 +1279,29 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
                   }`}
                 />
                 <span className={`text-[10px] mt-1 block ${isLight ? 'text-slate-500' : 'text-zinc-500'}`}>Variables: &#123;name&#125;, &#123;businessName&#125;, &#123;website&#125;</span>
+              </div>
+
+              {/* ATTACH SCREENSHOT TOGGLE */}
+              <div className={`p-3 rounded-xl border flex items-center justify-between transition ${
+                isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#181822] border-[#2A2A3A]'
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">📸</span>
+                  <div>
+                    <label className={`text-xs font-bold block ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                      Attach Personalized Website Screenshot
+                    </label>
+                    <span className={`text-[10px] block ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
+                      Sends a high-res picture attachment of each lead's website/mockup with their WhatsApp message
+                    </span>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={attachWebsiteScreenshot}
+                  onChange={(e) => setAttachWebsiteScreenshot(e.target.checked)}
+                  className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
+                />
               </div>
 
               {/* PACING DELAY SLIDER */}

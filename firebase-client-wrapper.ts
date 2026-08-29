@@ -98,6 +98,21 @@ function withTimeout<T>(promise: Promise<T>, ms = 2500): Promise<T> {
   ]);
 }
 
+function removeUndefined(obj: any): any {
+  if (obj === undefined || obj === null) return null;
+  if (Array.isArray(obj)) return obj.map(removeUndefined);
+  if (typeof obj === 'object') {
+    const clean: Record<string, any> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (v !== undefined) {
+        clean[k] = removeUndefined(v);
+      }
+    }
+    return clean;
+  }
+  return obj;
+}
+
 export class DocumentReferenceWrapper {
   public _path: string;
   public _docId: string;
@@ -137,29 +152,31 @@ export class DocumentReferenceWrapper {
   }
 
   async set(data: any, options?: any) {
+    const cleanData = removeUndefined(data);
     try {
       const docRef = doc(dbInstance, this._path, this._docId);
       if (options) {
-        await withTimeout(setDoc(docRef, data, options), 2000);
+        await withTimeout(setDoc(docRef, cleanData, options), 2000);
       } else {
-        await withTimeout(setDoc(docRef, data), 2000);
+        await withTimeout(setDoc(docRef, cleanData), 2000);
       }
     } catch (err: any) {
       const store = getLocalStore();
       const key = `${this._path}/${this._docId}`;
-      store[key] = options?.merge ? { ...(store[key] || {}), ...data } : data;
+      store[key] = options?.merge ? { ...(store[key] || {}), ...cleanData } : cleanData;
       saveLocalStore(store);
     }
   }
 
   async update(data: any) {
+    const cleanData = removeUndefined(data);
     try {
       const docRef = doc(dbInstance, this._path, this._docId);
-      await withTimeout(updateDoc(docRef, data), 2000);
+      await withTimeout(updateDoc(docRef, cleanData), 2000);
     } catch (err: any) {
       const store = getLocalStore();
       const key = `${this._path}/${this._docId}`;
-      store[key] = { ...(store[key] || {}), ...data };
+      store[key] = { ...(store[key] || {}), ...cleanData };
       saveLocalStore(store);
     }
   }
@@ -313,25 +330,55 @@ export const db = {
     return new CollectionReferenceWrapper(collectionName);
   },
   batch() {
-    const b = writeBatch(dbInstance);
+    let pendingOps: { docRefWrapper: any; data?: any; type: 'set' | 'delete'; options?: any }[] = [];
+    let b: any = null;
+    try {
+      b = writeBatch(dbInstance);
+    } catch (e) {}
+
     return {
       set(docRefWrapper: any, data: any, options?: any) {
-        const firestoreDocRef = doc(dbInstance, docRefWrapper._path, docRefWrapper._docId);
-        if (options) {
-          b.set(firestoreDocRef, data, options);
-        } else {
-          b.set(firestoreDocRef, data);
+        const clean = removeUndefined(data);
+        pendingOps.push({ docRefWrapper, data: clean, type: 'set', options });
+        if (b) {
+          try {
+            const firestoreDocRef = doc(dbInstance, docRefWrapper._path, docRefWrapper._docId);
+            if (options) {
+              b.set(firestoreDocRef, clean, options);
+            } else {
+              b.set(firestoreDocRef, clean);
+            }
+          } catch (e) {}
         }
       },
       delete(docRefWrapper: any) {
-        const firestoreDocRef = doc(dbInstance, docRefWrapper._path, docRefWrapper._docId);
-        b.delete(firestoreDocRef);
+        pendingOps.push({ docRefWrapper, type: 'delete' });
+        if (b) {
+          try {
+            const firestoreDocRef = doc(dbInstance, docRefWrapper._path, docRefWrapper._docId);
+            b.delete(firestoreDocRef);
+          } catch (e) {}
+        }
       },
       async commit() {
-        try {
-          await b.commit();
-        } catch (err: any) {
-          // Gracefully fallback on batch write errors
+        let success = false;
+        if (b) {
+          try {
+            await withTimeout(b.commit(), 3000);
+            success = true;
+          } catch (err: any) {}
+        }
+        if (!success) {
+          const store = getLocalStore();
+          for (const op of pendingOps) {
+            const key = `${op.docRefWrapper._path}/${op.docRefWrapper._docId}`;
+            if (op.type === 'set') {
+              store[key] = op.options?.merge ? { ...(store[key] || {}), ...op.data } : op.data;
+            } else if (op.type === 'delete') {
+              delete store[key];
+            }
+          }
+          saveLocalStore(store);
         }
       }
     };

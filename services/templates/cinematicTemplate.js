@@ -2008,38 +2008,105 @@ export function buildCinematicTemplate(lead, content = {}, nicheKey = 'landscapi
       });
     });
 
-    // 3. Live Customizer PostMessage Theme & Video Listener
-    window.addEventListener('message', function(event) {
-      if (!event.data) return;
-      
-      // Theme / Color updates
-      if (event.data.type === 'UPDATE_THEME' || event.data.type === 'UPDATE_ACCENT') {
-        const p = event.data.palette || event.data.color;
-        const hex = (p && p.hex) ? p.hex : (typeof p === 'string' ? p : null);
-        if (hex) {
-          document.documentElement.style.setProperty('--accent-color', hex);
-          document.documentElement.style.setProperty('--accent-hover', hex);
+    // 3. Hero Scroll Video Engine & Live Customizer Listener
+    (function() {
+      var v = document.getElementById('mainHeroVideo');
+      var heroSection = document.querySelector('.hero-container') || document.body;
+      var currentEffect = "${content.heroVideoEffect || 'scroll-scrub'}";
+      var currentTiming = parseFloat("${content.heroScrollTiming || 1.5}") || 1.5;
+
+      function handleVideoScroll() {
+        if (!v) v = document.getElementById('mainHeroVideo');
+        if (!v || v.style.display === 'none') return;
+
+        var scrolled = window.scrollY || window.pageYOffset || 0;
+        var heroHeight = heroSection ? heroSection.offsetHeight : (window.innerHeight || 600);
+        var scrollSpan = Math.max(100, heroHeight * currentTiming);
+        var scrollRatio = Math.min(1, Math.max(0, scrolled / scrollSpan));
+
+        if (currentEffect === 'scroll-scrub') {
+          try { if (!v.paused) v.pause(); } catch(e) {}
+          if (v.duration && !isNaN(v.duration) && v.duration > 0) {
+            var targetTime = scrollRatio * (v.duration - 0.05);
+            try { v.currentTime = Math.min(v.duration - 0.05, Math.max(0, targetTime)); } catch(e) {}
+          }
+          v.style.transform = 'scale(' + (1 + scrollRatio * 0.15) + ')';
+          v.style.filter = 'brightness(' + (1 - scrollRatio * 0.3) + ')';
+        } else if (currentEffect === 'sticky-zoom') {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'scale(' + (1 + scrollRatio * 0.45) + ')';
+          v.style.filter = 'brightness(' + (1 - scrollRatio * 0.35) + ') blur(' + (scrollRatio * 6) + 'px)';
+        } else if (currentEffect === 'parallax-fade') {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'translateY(' + (scrolled * 0.35) + 'px)';
+          v.style.opacity = Math.max(0.1, 1 - scrollRatio * 0.8);
+        } else if (currentEffect === '3d-tilt') {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'perspective(1000px) rotateX(' + (scrollRatio * 20) + 'deg) scale(' + (1 + scrollRatio * 0.1) + ')';
+        } else {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'none';
+          v.style.filter = 'none';
+          v.style.opacity = '1';
         }
       }
 
-      // Video source modifiability
-      if (event.data.type === 'UPDATE_VIDEO' || event.data.type === 'UPDATE_HERO_VIDEO') {
-        const newUrl = event.data.url || event.data.heroVideo || event.data.videoUrl;
-        if (newUrl) {
-          const heroVideo = document.getElementById('mainHeroVideo');
-          if (heroVideo) {
-            const srcElem = heroVideo.querySelector('source');
-            if (srcElem) {
-              srcElem.src = newUrl;
-            } else {
-              heroVideo.src = newUrl;
-            }
-            heroVideo.load();
-            heroVideo.play().catch(function(e) { console.log('Video play error', e); });
+      window.addEventListener('scroll', handleVideoScroll, { passive: true });
+      if (v) {
+        v.addEventListener('loadedmetadata', handleVideoScroll);
+        v.addEventListener('canplay', handleVideoScroll);
+      }
+
+      window.addEventListener('message', function(event) {
+        if (!event || !event.data) return;
+        var d = event.data;
+        
+        // Image updates
+        if (d.type === 'UPDATE_IMAGE' && d.url) {
+          var f = d.field;
+          var targetEl = document.getElementById(f) || document.querySelector('[data-site-img="' + f + '"]');
+          if (targetEl && targetEl.tagName === 'IMG') {
+            targetEl.src = d.url;
           }
         }
-      }
-    });
+        if ((d.type === 'PINTEREST_PHOTOS' || d.type === 'UPDATE_ALL_PHOTOS') && Array.isArray(d.photos) && d.photos.length > 0) {
+          d.photos.forEach(function(pUrl, idx) {
+            var targetEl = document.getElementById('img_' + idx) || document.querySelector('[data-site-img="photo_' + idx + '"]');
+            if (targetEl && targetEl.tagName === 'IMG') {
+              targetEl.src = pUrl;
+            }
+          });
+        }
+
+        // Theme / Color updates
+        if (d.type === 'UPDATE_THEME' || d.type === 'UPDATE_ACCENT') {
+          const p = d.palette || d.color;
+          const hex = (p && p.hex) ? p.hex : (typeof p === 'string' ? p : null);
+          if (hex) {
+            document.documentElement.style.setProperty('--accent-color', hex);
+            document.documentElement.style.setProperty('--accent-hover', hex);
+          }
+        }
+
+        // Video source & scroll effect updates
+        if (d.type === 'UPDATE_VIDEO' || d.type === 'UPDATE_HERO_VIDEO' || d.heroVideo || d.heroVideoUrl || d.videoUrl) {
+          const newUrl = d.url || d.heroVideo || d.videoUrl || d.heroVideoUrl;
+          if (d.heroVideoEffect) currentEffect = d.heroVideoEffect;
+          if (d.heroScrollTiming) currentTiming = parseFloat(d.heroScrollTiming) || 1.5;
+
+          if (newUrl) {
+            if (!v) v = document.getElementById('mainHeroVideo');
+            if (v) {
+              const srcElem = v.querySelector('source');
+              if (srcElem) srcElem.src = newUrl;
+              else v.src = newUrl;
+              v.load();
+              setTimeout(handleVideoScroll, 150);
+            }
+          }
+        }
+      });
+    })();
   </script>
 </body>
 </html>`;

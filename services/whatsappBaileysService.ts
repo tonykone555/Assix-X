@@ -407,6 +407,7 @@ class WhatsAppBaileysManager {
   public async sendMessage(params: {
     phone: string;
     message: string;
+    imageUrl?: string;
     leadId?: string;
     leadName?: string;
     businessName?: string;
@@ -423,7 +424,28 @@ class WhatsAppBaileysManager {
     const jid = `${cleanPhone}@s.whatsapp.net`;
 
     try {
-      const sentMsg = await this.sock.sendMessage(jid, { text: params.message });
+      let sentMsg: any = null;
+
+      if (params.imageUrl && typeof params.imageUrl === 'string' && params.imageUrl.trim()) {
+        try {
+          const imgUrl = params.imageUrl.trim();
+          if (imgUrl.startsWith('data:image/')) {
+            const base64Data = imgUrl.split(',')[1];
+            const buffer = Buffer.from(base64Data, 'base64');
+            sentMsg = await this.sock.sendMessage(jid, { image: buffer, caption: params.message });
+          } else if (imgUrl.startsWith('http')) {
+            sentMsg = await this.sock.sendMessage(jid, { image: { url: imgUrl }, caption: params.message });
+          } else {
+            sentMsg = await this.sock.sendMessage(jid, { text: params.message });
+          }
+        } catch (imgErr) {
+          console.warn(`[Baileys] Media send failed for ${cleanPhone}, falling back to text:`, imgErr);
+          sentMsg = await this.sock.sendMessage(jid, { text: params.message });
+        }
+      } else {
+        sentMsg = await this.sock.sendMessage(jid, { text: params.message });
+      }
+
       const msgId = sentMsg?.key.id || `sent_${Date.now()}`;
 
       this.stats.totalSent++;
@@ -435,7 +457,7 @@ class WhatsAppBaileysManager {
           leadId: params.leadId,
           leadName: params.leadName,
           direction: 'outbound',
-          message: params.message,
+          message: params.imageUrl ? `[Image Attached] ${params.message}` : params.message,
           status: 'sent',
           timestamp: new Date().toISOString()
         },

@@ -36,11 +36,13 @@ export type NicheType =
   | 'locksmith' 
   | 'law_firm' 
   | 'real_estate'
+  | 'real_estate_walkthrough'
   | 'accountant'
   | 'funeral_home'
   | 'dog_groomer'
   | 'photographer'
   | 'dentist'
+  | 'ecom_clothing'
   | 'general';
 
 export type Language = 'fr' | 'en';
@@ -613,6 +615,87 @@ export const NICHE_EMAIL_TEMPLATES: Record<NicheType, Record<Language, NicheEmai
     }
   },
 
+  ecom_clothing: {
+    fr: {
+      subject: "Boostez la conversion de {{company}} avec la Cabine d'Essayage Virtuelle IA (IDM-VTON)",
+      heroTitle: "Cabine d'Essayage Virtuelle IA pour {{company}}",
+      heroSubtitle: "Bonjour à l'équipe {{company}}, en tant que marque de vêtements et mode en ligne, offrir à vos acheteurs une cabine d'essayage immersive est le levier ultime de conversion. Notre technologie d'IA générative (IDM-VTON Neural Warp) permet à vos clients d'essayer instantanément l'ensemble de votre catalogue directement sur leur propre photo, avec un draperie et un tombé textile d'un réalisme photo 4K.",
+      primaryCta: "Tester la Démo Cabine Virtuelle",
+      secondaryCta: "Découvrir le Module Shopify",
+      stat1: { value: "+38%", label: "Taux de Conversion E-Commerce" },
+      stat2: { value: "-45%", label: "Taux de Retour Produits" },
+      stat3: { value: "< 2 sec", label: "Rendu IDM-VTON HD" },
+      servicesTitle: "Sublimez l'Expérience d'Achat E-Commerce de {{company}}",
+      servicesSubtitle: "Module d'essayage virtuel IA prêt à l'emploi pour Shopify, WooCommerce et boutiques e-commerce.",
+      services: [
+        { title: "Warp Textile & Draperie IA IDM-VTON", desc: "Ajustement ultra-précis des coupes, plis et matières selon la morphologie unique de chaque acheteur.", icon: "👗" },
+        { title: "Scraper Instantané Fiches Vêtements", desc: "Importation automatique des visuels d'articles depuis votre catalogue sans aucune retouche.", icon: "🛍️" },
+        { title: "Bouton 'Essayer Virtuellement' Shopify", desc: "Intégration en 1 clic sur vos fiches produits e-commerce avec expérience fluide sur smartphone.", icon: "📱" },
+        { title: "Réduction des Retours & Confiance Achat", desc: "Vos clients sélectionnent la bonne taille en toute sérénité, réduisant massivement les retours.", icon: "✨" }
+      ],
+      workflowTitle: "Comment Fonctionne la Cabine Virtuelle pour {{company}}",
+      workflowSteps: [
+        { step: "01", title: "Choix du Vêtement", desc: "L'acheteur clique sur le bouton 'Essayer Virtuellement' sur la fiche produit {{company}}." },
+        { step: "02", title: "Import Photo Client", desc: "Le client télécharge une photo selfie ou sélectionne un mannequin de référence." },
+        { step: "03", title: "Génération IDM-VTON", desc: "Le réseau neuronal IDM-VTON adapte la coupe du vêtement en 2 secondes sur la silhouette." },
+        { step: "04", title: "Achat Immédiat", desc: "Validation du panier avec zéro hésitation et taux de conversion maximisé." }
+      ],
+      whyUsTitle: "Pourquoi les Marques de Mode Adoptent Notre Cabine Virtuelle ?",
+      whyUsPoints: [
+        "Technologie de diffusion IA SOTA (yisol/IDM-VTON) avec rendu photo-réaliste 4K",
+        "Conservation exacte de la texture, du motif et des détails des coutures du vêtement",
+        "Augmentation moyenne constatée de +38% sur le panier moyen et les conversions",
+        "Compatible avec Shopify, WooCommerce, Prestashop et boutiques sur-mesure"
+      ],
+      testimonial: {
+        quote: "L'intégration de la cabine d'essayage virtuelle IDM-VTON a métamorphosé nos fiches vêtements. Nos retours de taille ont chuté de 45% et les clientes adorent l'expérience !",
+        author: "Camille D.",
+        role: "Responsable E-Commerce & Growth"
+      },
+      formHeader: "Activez la Cabine Virtuelle pour {{company}}",
+      formSubheader: "Demandez une démonstration en direct avec les vêtements de votre dernière collection."
+    },
+    en: {
+      subject: "Elevate {{company}}'s Clothing Sales with AI Virtual Try-On (IDM-VTON)",
+      heroTitle: "AI Virtual Fitting Room for {{company}}",
+      heroSubtitle: "To the {{company}} team, as an online fashion and apparel brand, letting shoppers try on clothes virtually is the ultimate conversion lever. Our generative AI technology (IDM-VTON Neural Warp) enables your customers to instantly visualize any outfit fitted directly onto their own photo with hyper-realistic drape and fabric accuracy.",
+      primaryCta: "Try Interactive Fitting Room Demo",
+      secondaryCta: "Explore Shopify Integration",
+      stat1: { value: "+38%", label: "Store Conversion Boost" },
+      stat2: { value: "-45%", label: "Return Rate Reduction" },
+      stat3: { value: "< 2 sec", label: "IDM-VTON HD Render" },
+      servicesTitle: "Elevate {{company}}'s E-Commerce Shopping Experience",
+      servicesSubtitle: "Plug-and-play AI fitting room module for Shopify, WooCommerce, and custom storefronts.",
+      services: [
+        { title: "IDM-VTON Neural Fabric Warp", desc: "Ultra-precise adjustment of garment drape, silk, denim, and cotton to match every buyer's body shape.", icon: "👗" },
+        { title: "Instant Apparel Scraper", desc: "Extract garment photos directly from your product links without manual background removal.", icon: "🛍️" },
+        { title: "1-Click Shopify 'Try On' Button", desc: "Seamless widget embedded directly on your product pages with mobile selfie support.", icon: "📱" },
+        { title: "Return Reduction & Sizing Confidence", desc: "Shoppers buy the right size with confidence, significantly lowering costly return logistics.", icon: "✨" }
+      ],
+      workflowTitle: "How the Fitting Room Works for {{company}}",
+      workflowSteps: [
+        { step: "01", title: "Select Apparel Item", desc: "Shopper clicks 'Try On Virtually' on your {{company}} product page." },
+        { step: "02", title: "Upload Customer Photo", desc: "Customer uploads a quick selfie or selects a model pose." },
+        { step: "03", title: "IDM-VTON Generation", desc: "The IDM-VTON neural model fits the garment to their silhouette in 2 seconds." },
+        { step: "04", title: "Instant Add to Cart", desc: "Shopper buys with confidence, eliminating sizing doubts." }
+      ],
+      whyUsTitle: "Why Fashion Brands Choose Our IDM-VTON Fitting Engine",
+      whyUsPoints: [
+        "State-of-the-art open-source generative diffusion (yisol/IDM-VTON)",
+        "Preserves original fabric weave, pattern, and stitch line details",
+        "Proven +38% average increase in storefront add-to-cart conversions",
+        "Fits Shopify, WooCommerce, Prestashop, and custom API storefronts"
+      ],
+      testimonial: {
+        quote: "Integrating the IDM-VTON virtual fitting room completely elevated our online apparel store. Sizing returns dropped by 45% and customer engagement soared!",
+        author: "Sarah M.",
+        role: "Head of E-Commerce & Growth"
+      },
+      formHeader: "Activate Virtual Try-On for {{company}}",
+      formSubheader: "Schedule a live demo using clothes from your latest collection."
+    }
+  },
+
   general: {
     fr: {
       subject: "Solutions & Accompagnement Sur-Mesure — Support {{company}}",
@@ -691,78 +774,158 @@ export const NICHE_EMAIL_TEMPLATES: Record<NicheType, Record<Language, NicheEmai
   },
   real_estate: {
     fr: {
-      subject: "Vidéo visites immersives & gestion de vos prospects pour {{company}}",
-      heroTitle: "L'immobilier connecté, réactif avec Vidéo Visite",
-      heroSubtitle: "Captation de chaque prospect acquéreur ou locataire, envoi automatique de vidéos de visites virtuelles (video tours inside) et organisation instantanée des visites physiques.",
-      primaryCta: "Découvrir la démonstration vidéo",
-      secondaryCta: "Planifier un échange",
+      subject: "Automatisation Mandats & Relances Acquéreurs 24/7 pour {{company}}",
+      heroTitle: "Capturez 100% de vos Demandes de Visite & Mandats d'Achat 24/7",
+      heroSubtitle: "Bonjour à l'équipe {{company}}, automatisez la qualification de vos acquéreurs, l'envoi de dossiers et la prise de rendez-vous de visite sans effort. Répondez instantanément 24/7 et ne manquez plus aucun prospect.",
+      primaryCta: "Obtenir un devis personnalisé",
+      secondaryCta: "Découvrir la plateforme AI",
       stat1: { value: "100%", label: "Demandes de visite capturées" },
       stat2: { value: "< 2 min", label: "Temps de réponse prospect" },
       stat3: { value: "x2.5", label: "Mandats & visites concrétisés" },
-      servicesTitle: "Solutions dédiées aux agences immobilières",
-      servicesSubtitle: "Accélérez vos transactions, envoyez des visites vidéo immersives et qualifiez vos prospects acquéreurs sans perdre de temps.",
+      servicesTitle: "L'Accueil Acquéreur & Vendeur Nouvelle Génération",
+      servicesSubtitle: "Capturez, qualifiez et relancez vos prospects acheteurs et vendeurs automatiquement, jour et nuit.",
       services: [
-        { title: "Visites Vidéo Immersives", desc: "Présentation interactive de vidéos de visites virtuelles (video tours inside) directement sur votre site pour pré-qualifier les acquéreurs.", icon: "🎥" },
-        { title: "Gestion des Visites", desc: "Planification automatique des visites physiques sur les biens disponibles.", icon: "🔑" },
-        { title: "Relance Acquéreurs", desc: "Suivi personnalisé et réponses instantanées WhatsApp/Email.", icon: "📲" },
-        { title: "Estimation & Mandats", desc: "Prise de rendez-vous automatique pour l'estimation de biens.", icon: "🏠" }
+        { title: "Qualification Acquéreurs 24/7", desc: "Présentation interactive de vos annonces et capture automatique des critères acheteurs.", icon: "🔑" },
+        { title: "Portail Client & Estimations", desc: "Portail d'estimation en ligne et onboarding mandants pour vos vendeurs.", icon: "🏢" },
+        { title: "Relance WhatsApp & Email", desc: "Envoi automatique de brochures et suivi personnalisé dès qu'un prospect s'informe.", icon: "📲" },
+        { title: "Prise de RDV Visite Physique", desc: "Planification automatique des visites réservées aux acheteurs qualifiés.", icon: "🏠" }
       ],
-      workflowTitle: "Un processus fluide en 4 étapes",
+      workflowTitle: "Notre Méthode en 4 Étapes",
       workflowSteps: [
-        { step: "01", title: "Demande Prospect", desc: "Le prospect demande des détails sur un bien sur votre site ou portail." },
-        { step: "02", title: "Visite Vidéo Instantanée", desc: "Transmission automatique d'une vidéo de visite immersive pour susciter l'intérêt." },
-        { step: "03", title: "Planification de Visite", desc: "Validation rapide de la date de visite physique sur les créneaux disponibles." },
-        { step: "04", title: "Suivi & Offre", desc: "Relance automatique post-visite pour recueillir les offres d'achat." }
+        { step: "01", title: "Intégration du Portail AI", desc: "Configuration de votre assistant sur votre site web et vos fiches d'annonces." },
+        { step: "02", title: "Qualification Automatique", desc: "Capture des critères de recherche, budget et pièces justificatives des acquéreurs." },
+        { step: "03", title: "Relances & Prise de RDV", desc: "L'assistant planifie les visites physiques et relance les acheteurs indécis." },
+        { step: "04", title: "Doublez Vos Signatures", desc: "Vos négociateurs ne traitent que des rendez-vous pré-qualifiés et à forte valeur." }
       ],
-      whyUsTitle: "Un accompagnement continu pour transformer votre activité",
+      whyUsTitle: "Un accompagnement continu pour booster vos mandats",
       whyUsPoints: [
-        "Essai en toute sérénité : vous pouvez tester notre solution et annuler à tout moment si besoin, sans engagement ni problème."
+        "Assistant IA disponible 24/7 pour capturer chaque opportunité jour et nuit.",
+        "Automatisation intégrée pour qualifier vos acquéreurs et mandants sans effort.",
+        "Essai en toute sérénité : testez notre plateforme et résiliez à tout moment sans engagement."
       ],
       testimonial: {
-        quote: "Grâce à cette automatisation et l'envoi instantané des visites vidéo, nous ne ratons plus aucun acquéreur. Les visites physiques sont hautement qualifiées.",
+        quote: "Grâce à la plateforme AI, nous capturons 3x plus d'acheteurs le soir et le week-end. Nos négociateurs ont gagné un temps précieux sur la qualification !",
         author: "Marc V.",
         role: "Directeur d'Agence Immobilière"
       },
-      formHeader: "Testez la démonstration immobilière",
-      formSubheader: "Découvrez comment convertir 100% de vos demandes de visite grâce à la vidéo immersive."
+      formHeader: "Découvrez la Démo AI Immobilière",
+      formSubheader: "Accédez à votre espace démo interactif et commencez votre essai gratuit dès aujourd'hui."
     },
     en: {
-      subject: "Video Walkthroughs & Lead Conversion for {{company}}",
-      heroTitle: "Connected & High-Speed Real Estate with Video Tours Inside",
-      heroSubtitle: "Capture every buyer and tenant inquiry, instantly showcase interactive video walkthroughs (video tours inside), and schedule visits automatically.",
-      primaryCta: "Explore Video Demo",
-      secondaryCta: "Schedule a Quick Call",
-      stat1: { value: "100%", label: "Lead Capture Rate" },
-      stat2: { value: "< 2 mins", label: "Inquiry Response Time" },
+      subject: "24/7 Automated Buyer Qualified Lead & Portal System for {{company}}",
+      heroTitle: "Capture 100% of Buyer Leads & Listing Inquiries 24/7",
+      heroSubtitle: "Hello to the {{company}} team, automate buyer qualification, brochure delivery, and physical visit scheduling effortlessly. Respond instantly 24/7 and never miss a serious real estate lead.",
+      primaryCta: "Get a Custom Demo",
+      secondaryCta: "Explore AI Platform",
+      stat1: { value: "100%", label: "Inquiry Capture Rate" },
+      stat2: { value: "< 2 mins", label: "Instant Lead Response" },
       stat3: { value: "x2.5", label: "Closed Visits & Listings" },
-      servicesTitle: "Solutions Built for Real Estate Agencies",
-      servicesSubtitle: "Accelerate property deals with interactive video walkthroughs and qualify buyers without spending hours on phone tag.",
+      servicesTitle: "Next-Gen Buyer & Seller Lead Portal",
+      servicesSubtitle: "Capture, qualify, and follow up with property buyers and sellers automatically, day and night.",
       services: [
-        { title: "Video Tours Inside", desc: "Showcase interactive, high-fidelity video walkthroughs directly on your website to pre-qualify buyers.", icon: "🎥" },
-        { title: "Visit Scheduling", desc: "Automated booking for physical property showings and open houses.", icon: "🔑" },
-        { title: "Buyer Follow-Up", desc: "Instant WhatsApp and Email replies with property video brochures.", icon: "📲" },
-        { title: "Valuation Requests", desc: "Automate appointments for property seller valuations.", icon: "🏠" }
+        { title: "24/7 Instant Qualification", desc: "Interactive property listing presentations and automated buyer criteria screening.", icon: "🔑" },
+        { title: "Valuation & Seller Portal", desc: "Online property valuation tools and client onboarding portal for seller listings.", icon: "🏢" },
+        { title: "Automated WhatsApp & Email", desc: "Instant brochure delivery and personalized follow-ups for every interested lead.", icon: "📲" },
+        { title: "Automated Showing Bookings", desc: "Self-service calendar booking reserved exclusively for pre-screened buyers.", icon: "🏠" }
       ],
-      workflowTitle: "Seamless 4-Step Process",
+      workflowTitle: "How It Works in 4 Simple Steps",
       workflowSteps: [
-        { step: "01", title: "Lead Inquiry", desc: "Prospective buyer requests property details from your listing." },
-        { step: "02", title: "Instant Video Tour", desc: "Bot automatically delivers an immersive video walkthrough of the property." },
-        { step: "03", title: "Showing Confirmation", desc: "Confirmation sent with physical address, agent details, and calendar sync." },
-        { step: "04", title: "Post-Showing Follow-Up", desc: "Automated check-in to collect buyer feedback and purchase offers." }
+        { step: "01", title: "AI Assistant Integration", desc: "Setup on your website and property portals in under 5 minutes." },
+        { step: "02", title: "Automated Lead Screening", desc: "Capture buyer budget, search criteria, and financing status." },
+        { step: "03", title: "Follow-ups & Scheduling", desc: "Assistant books physical visits and re-engages cold prospects." },
+        { step: "04", title: "Close More Mandates", desc: "Agents focus only on pre-screened, ready-to-buy clients." }
       ],
-      whyUsTitle: "Dedicated Support to Convert Leads & Streamline Work",
+      whyUsTitle: "Continuous Support to Grow Your Agency",
       whyUsPoints: [
-        "We provide hands-on assistance to convert leads, capture every missed call, and showcase video tours automatically.",
-        "Save significant time daily to make your operations smoother, highly efficient, and focused on what matters most.",
-        "Try risk-free: experience our platform with complete peace of mind and cancel anytime if needed without any hassle."
+        "24/7 AI lead capture so no inquiry slips through the cracks.",
+        "Integrated automation to qualify buyers and seller leads effortlessly.",
+        "Risk-free trial: test our platform with peace of mind and cancel anytime."
       ],
       testimonial: {
-        quote: "We no longer miss buyer calls during property showings. Video tours pre-screen buyers, and our deal velocity doubled.",
+        quote: "We capture 3x more buyer leads during evenings and weekends. Our agents save hours every day on pre-screening!",
         author: "Mark V.",
         role: "Real Estate Broker"
       },
-      formHeader: "Experience the Real Estate Demo",
-      formSubheader: "See how to convert 100% of property inquiries into active showings using interactive video tours."
+      formHeader: "Experience the Real Estate AI Demo",
+      formSubheader: "Access your interactive demo portal and start your free trial today."
+    }
+  },
+  real_estate_walkthrough: {
+    fr: {
+      subject: "Visite vidéo 4K offerte pour {{company}} à partir de photos de votre appartement",
+      heroTitle: "Nous livrons des visites vidéo 4K avec juste des photos de votre appartement",
+      heroSubtitle: "Transformez de simples photos d'appartement en une visite vidéo 4K immersive livrée dans la journée. Envoyez 3 à 5 photos par e-mail ou via notre portail pour recevoir votre échantillon offert !",
+      primaryCta: "Recevoir ma visite vidéo 4K offerte",
+      secondaryCta: "Découvrir la démo Real Reach",
+      stat1: { value: "100%", label: "Aperçu vidéo immersif" },
+      stat2: { value: "< 24h", label: "Délai de livraison vidéo 4K" },
+      stat3: { value: "x2", label: "Conversions acquéreurs" },
+      servicesTitle: "Visites Vidéo 4K Immobilières Créées Depuis Vos Photos",
+      servicesSubtitle: "Envoyez-nous de simples photos de votre appartement : notre studio génère et vous livre votre visite vidéo 4K complète avant la fin de journée.",
+      services: [
+        { title: "Visites Vidéo 4K Depuis Vos Photos", desc: "Nous livrons de superbes visites vidéo 4K créées simplement à partir de photos de votre appartement.", icon: "🎥" },
+        { title: "2 Modes d'Envoi Faciles", desc: "Uploadez vos photos sur notre portail web Real Reach ou répondez directement par e-mail.", icon: "📸" },
+        { title: "Aperçu Animé GIF dans l'Email", desc: "Aperçu captivant intégré dans la boîte mail de vos prospects acquéreurs.", icon: "🎬" },
+        { title: "Livraison sous 24h", desc: "Conversion photo-vers-vidéo 4K ultra-rapide générée et livrée dans la journée.", icon: "⚡" }
+      ],
+      workflowTitle: "Obtenez votre visite vidéo 4K en 4 étapes simples",
+      workflowSteps: [
+        { step: "01", title: "Photos de l'Appartement", desc: "Transmettez-nous 3 à 5 photos de votre appartement ou bien immobilier." },
+        { step: "02", title: "Production Vidéo 4K", desc: "Notre studio génère votre visite vidéo 4K immersive personnalisée." },
+        { step: "03", title: "Livraison sous 24h", desc: "Recevez votre vidéo 4K complète prête à être envoyée à vos prospects." },
+        { step: "04", title: "Doublez Vos Visites", desc: "Intégrez la vidéo 4K sur vos annonces pour pré-qualifier 100% des acquéreurs." }
+      ],
+      whyUsTitle: "Un aperçu vidéo pour transformer votre prospection",
+      whyUsPoints: [
+        "Visite vidéo 4K offerte créée à partir de simples photos de votre appartement.",
+        "Choisissez entre l'upload sur notre site Real Reach ou la simple réponse par e-mail.",
+        "Essai en toute sérénité : testez notre création vidéo gratuitement sans aucun engagement."
+      ],
+      testimonial: {
+        quote: "Nous avons envoyé des photos de notre appartement le matin et reçu la visite vidéo 4K l'après-midi. L'impact auprès de nos acheteurs est fantastique !",
+        author: "Marc V.",
+        role: "Directeur d'Agence Immobilière"
+      },
+      formHeader: "Demandez votre Visite Vidéo 4K Offerte",
+      formSubheader: "Envoyez vos photos d'appartement et découvrez la démo Nesta Real Reach en direct."
+    },
+    en: {
+      subject: "Free 4K video tour for {{company}} created from just pictures of your apartment",
+      heroTitle: "We Deliver 4K Video Tours With Just Pictures of Your Apartment",
+      heroSubtitle: "Transform simple apartment photos into an immersive 4K video walkthrough delivered same-day. Reply with 3 to 5 photos or upload on our portal to receive your free sample!",
+      primaryCta: "Get Your Free 4K Video Tour",
+      secondaryCta: "Explore Real Reach Demo",
+      stat1: { value: "100%", label: "Immersive Video Preview" },
+      stat2: { value: "< 24h", label: "4K Video Turnaround" },
+      stat3: { value: "x2", label: "Buyer Inquiry Conversion" },
+      servicesTitle: "4K Property Video Tours Generated Directly From Photos",
+      servicesSubtitle: "Send us simple pictures of any apartment, and we will deliver a high-converting 4K video walkthrough by the end of the day.",
+      services: [
+        { title: "4K Video Tours From Photos", desc: "We deliver stunning 4K video tours created from just pictures of your apartment.", icon: "🎥" },
+        { title: "2 Easy Submission Ways", desc: "Upload photos on our Real Reach web portal or reply directly to this email with attachments.", icon: "📸" },
+        { title: "Animated GIF Email Preview", desc: "Eye-catching walkthrough preview displayed directly inside the prospect's inbox.", icon: "🎬" },
+        { title: "Same-Day Turnaround", desc: "Fast photo-to-4K-video conversion generated and delivered within hours.", icon: "⚡" }
+      ],
+      workflowTitle: "Get Your 4K Video Tour in 4 Easy Steps",
+      workflowSteps: [
+        { step: "01", title: "Send Apartment Pictures", desc: "Upload or email us 3 to 5 pictures of your apartment or property." },
+        { step: "02", title: "4K Studio Processing", desc: "Our studio transforms your pictures into a high-impact 4K video tour." },
+        { step: "03", title: "Receive 4K Tour Today", desc: "Get your finished 4K video tour ready to send to buyers or feature on your site." },
+        { step: "04", title: "Convert 2x More Buyers", desc: "Watch buyer inquiries and showing bookings double with 4K video walkthroughs." }
+      ],
+      whyUsTitle: "Dedicated Video Showcase to Double Showing Inquiries",
+      whyUsPoints: [
+        "Free sample 4K video tour created from just pictures of your apartment.",
+        "Choose between uploading on our website portal or replying directly with attached photos.",
+        "Try risk-free: experience our video walkthrough creation with complete peace of mind."
+      ],
+      testimonial: {
+        quote: "We sent pictures of our apartment in the morning and had our 4K video tour by late afternoon. The response rate from buyers was instant!",
+        author: "Mark V.",
+        role: "Real Estate Broker"
+      },
+      formHeader: "Request Your Free 4K Video Tour",
+      formSubheader: "Send your apartment photos and experience the Real Reach interactive demo live."
     }
   },
   accountant: {
@@ -1211,6 +1374,9 @@ export function resolveNicheType(nicheInput?: string): NicheType {
   if (kw.includes('photo') || kw.includes('videog') || kw.includes('vidéo') || kw.includes('shoot') || kw.includes('studio') || kw.includes('portrait')) {
     return 'photographer';
   }
+  if (kw.includes('cloth') || kw.includes('vetement') || kw.includes('vêtement') || kw.includes('fashion') || kw.includes('apparel') || kw.includes('mode') || kw.includes('habille') || kw.includes('ecom') || kw.includes('boutique') || kw.includes('tryon') || kw.includes('dressing') || kw.includes('textile') || kw.includes('garment') || kw.includes('fitting')) {
+    return 'ecom_clothing';
+  }
   if (kw.includes('dentis') || kw.includes('dentaire') || kw.includes('ortho') || kw.includes('veneer') || kw.includes('facette') || kw.includes('dental') || kw.includes('smile') || kw.includes('sourire')) {
     return 'dentist';
   }
@@ -1291,46 +1457,75 @@ export function getNicheIntroText(
   lang: Language = 'fr'
 ): string {
   const isFr = lang === 'fr';
-  const company = companyRaw.includes('{{') ? companyRaw : formatBusinessName(companyRaw);
 
   switch (nicheType) {
+    case 'ecom_clothing':
+      return isFr
+        ? `• Module de cabine d'essayage virtuelle IA (IDM-VTON) directement intégré sur vos fiches vêtements\n• Vos clients essaient l'ensemble de votre collection sur leur propre photo selfie en 2 secondes\n• Réduction de 45% des retours de taille et hausse de +38% des conversions e-commerce\n• Intégration simple en 1 clic pour Shopify, WooCommerce et boutiques en ligne`
+        : `• AI Virtual Fitting Room module (IDM-VTON) embedded directly on your apparel product pages\n• Customers try on your entire clothing line using their selfie photo in 2 seconds\n• 45% reduction in sizing returns and +38% surge in store checkout conversions\n• 1-click seamless integration for Shopify, WooCommerce, and custom stores`;
+
     case 'real_estate':
       return isFr
-        ? `Bonjour,\n\nAprès avoir effectué des recherches sur l'agence ${company}, nous avons réalisé que la plupart des demandes de prospects nécessitent une réactivité immédiate pour se transformer en mandats.\n\nJe vous propose deux solutions complémentaires :\n\n- Répondez instantanément aux questions fréquentes & diffusez des visites vidéo immersives (video tours inside)\n- Capturez les leads même après 18h\n- Relancez automatiquement les prospects intéressés\n\nRésultat typique : +25% de mandats exclusifs en 30 jours.\n\nDe plus, nous automatisons et personnalisons l'intégralité de vos e-mails et relances prospects. Chaque message est 100% sur-mesure pour vos clients, ce qui vous fait gagner un temps considérable au quotidien tout en maximisant vos conversions.`
-        : `Hello,\n\nAfter conducting research on ${company}, we realized that prompt lead follow-ups are critical to converting buyer inquiries into exclusive listings.\n\nWe offer two complementary solutions:\n\n- Respond instantly to frequently asked questions & deliver video tours inside\n- Capture qualified leads even after 6 PM\n- Automatically follow up with interested prospects\n\nTypical result: +25% exclusive mandates in 30 days.\n\nFurthermore, we fully automate and personalize all your emails and prospect follow-ups. Every single message is 100% tailored to your leads, saving you huge amounts of time daily while maximizing your conversions.`;
+        ? `• Visites vidéo 4K immersives générées sous 24h à partir de simples photos d'appartement\n• Assistant IA WhatsApp & Web 24h/24 pour qualifier immédiatement vos acquéreurs\n• Captation automatique des leads le soir et le week-end\n• Relances e-mails 100% sur-mesure pour chaque prospect`
+        : `• Immersive 4K video walkthroughs created within 24h from simple apartment photos\n• 24/7 AI WhatsApp & Web assistant to qualify buyers instantly\n• Automatic lead capture evenings and weekends\n• 100% tailored email follow-ups for every buyer prospect`;
+
+    case 'real_estate_walkthrough':
+      return isFr
+        ? `• Transformation de vos photos d'appartement en visite vidéo 4K professionnelle sous 24h\n• Aperçu vidéo GIF animé directement prêt à être intégré dans vos e-mails et vos annonces\n• Multipliez par 2 vos demandes de visites d'acquéreurs qualifiés\n• Envoi direct de vos photos par e-mail ou via notre portail web Real Reach`
+        : `• Turn simple apartment photos into professional 4K video walkthroughs in 24h\n• Eye-catching animated GIF preview embedded directly in emails & listings\n• Double your qualified buyer showing requests\n• Direct photo upload via email or through our Real Reach web portal`;
 
     case 'dentist':
       return isFr
-        ? `Bonjour,\n\nAprès avoir effectué des recherches sur le cabinet dentaire ${company}, nous avons réalisé que de nombreux visiteurs sur votre site s'intéressent aux soins esthétiques et facettes sans oser sauter le pas.\n\nJe vous propose une solution sur-mesure pour ${company} :\n\n- Un simulateur de sourire interactif directement sur votre site web\n- Vos patients importent leur photo et voient instantanément leur transformation de sourire avec facettes dentaires\n- Une intégration ultra-simple en 2 minutes via un script léger à copier-coller sur votre site internet\n- Captation automatique des coordonnées pour planifier la consultation de prestige\n\nRésultat typique : +300% de rendez-vous pour des soins esthétiques sous 30 jours.`
-        : `Hello,\n\nAfter conducting research on ${company}, we realized that many website visitors looking for cosmetic dental treatments do not complete their booking.\n\nWe offer a game-changing solution:\n\n- An interactive Smile Simulator embedded directly on your website\n- Patients upload their photo and instantly preview their new veneer smile makeover\n- Easy integration: copy and paste a single lightweight script onto your website in 2 minutes\n- Automated lead capture to seamlessly book aesthetic consultations\n\nTypical outcome: +300% increase in high-ticket cosmetic dentistry bookings in 30 days.`;
+        ? `• Simulateur de sourire interactif avec facettes dentaires directement sur votre site web\n• Vos patients importent leur photo et visualisent leur nouveau sourire en 60 secondes\n• Intégration en 2 minutes via un script léger sur votre site internet\n• Prise de rendez-vous automatique pour vos consultations de prestige`
+        : `• Interactive Smile Simulator embedded directly on your practice website\n• Patients upload a photo and preview their new veneer smile in 60 seconds\n• Fast 2-minute integration via a lightweight copy-paste script\n• Automated booking capture for high-ticket cosmetic dentistry consultations`;
 
     case 'law_firm':
       return isFr
-        ? `Bonjour,\n\nAprès avoir effectué des recherches sur le cabinet ${company}, nous avons réalisé que la conversion rapide des demandes d'information en consultations est essentielle pour signer de nouveaux dossiers.\n\nJe vous propose deux solutions complémentaires :\n\n- Répondez instantanément aux questions fréquentes\n- Capturez les demandes même après 18h\n- Relancez automatiquement les prospects intéressés\n\nRésultat typique : +25% de dossiers qualifiés signés en 30 jours.\n\nDe plus, nous automatisons et personnalisons l'intégralité de vos e-mails et relances prospects. Chaque message est 100% sur-mesure pour vos interlocuteurs, ce qui vous fait gagner un temps considérable au quotidien tout en maximisant vos conversions.`
-        : `Hello,\n\nAfter conducting research on ${company}, we realized that converting consultation requests into signed retainers requires immediate, structured follow-up.\n\nWe offer two complementary solutions:\n\n- Answer common questions instantly 24/7\n- Capture case inquiries after hours\n- Automatically follow up with prospective clients\n\nTypical result: +25% signed client retainers in 30 days.\n\nAdditionally, we fully automate and personalize all your emails and client outreach. Every message is tailored to your prospects, saving huge amounts of time while driving higher conversions.`;
+        ? `• Accueil & qualification confidentielle des prospects 24h/24\n• Questionnaire d'analyse de litige interactif pour vos futurs clients\n• Relances automatiques personnalisées pour maximiser la signature de vos conventions\n• Prise de rendez-vous de première consultation juridique en ligne`
+        : `• Confidential 24/7 client intake & case screening\n• Interactive dispute analysis questionnaire for prospective clients\n• Automated personalized follow-ups to maximize signed engagement letters\n• Online booking for initial legal consultation appointments`;
 
     case 'restaurant':
       return isFr
-        ? `Bonjour,\n\nAprès avoir effectué des recherches sur l'établissement ${company}, nous avons réalisé que de nombreuses demandes de réservation et de privatisation restent sans réponse en dehors des heures de service.\n\nJe vous propose deux solutions complémentaires :\n\n- Répondez instantanément aux questions fréquentes\n- Capturez les demandes même après 18h\n- Relancez automatiquement les prospects intéressés\n\nRésultat typique : +25% de réservations firmes en 30 jours.\n\nDe plus, nous automatisons et personnalisons l'intégralité de vos e-mails et relances de devis événements. Chaque message est 100% sur-mesure, ce qui vous fait gagner un temps considérable au quotidien tout en maximisant vos réservations.`
-        : `Hello,\n\nAfter conducting research on ${company}, we realized that many dining and event reservation inquiries arrive when your team is busy or off-duty.\n\nWe provide two complementary solutions:\n\n- Answer FAQs instantly\n- Capture reservation requests after 6 PM\n- Automatically follow up with event prospects\n\nTypical result: +25% confirmed bookings in 30 days.\n\nPlus, we fully automate and personalize all your emails and event quote follow-ups. Every message is customized, saving massive amounts of time while filling your reservations.`;
+        ? `• Assistant de réservation tables & banquets disponible 24h/24 et 7j/7\n• Traitement automatique des demandes de privatisation et menus de groupe\n• Rappels automatiques par SMS pour éliminer les no-shows (-95% de tables perdues)\n• Relances personnalisées de devis événements et réceptions`
+        : `• 24/7 table & banquet reservation assistant on Web & WhatsApp\n• Automated processing for private dining & group menu requests\n• Automated SMS reminders to virtually eliminate no-shows (-95% lost tables)\n• Personalized follow-ups for event & party quotes`;
 
     case 'accountant':
       return isFr
-        ? `Bonjour,\n\nAprès avoir effectué des recherches sur le cabinet ${company}, nous avons réalisé que l'automatisation de l'accueil prospect et de l'onboarding digital vous permettrait d'accélérer la signature de nouvelles lettres de mission.\n\nJe vous propose deux solutions complémentaires :\n\n- Répondez instantanément aux questions fréquentes\n- Capturez les demandes même après 18h\n- Relancez automatiquement les prospects intéressés\n\nRésultat typique : +25% de nouveaux dossiers signés en 30 jours.\n\nDe plus, nous automatisons et personnalisons l'intégralité de vos e-mails et relances prospects. Chaque message est 100% sur-mesure pour vos clients, ce qui vous fait gagner un temps considérable au quotidien tout en maximisant votre taux de conversion.`
-        : `Hello,\n\nAfter conducting research on ${company}, we realized that automating client intake and onboarding documents speeds up signing engagement letters.\n\nWe deliver two complementary solutions:\n\n- Answer common business FAQs instantly 24/7\n- Capture lead details after 6 PM\n- Automatically follow up with prospective clients\n\nTypical result: +25% new signed engagements in 30 days.\n\nFurthermore, we fully automate and personalize all your emails and onboarding follow-ups. Every communication is 100% tailored to your client, saving hours of work every week while raising conversion rates.`;
+        ? `• Onboarding client 100% numérisé et sécurisé en 3 minutes\n• Collecte automatique des pièces KYC, KBIS et signature de lettre de mission\n• Assistant réactif pour répondre aux questions fréquentes des dirigeants 24h/24\n• Relances e-mails personnalisées pour accélérer l'acquisition de nouveaux dossiers`
+        : `• 100% paperless & secure client onboarding in 3 minutes\n• Automated KYC/business document collection & engagement letter e-signatures\n• Responsive 24/7 assistant to answer common business & accounting FAQs\n• Tailored email follow-ups to accelerate signing new client retainers`;
 
     case 'plumbing':
     case 'electrical':
     case 'locksmith':
     case 'disaster_restoration':
       return isFr
-        ? `Bonjour,\n\nAprès avoir effectué des recherches sur l'entreprise ${company}, nous avons réalisé que répondre instantanément aux demandes d'urgence et appels manqués vous permettrait de remporter plus de chantiers.\n\nJe vous propose deux solutions complémentaires :\n\n- Répondez instantanément aux questions fréquentes & urgences\n- Capturez les leads même après 18h\n- Relancez automatiquement les prospects intéressés\n\nRésultat typique : +25% de chantiers signés en 30 jours.\n\nDe plus, nous automatisons et personnalisons l'intégralité de vos e-mails et relances prospects. Chaque message est 100% sur-mesure pour vos clients, ce qui vous fait gagner un temps considérable au quotidien tout en maximisant vos conversions.`
-        : `Hello,\n\nAfter conducting research on ${company}, we realized that immediate call-back and emergency dispatch capabilities are essential to securing more service jobs.\n\nWe provide two complementary solutions:\n\n- Answer service FAQs & emergency inquiries instantly\n- Capture leads even after 6 PM\n- Automatically follow up on pending quotes\n\nTypical result: +25% booked jobs in 30 days.\n\nIn addition, we fully automate and personalize all your emails and quote reminders. Each message is customized for your client, saving you huge amounts of time while closing more jobs.`;
+        ? `• Réponse instantanée aux appels manqués et demandes de dépannage d'urgence 24h/24\n• Collecte automatique des photos de panne et géolocalisation avant déplacement\n• Envoi automatique de devis et réservation sur créneaux disponibles\n• Relances e-mails et SMS personnalisées pour convertir les devis en chantiers`
+        : `• Instant 24/7 response to missed calls & emergency dispatch inquiries\n• Automated pre-trip photos & location collection from clients\n• Automated quote dispatch & slot booking based on technician availability\n• Tailored email & SMS reminders to convert quotes into booked jobs`;
+
+    case 'driving_school':
+      return isFr
+        ? `• Accueil & inscription des nouveaux candidats 24h/24 sur WhatsApp et Web\n• Test d'évaluation initial et réponse automatique aux demandes NEPH / CPF\n• Rappels de cours de conduite automatiques et gestion du planning moniteurs\n• Relances personnalisées pour maximiser les souscriptions aux forfaits permis`
+        : `• 24/7 student intake & registration on WhatsApp & Web\n• Initial driving assessment test & automatic answers for NEPH / CPF funding\n• Automated lesson reminders & instructor schedule coordination\n• Tailored follow-ups to maximize driving package enrollments`;
+
+    case 'funeral_home':
+      return isFr
+        ? `• Service d'accueil et d'écoute familial bienveillant disponible 24h/24\n• Guide étape par étape des premières démarches et estimation transparente\n• Collecte numérisée des volontés de la famille et registre de condoléances\n• Présentation claire des contrats de prévoyance obsèques`
+        : `• Compassionate 24/7 family guidance & support assistant\n• Step-by-step immediate procedures guide & transparent funeral estimate\n• Digital family preference intake & online condolence guestbook\n• Clear presentation of pre-need funeral planning agreements`;
+
+    case 'dog_groomer':
+      return isFr
+        ? `• Prise de rendez-vous autonome 24h/24 selon la race et la taille du chien\n• SMS automatique d'alerte : "Votre compagnon est prêt pour le retrait"\n• Rappels automatiques d'entretien de pelage pour fidéliser vos clients\n• Zéro interruption téléphonique pendant vos soins au salon`
+        : `• 24/7 self-service grooming booking based on dog breed & size\n• Automated pickup SMS notification: "Your pet is ready!"\n• Automated seasonal coat care reminders to boost customer retention\n• Zero phone disruptions while grooming pets in your salon`;
+
+    case 'photographer':
+      return isFr
+        ? `• Portfolio interactif et réponse sous 5 secondes aux demandes de devis\n• Devis automatique mariages, portraits & corporate avec acompte en ligne\n• Signature de contrat et droit d'image dématérialisés en 1 clic\n• Relances e-mails personnalisées pour concrétiser vos réservations`
+        : `• Interactive photo portfolio with 5-second response to quote requests\n• Automated wedding, portrait & corporate quotes with online deposit\n• 1-click digital contract & image rights e-signature\n• Tailored email follow-ups to close booking inquiries`;
 
     default:
       return isFr
-        ? `Bonjour,\n\nAprès avoir effectué des recherches sur l'entreprise ${company}, nous avons réalisé qu'une automatisation intelligente de votre accueil prospect vous permettrait de développer davantage votre activité.\n\nJe vous propose deux solutions complémentaires :\n\n- Répondez instantanément aux questions fréquentes\n- Capturez les leads même après 18h\n- Relancez automatiquement les prospects intéressés\n\nRésultat typique : +25% de conversions en 30 jours.\n\nDe plus, nous automatisons et personnalisons l'intégralité de vos e-mails et relances prospects. Chaque message est 100% sur-mesure pour votre interlocuteur, ce qui vous fait gagner un temps considérable au quotidien tout en maximisant vos conversions.`
-        : `Hello,\n\nAfter conducting research on ${company}, we realized that an intelligent lead response system would help you significantly grow your client base.\n\nWe offer two complementary solutions:\n\n- Answer common FAQs instantly 24/7\n- Capture leads after 6 PM\n- Automatically follow up with interested prospects\n\nTypical outcome: +25% client conversion in 30 days.\n\nIn addition, we fully automate and personalize all your emails and outreach. Every message is tailored specifically to your prospect, saving massive amounts of time while maximizing conversion rates.`;
+        ? `• Assistant virtuel d'accueil & qualification prospect actif 24h/24 et 7j/7\n• Réponse automatique en moins de 5 secondes à toutes les demandes entrantes\n• Capture des opportunités le soir et le week-end\n• Relances e-mails et SMS 100% sur-mesure pour maximiser votre chiffre d'affaires`
+        : `• 24/7 virtual assistant for lead intake & qualification\n• Automated response in under 5 seconds for all incoming inquiries\n• Capture client opportunities evenings and weekends\n• 100% tailored email & SMS follow-ups to maximize revenue`;
   }
 }
 
@@ -1593,81 +1788,92 @@ export function getNicheConversations(
   }
 }
 
-export function getNicheLogoHtml(nicheType: NicheType): string {
+export function getNicheLogoHtml(nicheType: NicheType, lang: Language = 'fr'): string {
   let icon = '✨';
   let bgColor = '#3B82F6'; // Default Blue
-  let nicheLabel = 'Digital Transformation';
+  let nicheLabel = lang === 'en' ? 'Digital Transformation' : 'Digital Transformation';
+  const isEn = lang === 'en';
   
   switch (nicheType) {
     case 'restaurant':
       icon = '🍽️';
       bgColor = '#F97316'; // Orange
-      nicheLabel = 'Gastronomie & Restauration';
+      nicheLabel = isEn ? 'Restaurant & Catering' : 'Gastronomie & Restauration';
       break;
     case 'real_estate':
       icon = '🏠';
       bgColor = '#0EA5E9'; // Sky Blue
-      nicheLabel = 'Immobilier & Visites';
+      nicheLabel = isEn ? 'Real Estate & Automation' : 'Immobilier & Automation';
+      break;
+    case 'real_estate_walkthrough':
+      icon = '🎬';
+      bgColor = '#10B981'; // Emerald
+      nicheLabel = isEn ? 'Real Estate & 4K Video Tours' : 'Immobilier & Visite Vidéo 4K';
+      break;
+    case 'ecom_clothing':
+      icon = '👗';
+      bgColor = '#111111';
+      nicheLabel = isEn ? 'E-Commerce Fashion & IDM-VTON AI Try-On' : 'Mode E-Commerce & Cabine Virtuelle IDM-VTON';
       break;
     case 'dentist':
       icon = '🦷';
       bgColor = '#0D9488'; // Teal
-      nicheLabel = 'Cabinet Dentaire Esthétique';
+      nicheLabel = isEn ? 'Aesthetic Dental Practice' : 'Cabinet Dentaire Esthétique';
       break;
     case 'law_firm':
       icon = '⚖️';
       bgColor = '#7F1D1D'; // Burgundy
-      nicheLabel = 'Cabinet Juridique';
+      nicheLabel = isEn ? 'Law Firm & Legal' : 'Cabinet Juridique';
       break;
     case 'accountant':
       icon = '📊';
       bgColor = '#16A34A'; // Green
-      nicheLabel = 'Expertise Comptable';
+      nicheLabel = isEn ? 'Accounting & CPA Firm' : 'Expertise Comptable';
       break;
     case 'plumbing':
       icon = '🔧';
       bgColor = '#2563EB'; // Royal Blue
-      nicheLabel = 'Plomberie & Chauffage';
+      nicheLabel = isEn ? 'Plumbing & Heating' : 'Plomberie & Chauffage';
       break;
     case 'electrical':
       icon = '⚡';
       bgColor = '#EAB308'; // Amber
-      nicheLabel = 'Électricité & Énergie';
+      nicheLabel = isEn ? 'Electrical & Power' : 'Électricité & Énergie';
       break;
     case 'locksmith':
       icon = '🔑';
       bgColor = '#D97706'; // Gold
-      nicheLabel = 'Serrurerie & Sécurité';
+      nicheLabel = isEn ? 'Locksmith & Security' : 'Serrurerie & Sécurité';
       break;
     case 'disaster_restoration':
       icon = '🛡️';
       bgColor = '#DC2626'; // Red
-      nicheLabel = 'Rénovation après Sinistre';
+      nicheLabel = isEn ? 'Disaster Restoration' : 'Rénovation après Sinistre';
       break;
     case 'driving_school':
       icon = '🚗';
       bgColor = '#4F46E5'; // Indigo
-      nicheLabel = 'Auto-École';
+      nicheLabel = isEn ? 'Driving School' : 'Auto-École';
       break;
     case 'funeral_home':
       icon = '🕊️';
       bgColor = '#64748B'; // Slate
-      nicheLabel = 'Services Funéraires';
+      nicheLabel = isEn ? 'Funeral Services' : 'Services Funéraires';
       break;
     case 'dog_groomer':
       icon = '🐕';
       bgColor = '#EC4899'; // Pink
-      nicheLabel = 'Toilettage Canin';
+      nicheLabel = isEn ? 'Dog Grooming' : 'Toilettage Canin';
       break;
     case 'photographer':
       icon = '📸';
       bgColor = '#8B5CF6'; // Violet
-      nicheLabel = 'Studio Photographie';
+      nicheLabel = isEn ? 'Photo Studio' : 'Studio Photographie';
       break;
     default:
       icon = '✨';
       bgColor = '#3B82F6';
-      nicheLabel = 'Partenaire Digital';
+      nicheLabel = isEn ? 'Digital Partner' : 'Partenaire Digital';
       break;
   }
 
@@ -1698,6 +1904,31 @@ export interface NicheProofDoc {
 export function getNicheProofDocs(nicheType: NicheType, lang: Language = 'fr'): NicheProofDoc[] {
   if (lang === 'fr') {
     switch (nicheType) {
+      case 'ecom_clothing':
+        return [
+          {
+            clientName: "Maison Séléné Paris (Mode & Prêt-à-Porter)",
+            docNum: "RAPPORT #01 • CONVERSION BOUTIQUE",
+            title: "Cabine Virtuelle IA IDM-VTON",
+            bigMetric: "+38% Conversion",
+            subText: "Module d'essayage sur 140 fiches vêtements",
+            bullet1: "• -45% de taux de retour de taille",
+            bullet2: "• +2 min 40s de temps passé sur fiches produits",
+            badge: "✓ Preuve Attestée ASSIX",
+            icon: "👗"
+          },
+          {
+            clientName: "Atelier Riviera Apparel",
+            docNum: "RAPPORT #02 • ENGAGEMENT CLIENT",
+            title: "Essayage Photo Selfie Temps Réel",
+            bigMetric: "18,400 Essayages / mo",
+            subText: "Intégration Bouton 1-Clic Shopify",
+            bullet1: "• +92% de partages d'essayages sur Instagram",
+            bullet2: "• Réduction de 60% des demandes de remboursement",
+            badge: "⚡ Conversion Certifiée",
+            icon: "✨"
+          }
+        ];
       case 'restaurant':
         return [
           {
@@ -1984,6 +2215,42 @@ export function getNicheProofDocs(nicheType: NicheType, lang: Language = 'fr'): 
             bullet2: "• Vente des biens 3x plus rapide grâce au drone 3D",
             badge: "💰 ROI Vainqueur Certifié",
             icon: "💰"
+          }
+        ];
+      case 'real_estate_walkthrough':
+        return [
+          {
+            clientName: "Horizon Immobilier (Paris 15e)",
+            docNum: "RAPPORT #01 • BUNDLE COMMANDE",
+            title: "15 Visites Vidéo 4K Commandées",
+            bigMetric: "15 Vidéos Livrées",
+            subText: "Commandes récurrentes chaque semaine",
+            bullet1: "• 3 à 5 photos envoyées par e-mail le matin",
+            bullet2: "• 100% des annonces équipées en vidéo 4K",
+            badge: "✓ Client Récurrent 4K",
+            icon: "🎥"
+          },
+          {
+            clientName: "Prestige Properties (Lyon 6e)",
+            docNum: "RAPPORT #02 • RAPIDITÉ STUDIO",
+            title: "Livraison Chrono en < 6 heures",
+            bigMetric: "< 6h Délais",
+            subText: "Livraison le jour même sans déplacement",
+            bullet1: "• Zéro tournage physique ou matériel lourd",
+            bullet2: "• Vidéo 4K HD & GIF reçus l'après-midi",
+            badge: "⚡ Studio Réactif <24h",
+            icon: "⏱️"
+          },
+          {
+            clientName: "Azur & Mer Mandats (Marseille)",
+            docNum: "RAPPORT #03 • ACCOMPAGNEMENT",
+            title: "45+ Visites Vidéo Produites Ensemble",
+            bigMetric: "x2,4 Visites",
+            subText: "Partenaire vidéo exclusif au quotidien",
+            bullet1: "• +140% de demandes d'acquéreurs qualifiés",
+            bullet2: "• Envoi direct par e-mail ou portail Real Reach",
+            badge: "💰 Partenaire Vidéo Certifié",
+            icon: "🎬"
           }
         ];
       case 'accountant':
@@ -2494,6 +2761,42 @@ export function getNicheProofDocs(nicheType: NicheType, lang: Language = 'fr'): 
             icon: "💰"
           }
         ];
+      case 'real_estate_walkthrough':
+        return [
+          {
+            clientName: "Horizon Realty Group (Paris)",
+            docNum: "DOC #01 • VOLUME ORDERED",
+            title: "15 x 4K Video Tours Ordered",
+            bigMetric: "15 Videos Delivered",
+            subText: "Weekly recurring property orders",
+            bullet1: "• 3 to 5 photos emailed every morning",
+            bullet2: "• 100% listings upgraded with 4K video",
+            badge: "✓ 4K Recurring Client",
+            icon: "🎥"
+          },
+          {
+            clientName: "Prestige Properties (Lyon)",
+            docNum: "DOC #02 • STUDIO SPEED",
+            title: "Express Turnaround < 6 hrs",
+            bigMetric: "< 6h Turnaround",
+            subText: "Same-day delivery without site trips",
+            bullet1: "• Zero physical camera crew required",
+            bullet2: "• 4K HD video & GIF received same afternoon",
+            badge: "⚡ Fast <24h Studio",
+            icon: "⏱️"
+          },
+          {
+            clientName: "Coastline Realty (Marseille)",
+            docNum: "DOC #03 • PARTNERSHIP",
+            title: "45+ Videos Produced Together",
+            bigMetric: "2.4x Showings",
+            subText: "Ongoing video creation partner",
+            bullet1: "• +140% qualified buyer inquiry boost",
+            bullet2: "• Simple upload via email or web portal",
+            badge: "💰 Certified Video Partner",
+            icon: "🎬"
+          }
+        ];
       case 'accountant':
         return [
           {
@@ -2837,6 +3140,396 @@ export function getUpcomingBookingSlots(lang: 'fr' | 'en' = 'fr', baseDateInput?
   ];
 }
 
+export interface NicheQuoteScenario {
+  badge: string;
+  title: string;
+  clientRequestText: string;
+  clientPhotosAttached?: string;
+  aiProcessingText: string;
+  quoteTitle: string;
+  item1Name: string;
+  item1Qty: string;
+  item1Price: string;
+  item2Name: string;
+  item2Qty: string;
+  item2Price: string;
+  totalTtc: string;
+  depositAmount: string;
+  depositPercentage: string;
+  depositCtaText: string;
+}
+
+export function getNiche3ProposalPoints(
+  niche: NicheType,
+  company: string,
+  cityPhrase: string,
+  lang: Language = 'fr'
+): { title: string; desc: string }[] {
+  const isFr = lang === 'fr';
+
+  switch (niche) {
+    case 'real_estate':
+    case 'real_estate_walkthrough':
+      return [
+        {
+          title: isFr ? "Capture des Propriétaires Vendeurs D'Appartements" : "Apartment Seller Lead Generation",
+          desc: isFr
+            ? `Déploiement d'un module d'estimation immédiat pour capter les propriétaires vendeurs d'appartements ${cityPhrase} dès leur première recherche.`
+            : `Deploy an instant property valuation widget to capture apartment sellers ${cityPhrase} at their first online search.`
+        },
+        {
+          title: isFr ? "Analyse & Qualification Automatisée 24/7" : "24/7 Automated Qualification & Triage",
+          desc: isFr
+            ? `Qualification instantanée du bien (surface, pièces, quartier) et transmission directe du dossier aux négociateurs de ${company}.`
+            : `Instant lead qualification (surface area, room count, neighborhood) delivered straight to ${company}'s sales agents.`
+        },
+        {
+          title: isFr ? "Mise en Valeur & Mandats Exclusifs" : "Immersive Presentations & Exclusive Mandates",
+          desc: isFr
+            ? `Présentation moderne et visites interactives pour rassurer les vendeurs d'appartements et augmenter votre taux de signature de mandats exclusifs.`
+            : `Modern interactive showcases to reassure apartment sellers and significantly boost your rate of signed exclusive mandates.`
+        }
+      ];
+
+    case 'plumbing':
+      return [
+        {
+          title: isFr ? "Accueil Urgences & Dépannage 24/7" : "24/7 Emergency & Repair Dispatch",
+          desc: isFr
+            ? `Réponse immédiate aux demandes de fuites et dépannages d'urgence ${cityPhrase} même pendant vos interventions.`
+            : `Immediate responses for emergency leak calls ${cityPhrase} even while your plumbers are active on-site.`
+        },
+        {
+          title: isFr ? "Pré-Diagnostic & Estimation sur Photo" : "Photo-Based Instant Estimation",
+          desc: isFr
+            ? `Vos clients envoient une photo des dégâts et l'assistant IA pré-qualifie le problème selon le barème de ${company}.`
+            : `Clients submit damage photos and AI pre-qualifies the issue according to ${company}'s rate schedule.`
+        },
+        {
+          title: isFr ? "Validation Devis & Acompte Mobile" : "Mobile Quote Signatures & Instant Deposit",
+          desc: isFr
+            ? `Envoi de devis avec signature et paiement d'acompte par carte bancaire sur smartphone avant le déplacement.`
+            : `Instant mobile quotes with digital signature and card deposit before sending out the service truck.`
+        }
+      ];
+
+    case 'electrical':
+      return [
+        {
+          title: isFr ? "Réponse Immédiate aux Pannes Électriques" : "Instant Electrical Fault Intake",
+          desc: isFr
+            ? `Prise en charge automatisée des demandes de rénovation, coupures de courant et bornes de recharge à toute heure.`
+            : `Automated handling of electrical safety upgrades, power outage calls, and EV charger requests around the clock.`
+        },
+        {
+          title: isFr ? "Analyse de Tableau & Chiffrage IA" : "AI Electrical Panel Photo Analysis",
+          desc: isFr
+            ? `Analyse photo des tableaux électriques pour estimer les modules à remplacer et calculer le tarif exact.`
+            : `Analyze electrical panel photos to estimate required breakers and compute an exact itemized estimate.`
+        },
+        {
+          title: isFr ? "Validation & Acompte 1-Clic" : "1-Click Acceptance & Mobile Deposit",
+          desc: isFr
+            ? `Permettez à vos clients de valider l'intervention et de régler l'acompte en un clic pour bloquer le rendez-vous.`
+            : `Allow homeowners to confirm the work and pay their initial deposit in 1 click on their phone.`
+        }
+      ];
+
+    case 'locksmith':
+      return [
+        {
+          title: isFr ? "Sauvetage Porte Claquée 24h/24" : "24/7 Emergency Lockout Conversion",
+          desc: isFr
+            ? `Capturez 100% des personnes bloquées dehors ${cityPhrase} grâce à un assistant SMS/WhatsApp instantané.`
+            : `Capture 100% of locked-out clients ${cityPhrase} via an automated, lightning-fast SMS/WhatsApp assistant.`
+        },
+        {
+          title: isFr ? "Analyse Photo de la Serrure" : "Lock Photo Identification",
+          desc: isFr
+            ? `Identification du type de porte et serrure pour établir un chiffrage transparent avant le départ du serrurier.`
+            : `Analyze lock & cylinder photos to provide transparent pricing before dispatching the technician.`
+        },
+        {
+          title: isFr ? "Paiement & Géolocalisation Express" : "Instant Payment & GPS Dispatch",
+          desc: isFr
+            ? `Validation de l'intervention, géolocalisation du client et encaissement sécurisé sur mobile.`
+            : `Instant job confirmation, precise client GPS coordinates, and secure mobile deposit payment.`
+        }
+      ];
+
+    case 'disaster_restoration':
+      return [
+        {
+          title: isFr ? "Prise en Charge Urgence Sinistre 24/7" : "24/7 Emergency Disaster Intake",
+          desc: isFr
+            ? `Accueil d'urgence pour victimes de dégâts des eaux ou incendies sans aucun délai d'attente.`
+            : `Immediate emergency intake for water or fire damage victims with zero phone hold times.`
+        },
+        {
+          title: isFr ? "Pré-Rapport Assurances Automatisé" : "Automated Insurance Claim Dossier",
+          desc: isFr
+            ? `Collecte automatique des photos du sinistre et création du dossier d'expertise conforme aux normes assurances.`
+            : `Automated photo collection and expert loss dossier generation compliant with insurance standards.`
+        },
+        {
+          title: isFr ? "Mobilisation & Démarrage Rapide" : "Express Crew Mobilization",
+          desc: isFr
+            ? `Validation rapide du protocole d'assèchement et planification des équipes sur le terrain.`
+            : `Rapid drying protocol validation and immediate field team scheduling.`
+        }
+      ];
+
+    case 'restaurant':
+      return [
+        {
+          title: isFr ? "Captation des Banquets & Groupes" : "Banquet & Event Lead Acquisition",
+          desc: isFr
+            ? `Capturez toutes les demandes de mariages, réceptions et événements d'entreprise ${cityPhrase} 24h/24.`
+            : `Capture all wedding receptions, corporate galas, and private dining requests ${cityPhrase} 24/7.`
+        },
+        {
+          title: isFr ? "Simulateur de Menu & Devis IA" : "AI Catering & Menu Quote Engine",
+          desc: isFr
+            ? `Calcul automatique du tarif par convive en fonction des régimes alimentaires et des formules sélectionnées.`
+            : `Automatic per-guest pricing based on dietary restrictions and selected catering menus.`
+        },
+        {
+          title: isFr ? "Réservation & Acompte Sécurisé" : "Instant Date Lock & Deposit Collection",
+          desc: isFr
+            ? `Réservation de la date avec encaissement direct de l'acompte pour éradiquer les annulations tardives.`
+            : `Secure event dates with instant online deposit payments to eliminate last-minute cancellations.`
+        }
+      ];
+
+    case 'accountant':
+    case 'law_firm':
+      return [
+        {
+          title: isFr ? "Onboarding Client 100% Paperless" : "100% Paperless Client Onboarding",
+          desc: isFr
+            ? `Digitalisation complète de l'accueil client pour les dossiers de création d'entreprise et conseils juridiques.`
+            : `Complete digital onboarding for corporate incorporations and legal advice consultations.`
+        },
+        {
+          title: isFr ? "Simulation d'Honoraires Claire" : "Transparent Fee Simulator",
+          desc: isFr
+            ? `Estimation automatique des honoraires ou du forfait comptable mensuel adapté à la taille de la société.`
+            : `Automatic fee or monthly retainer simulation customized to business size and scope.`
+        },
+        {
+          title: isFr ? "Signature eIDAS & Collecte Kbis" : "eIDAS Digital Sign & Document Collection",
+          desc: isFr
+            ? `Collecte sécurisée des pièces justificatives et signature de la lettre de mission en 3 minutes.`
+            : `Secure gathering of ID documents and engagement letter e-signature in under 3 minutes.`
+        }
+      ];
+
+    default:
+      return [
+        {
+          title: isFr ? "Captation de Prospects Qualifiés 24/7" : "24/7 Qualified Prospect Acquisition",
+          desc: isFr
+            ? `Capturez et répondez instantanément à toutes les demandes entrantes de vos futurs clients ${cityPhrase}.`
+            : `Capture and respond instantly to all inbound inquiries from prospective clients ${cityPhrase}.`
+        },
+        {
+          title: isFr ? "Chiffrage & Devis Instantané sur Grille" : "Instant Rate Card Quote Generator",
+          desc: isFr
+            ? `Application stricte de votre grille tarifaire pour délivrer une proposition commerciale sous 8 secondes.`
+            : `Strict application of your rate card to deliver itemized proposals in under 8 seconds.`
+        },
+        {
+          title: isFr ? "Validation & Acompte sur Smartphone" : "Mobile Acceptance & Instant Deposit",
+          desc: isFr
+            ? `Signature en ligne et encaissement de l'acompte directement depuis le téléphone du client.`
+            : `Online agreement signature and instant mobile deposit collection.`
+        }
+      ];
+  }
+}
+
+export function getNicheQuoteScenario(
+  niche: NicheType,
+  company: string,
+  lang: Language = 'fr',
+  customAmount?: string
+): NicheQuoteScenario {
+  const isFr = lang === 'fr';
+
+  switch (niche) {
+    case 'electrical':
+      return {
+        badge: isFr ? "GENERATEUR DE DEVIS AUTOMATIQUE AI" : "AUTOMATED AI QUOTE ENGINE",
+        title: isFr ? "Démonstration : Devis instantané pour dépannage & travaux électriques" : "Live Demo: Instant quote for electrical work & repair",
+        clientRequestText: isFr 
+          ? `Bonjour, panne générale sur tableau électrique suite à surtension et besoin mise aux normes de 3 circuits.`
+          : `Hello, electrical panel failure after surge and need safety upgrade on 3 circuits.`,
+        clientPhotosAttached: isFr ? "2 photos du tableau électrique analysées par l'IA" : "2 panel photos analyzed by AI",
+        aiProcessingText: isFr 
+          ? `Extraction IA : Remplacement disjoncteur + Protection différentielle → Barème ${company} appliqué`
+          : `AI Extraction: Breaker replacement + Differential protection → ${company} rate card applied`,
+        quoteTitle: isFr ? `DEVIS ELEC #Q-${company.substring(0,3).toUpperCase()}-2026` : `ELECTRICAL QUOTE #Q-${company.substring(0,3).toUpperCase()}-2026`,
+        item1Name: isFr ? "Diagnostic & Remplacement Disjoncteur Général" : "Diagnostic & Main Breaker Replacement",
+        item1Qty: "1 U",
+        item1Price: "210 €",
+        item2Name: isFr ? "Mise en Sécurité & Protection Différentielle (3 circuits)" : "Safety Upgrade & Protection (3 circuits)",
+        item2Qty: "3 Circuits",
+        item2Price: "380 €",
+        totalTtc: customAmount || (isFr ? "590 € TTC" : "$590 Total"),
+        depositAmount: isFr ? "177 €" : "$177",
+        depositPercentage: "30%",
+        depositCtaText: isFr ? "Accepter le Devis & Payer l'Acompte (177 €) ↗" : "Accept Quote & Pay Deposit ($177) ↗"
+      };
+
+    case 'locksmith':
+      return {
+        badge: isFr ? "GENERATEUR DE DEVIS AUTOMATIQUE AI" : "AUTOMATED AI QUOTE ENGINE",
+        title: isFr ? "Démonstration : Devis instantané pour ouverture de porte & serrurerie" : "Live Demo: Instant quote for locksmith & door opening",
+        clientRequestText: isFr 
+          ? `Bonjour, porte claquée avec clé à l'intérieur à 21h + besoin changement de cylindre haute sécurité.`
+          : `Hello, locked out with key inside at 9pm + need high security cylinder replacement.`,
+        clientPhotosAttached: isFr ? "Photo de la serrure & porte analysée par l'IA" : "Photo of lock & door analyzed by AI",
+        aiProcessingText: isFr 
+          ? `Extraction IA : Ouverture fine + Cylindre A2P* → Barème ${company} appliqué`
+          : `AI Extraction: Non-destructive opening + A2P Cylinder → ${company} rate card applied`,
+        quoteTitle: isFr ? `DEVIS SERRURERIE #Q-${company.substring(0,3).toUpperCase()}-2026` : `LOCKSMITH QUOTE #Q-${company.substring(0,3).toUpperCase()}-2026`,
+        item1Name: isFr ? "Ouverture de Porte Claquée Sans Dégât (Forfait Soir)" : "Non-Destructive Door Opening (Evening Rate)",
+        item1Qty: "1 U",
+        item1Price: "150 €",
+        item2Name: isFr ? "Fourniture & Pose Cylindre Haute Sécurité A2P*" : "A2P High Security Cylinder & Installation",
+        item2Qty: "1 U",
+        item2Price: "290 €",
+        totalTtc: customAmount || (isFr ? "440 € TTC" : "$440 Total"),
+        depositAmount: isFr ? "132 €" : "$132",
+        depositPercentage: "30%",
+        depositCtaText: isFr ? "Accepter le Devis & Payer l'Acompte (132 €) ↗" : "Accept Quote & Pay Deposit ($132) ↗"
+      };
+
+    case 'disaster_restoration':
+    case 'plumbing':
+      return {
+        badge: isFr ? "GENERATEUR DE DEVIS AUTOMATIQUE AI" : "AUTOMATED AI QUOTE ENGINE",
+        title: isFr ? "Démonstration : Comment vos clients reçoivent un devis instantané 24/7" : "Live Demo: How your clients receive an instant 24/7 quote",
+        clientRequestText: isFr 
+          ? `Bonjour, urgence infiltration d'eau suite à fuite sous évier et dégât plancher (~25m²). Pouvez-vous envoyer un chiffrage ?` 
+          : `Hello, water leak under sink with floor damage (~25 sq m). Can you send an instant quote?`,
+        clientPhotosAttached: isFr ? "2 photos jointes analysées par l'IA" : "2 photos attached & analyzed by AI",
+        aiProcessingText: isFr 
+          ? `Extraction IA : Fuite PVC + Assèchement de surface → Barème ${company} appliqué`
+          : `AI Extraction: PVC Leak + Surface Drying → ${company} rate card applied`,
+        quoteTitle: isFr ? `DEVIS INTERACTIF #Q-${company.substring(0,3).toUpperCase()}-2026` : `INTERACTIVE QUOTE #Q-${company.substring(0,3).toUpperCase()}-2026`,
+        item1Name: isFr ? "Intervention d'Urgence & Recherche Fuite" : "Emergency Call-Out & Leak Repair",
+        item1Qty: "1 U",
+        item1Price: "240 €",
+        item2Name: isFr ? "Traitement Assèchement & Deshumidification (25m²)" : "Surface Drying & Dehumidification (25m²)",
+        item2Qty: "25 m²",
+        item2Price: "480 €",
+        totalTtc: customAmount || (isFr ? "720 € TTC" : "$720 Total"),
+        depositAmount: isFr ? "216 €" : "$216",
+        depositPercentage: "30%",
+        depositCtaText: isFr ? "Accepter le Devis & Payer l'Acompte (216 €) ↗" : "Accept Quote & Pay Deposit ($216) ↗"
+      };
+
+    case 'real_estate':
+    case 'real_estate_walkthrough':
+      return {
+        badge: isFr ? "GENERATEUR DE DEVIS AUTOMATIQUE AI" : "AUTOMATED AI QUOTE ENGINE",
+        title: isFr ? "Démonstration : Devis instantané pour propriétaires & vendeurs d'appartements" : "Live Demo: Instant quote generator for apartment sellers",
+        clientRequestText: isFr 
+          ? `Bonjour, je souhaite vendre mon appartement T4 de 92m² à Montpellier. Pouvez-vous réaliser l'estimation et la prise en charge de la vente ?`
+          : `Hello, I want to sell my 92 sq m 4-room apartment in Montpellier. Can you handle the valuation and property listing?`,
+        clientPhotosAttached: isFr ? "Photos de l'appartement & surface analysées par l'IA" : "Apartment photos & layout analyzed by AI",
+        aiProcessingText: isFr 
+          ? `Extraction IA : Appartement T4 92m² + Mandat de vente → Barème ${company} appliqué`
+          : `AI Extraction: 92m² Apartment + Sales Mandate → ${company} rate card applied`,
+        quoteTitle: isFr ? `PROPOSITION ESTIMATION & VENTE #Q-${company.substring(0,3).toUpperCase()}-2026` : `ESTIMATION & LISTING QUOTE #Q-${company.substring(0,3).toUpperCase()}-2026`,
+        item1Name: isFr ? "Estimation & Dossier de Mise en Vente (Appartement T4)" : "Valuation & Sales Dossier (4-Room Apartment)",
+        item1Qty: "1 U",
+        item1Price: "450 €",
+        item2Name: isFr ? "Accompagnement Mandat & Diffusion Annonce" : "Listing Management & Marketing Campaign",
+        item2Qty: "1 U",
+        item2Price: "240 €",
+        totalTtc: customAmount || (isFr ? "690 € TTC" : "$690 Total"),
+        depositAmount: isFr ? "207 €" : "$207",
+        depositPercentage: "30%",
+        depositCtaText: isFr ? "Accepter la Proposition & Démarrer la Vente (207 €) ↗" : "Accept Proposal & Start Listing ($207) ↗"
+      };
+
+    case 'restaurant':
+      return {
+        badge: isFr ? "CHIFFRAGE AUTOMATIQUE EVENEMENTIEL AI" : "AUTOMATED EVENT QUOTE ENGINE",
+        title: isFr ? "Démonstration : Devis instantané pour banquets & réceptions" : "Live Demo: Instant quote for catering & event bookings",
+        clientRequestText: isFr 
+          ? `Bonjour, organisation d'un cocktail dînatoire d'entreprise pour 40 personnes avec boissons et pièces gourmandes.`
+          : `Hello, organizing a corporate cocktail party for 40 guests with appetizers & wine.`,
+        clientPhotosAttached: isFr ? "40 convives • Option cocktail premium" : "40 guests • Premium cocktail option",
+        aiProcessingText: isFr 
+          ? `Extraction IA : 40 pers. x Formule Traiteur Gastronomique → Barème ${company}`
+          : `AI Extraction: 40 guests x Gourmet Catering → ${company} rate card applied`,
+        quoteTitle: isFr ? `DEVIS TRAITEUR #Q-${company.substring(0,3).toUpperCase()}-2026` : `CATERING QUOTE #Q-${company.substring(0,3).toUpperCase()}-2026`,
+        item1Name: isFr ? "Formule Cocktail Dînatoire (18 pièces/pers)" : "Gourmet Cocktail Menu (18 pcs/guest)",
+        item1Qty: "40 pers",
+        item1Price: "1,520 €",
+        item2Name: isFr ? "Service Maître d'Hôtel & Pack Boissons" : "Waitstaff Service & Beverage Package",
+        item2Qty: "1 Forfait",
+        item2Price: "360 €",
+        totalTtc: customAmount || (isFr ? "1,880 € TTC" : "$1,880 Total"),
+        depositAmount: isFr ? "564 €" : "$564",
+        depositPercentage: "30%",
+        depositCtaText: isFr ? "Valider le Menu & Payer la Réservation (564 €) ↗" : "Confirm Menu & Pay Booking Deposit ($564) ↗"
+      };
+
+    case 'law_firm':
+    case 'accountant':
+      return {
+        badge: isFr ? "ESTIMATION HONORAIRES IA AUTOMATISEE" : "AUTOMATED AI FEE ESTIMATOR",
+        title: isFr ? "Démonstration : Proposez des simulations d'honoraires transparentes" : "Live Demo: Provide transparent instant fee estimates",
+        clientRequestText: isFr 
+          ? `Bonjour, nous créons une société SASU et souhaitons un accompagnement comptable & juridique complet.`
+          : `Hello, setting up a new corporation and need full accounting & legal setup.`,
+        clientPhotosAttached: isFr ? "Statuts & prévisionnel analysés par l'IA" : "Bylaws & forecast analyzed by AI",
+        aiProcessingText: isFr 
+          ? `Extraction IA : Création SASU + Suivi Annuel → Barème ${company} appliqué`
+          : `AI Extraction: Corporate Setup + Annual Filing → ${company} rate card applied`,
+        quoteTitle: isFr ? `ESTIMATION HONORAIRES #Q-${company.substring(0,3).toUpperCase()}-2026` : `FEE ESTIMATE #Q-${company.substring(0,3).toUpperCase()}-2026`,
+        item1Name: isFr ? "Pack Rédaction Statuts & Immatriculation" : "Company Incorporation & Legal Filing",
+        item1Qty: "1 Forfait",
+        item1Price: "750 €",
+        item2Name: isFr ? "Abonnement Tenue Comptable & Bilan Annuel" : "Annual Bookkeeping & Tax Filing Package",
+        item2Qty: "12 Mois",
+        item2Price: "1,440 €",
+        totalTtc: customAmount || (isFr ? "2,190 € TTC" : "$2,190 Total"),
+        depositAmount: isFr ? "657 €" : "$657",
+        depositPercentage: "30%",
+        depositCtaText: isFr ? "Valider l'Engagement & Démarrer le Dossier ↗" : "Accept Engagement & Start Onboarding ↗"
+      };
+
+    default: // General / Roofing / Construction / Dentists / Groomers etc.
+      return {
+        badge: isFr ? "GENERATEUR DE DEVIS AUTOMATIQUE AI" : "AUTOMATED AI QUOTE ENGINE",
+        title: isFr ? "Démonstration : Comment vos clients obtiennent un devis instantané 24/7" : "Live Demo: How your clients receive an instant 24/7 quote",
+        clientRequestText: isFr 
+          ? `Bonjour, je souhaite recevoir un devis estimatif complet pour mes travaux avec ${company}.`
+          : `Hello, I would like to receive a complete estimated quote for my project with ${company}.`,
+        clientPhotosAttached: isFr ? "3 photos & détails du projet intégrés" : "3 photos & project scope attached",
+        aiProcessingText: isFr 
+          ? `Analyse IA des besoins + Application stricte de votre grille tarifaire ${company}`
+          : `AI Scope Analysis + Strict application of ${company} rate card`,
+        quoteTitle: isFr ? `DEVIS AUTOMATIQUE #Q-${company.substring(0,3).toUpperCase()}-2026` : `AUTOMATED QUOTE #Q-${company.substring(0,3).toUpperCase()}-2026`,
+        item1Name: isFr ? "Prestation Principale & Diagnostic Initial" : "Main Service Scope & Diagnostic",
+        item1Qty: "1 Forfait",
+        item1Price: "1,200 €",
+        item2Name: isFr ? "Fournitures & Prise en Charge Clé en Main" : "Materials & Turnkey Management",
+        item2Qty: "1 U",
+        item2Price: "650 €",
+        totalTtc: customAmount || (isFr ? "1,850 € TTC" : "$1,850 Total"),
+        depositAmount: isFr ? "555 €" : "$555",
+        depositPercentage: "30%",
+        depositCtaText: isFr ? "Accepter le Devis & Payer l'Acompte (555 €) ↗" : "Accept Quote & Pay Deposit ($555) ↗"
+      };
+  }
+}
+
 export function buildNicheHtmlEmail(
   lead: any,
   lang: Language = 'fr',
@@ -2854,6 +3547,15 @@ export function buildNicheHtmlEmail(
     customSecondaryCta?: string;
     customBodyText?: string;
     customGifUrl?: string;
+    customGifBadge?: string;
+    customGifTitle?: string;
+    customGifCaption?: string;
+    hideWhatsAppAnimation?: boolean;
+    hideEmailAutoAnimation?: boolean;
+    hideQuoteAnimation?: boolean;
+    hideProofSection?: boolean;
+    hideNotreMethode?: boolean;
+    customQuoteAmount?: string;
     gifUrl?: string;
     serverUrl?: string;
   } = {}
@@ -2873,7 +3575,12 @@ export function buildNicheHtmlEmail(
 
   const painPoint = options.customPainPoint || lead.gapSignal || lead.pitch || (lang === 'fr' ? 'Réponse instantanée 24/7 & accueil client personnalisé' : '24/7 instant response & personalized client welcome');
   const netlifyDemoUrl = getNetlifyNicheDemoUrl(nicheType);
-  const demoLink = (options.customDemoLink && options.customDemoLink !== '#onboarding-demo' && !options.customDemoLink.startsWith('#')) ? options.customDemoLink : netlifyDemoUrl;
+  let demoLink = (options.customDemoLink && options.customDemoLink !== '#onboarding-demo' && !options.customDemoLink.startsWith('#')) ? options.customDemoLink : netlifyDemoUrl;
+  if ((nicheType === 'real_estate_walkthrough' || nicheType === 'real_estate') && !demoLink.includes('#virtual-video')) {
+    if (nicheType === 'real_estate_walkthrough') {
+      demoLink = `${demoLink}#virtual-video`;
+    }
+  }
   const senderName = options.senderName || 'Anthony';
   const senderTitle = options.senderTitle || 'Directeur des Stratégies Digitales @ ASSIX';
   const assixBrand = options.brandName || 'ASSIX Agency';
@@ -2897,8 +3604,8 @@ export function buildNicheHtmlEmail(
   }
 
   const serverUrl = options.serverUrl || '';
-  let gifUrl = lead.deployedWebsiteGif || lead.gifUrl || options.gifUrl || '';
-  if (!gifUrl && (lead.deployedWebsiteUrl || options.customDemoLink || demoLink)) {
+  let gifUrl = options.customGifUrl || lead.deployedWebsiteGif || lead.gifUrl || options.gifUrl || '';
+  if (!gifUrl && (lead.deployedWebsiteUrl || options.customDemoLink || (demoLink && !demoLink.includes('nestarealreach')))) {
     const targetLink = lead.deployedWebsiteUrl || options.customDemoLink || demoLink;
     if (targetLink && targetLink.startsWith('http') && !targetLink.includes('#')) {
       gifUrl = `${serverUrl}/api/urlbox/gif?url=${encodeURIComponent(targetLink)}`;
@@ -2907,8 +3614,12 @@ export function buildNicheHtmlEmail(
   if (!gifUrl && siteId) {
     gifUrl = `${serverUrl}/api/website/${siteId}/preview.gif`;
   }
+  if (!gifUrl && (nicheType === 'real_estate' || nicheType === 'real_estate_walkthrough')) {
+    gifUrl = 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdW93am4zOGswMnlsc2lxaGJ6Ym9wNnYzbXgwcG93NW00a2lsa2tjaSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7TKSx186bnhy2eO4/giphy.gif';
+  }
 
   const convo = getNicheConversations(nicheType, company, cityPhrase, lang);
+  const quoteScenario = getNicheQuoteScenario(nicheType, company, lang, options.customQuoteAmount);
 
   const vars: Record<string, string> = {
     company,
@@ -3037,20 +3748,112 @@ export function buildNicheHtmlEmail(
           <!-- Header / Brand Banner (White Background, Frameless Emoji, No Big Agence Text) -->
           <tr>
             <td style="padding: 16px 24px 8px 24px; background-color: #FFFFFF; text-align: center;">
-              ${getNicheLogoHtml(nicheType)}
+              ${getNicheLogoHtml(nicheType, lang)}
             </td>
           </tr>
 
-          <!-- Clean Personalized Intro Hook Bubble -->
+          <!-- Top Intro Message & Professional Proposal Section (NO BOX AROUND IT) -->
           <tr>
-            <td style="padding: 16px 24px 0 24px;">
-              <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 18px; padding: 20px 24px; font-size: 14px; font-weight: 600; color: #0F172A; line-height: 1.6; box-shadow: 0 6px 20px rgba(0,0,0,0.06);">
-                ${topPersonalizedHook}
+            <td style="padding: 12px 24px 8px 24px;">
+              <!-- Clean Greeting -->
+              <div style="font-size: 15px; font-weight: 700; color: #0F172A; margin-bottom: 8px;">
+                ${lang === 'fr' ? `Bonjour ${company},` : `Hello ${company},`}
+              </div>
+
+              <!-- Unboxed Notre Proposition Header & Intro Text -->
+              <div style="margin-bottom: 16px; text-align: left;">
+                <div style="font-size: 11px; font-weight: 800; color: #059669; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">
+                  ${lang === 'fr' ? 'NOTRE PROPOSITION :' : 'OUR PROPOSAL:'}
+                </div>
+                <div style="font-size: 13.5px; font-weight: 500; color: #334155; line-height: 1.6; margin-bottom: 14px;">
+                  ${lang === 'fr'
+                    ? `J'ai fait quelques recherches sur votre activité et nous savons tous deux qu'une présence digitale efficace est aujourd'hui indispensable. J'ai donc identifié 3 leviers simples et ciblés pour ${company} :`
+                    : `I did a bit of research on your business and I think we are both aware that a strong digital presence is necessary today. So I identified 3 simple key actions targeted for ${company}:`}
+                </div>
+
+                <!-- 3 BIG TARGETED POINTS FOR THE NICHE -->
+                <div style="margin-bottom: 16px;">
+                  ${getNiche3ProposalPoints(nicheType, company, cityPhrase, lang).map((point, index) => `
+                    <div style="background-color: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                        <tr>
+                          <td width="32" valign="top" style="padding-top: 1px;">
+                            <span style="display: inline-block; background-color: #10B981; color: #FFFFFF; font-size: 12px; font-weight: 800; width: 24px; height: 24px; border-radius: 50%; text-align: center; line-height: 24px;">${index + 1}</span>
+                          </td>
+                          <td valign="top" style="padding-left: 8px;">
+                            <div style="font-size: 14px; font-weight: 800; color: #0F172A; margin-bottom: 3px; letter-spacing: -0.01em;">
+                              ${point.title}
+                            </div>
+                            <div style="font-size: 12.5px; color: #475569; line-height: 1.5; font-weight: 500;">
+                              ${point.desc}
+                            </div>
+                          </td>
+                        </tr>
+                      </table>
+                    </div>
+                  `).join('')}
+                </div>
               </div>
             </td>
           </tr>
 
-          <!-- SECTION 1: WHATSAPP CHATBOT MOBILE UI -->
+          ${(gifUrl || siteId || lead.deployedWebsiteUrl || nicheType === 'real_estate' || nicheType === 'real_estate_walkthrough' || nicheType === 'ecom_clothing' || options.customGifUrl || options.customGifBadge || options.customGifTitle) ? `
+          <!-- SECTION 1: PERSONALIZED WEBSITE, WALKTHROUGH OR VIRTUAL TRY-ON GIF PREVIEW -->
+          <tr>
+            <td style="padding: 4px 24px 0 24px; text-align: center;">
+              <div style="background-color: ${nicheType === 'ecom_clothing' ? '#FCFBF9' : '#F8FAFC'}; border: 1px solid ${nicheType === 'ecom_clothing' ? '#E2DDD3' : '#E2E8F0'}; border-radius: 20px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+                <div style="font-size: 10px; font-weight: 800; color: ${nicheType === 'ecom_clothing' ? '#D97706' : '#10B981'}; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.05em;">
+                  🎥 ${options.customGifBadge || (nicheType === 'ecom_clothing' 
+                    ? (lang === 'fr' ? 'DÉMONSTRATION ÉCRAN : CABINE D\'ESSAYAGE VIRTUELLE IDM-VTON' : 'LIVE SCREEN RECORDING: IDM-VTON AI VIRTUAL FITTING ROOM')
+                    : ((nicheType === 'real_estate' || nicheType === 'real_estate_walkthrough')
+                      ? (lang === 'fr' ? 'ÉCHANTILLON VIDÉO WALKTHROUGH OFFERT' : 'FREE SAMPLE VIDEO WALKTHROUGH')
+                      : (lang === 'fr' ? 'CONCEPTION WEB PERSONNALISÉE UNIQUE' : 'UNIQUE PERSONALIZED WEB DESIGN')))}
+                </div>
+                <h3 style="color: #0F172A; font-size: 15px; font-weight: 800; margin: 0 0 12px 0;">
+                  ${options.customGifTitle || (nicheType === 'ecom_clothing'
+                    ? (lang === 'fr' ? 'Démonstration vidéo : Essayage d\'un vêtement en 2s sur photo selfie' : 'Screen Recording: Live Garment Try-On in 2 Seconds')
+                    : ((nicheType === 'real_estate' || nicheType === 'real_estate_walkthrough')
+                      ? (lang === 'fr' ? 'Aperçu de la Visite Vidéo Immersive' : 'Animated Preview of Interactive Property Walkthrough')
+                      : (lang === 'fr' ? 'Aperçu Animé de Votre Nouveau Site Web' : 'Animated Preview of Your New Website')))}
+                </h3>
+                
+                <div style="border: 2px solid ${nicheType === 'ecom_clothing' ? '#111111' : '#E2E8F0'}; border-radius: 16px; overflow: hidden; background-color: #0F172A; line-height: 0; box-shadow: 0 8px 24px rgba(0,0,0,0.12);">
+                  <!-- Header bar for the simulated browser -->
+                  <div style="background-color: #1E293B; padding: 8px 14px; text-align: left; border-bottom: 2px solid #E2E8F0;">
+                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #EF4444; margin-right: 4px;"></span>
+                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #F59E0B; margin-right: 4px;"></span>
+                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #10B981; margin-right: 8px;"></span>
+                    <span style="display: inline-block; background-color: #0F172A; color: #94A3B8; font-size: 9.5px; padding: 3px 12px; border-radius: 10px; width: 220px; text-align: center; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;">
+                      ${nicheType === 'ecom_clothing' ? 'vton-tryon-studio.nesta.ai' : ((nicheType === 'real_estate' || nicheType === 'real_estate_walkthrough') ? 'nestarealreach.netlify.app' : `${company.toLowerCase().replace(/[^a-z0-9]/g, '')}.nesta.ai`)}
+                    </span>
+                  </div>
+                  
+                  <!-- GIF Image wrapper with link -->
+                  <a href="${demoLink}" target="_blank" style="display: block; text-decoration: none;">
+                    <img 
+                      src="${gifUrl || options.customGifUrl || (siteId ? `/api/website/${siteId}/preview.gif` : 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdW93am4zOGswMnlsc2lxaGJ6Ym9wNnYzbXgwcG93NW00a2lsa2tjaSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7TKSx186bnhy2eO4/giphy.gif')}" 
+                      alt="Animated Walkthrough / Virtual Try-On Screen Recording Prototype" 
+                      style="width: 100%; max-width: 100%; height: auto; display: block;" 
+                    />
+                  </a>
+                </div>
+                
+                <p style="color: #64748B; font-size: 11px; margin: 12px 0 0 0; line-height: 1.4;">
+                  ${options.customGifCaption || (nicheType === 'ecom_clothing'
+                    ? (lang === 'fr' ? '🎥 Enregistrement d\'écran : Observez l\'algorithme IDM-VTON draper le vêtement sur la silhouette en temps réel. Cliquez sur la vidéo pour tester la démo interactive.' : '🎥 Screen recording: Watch IDM-VTON neural diffusion warp clothing onto any customer silhouette in real-time. Click above to try the live demo.')
+                    : ((nicheType === 'real_estate' || nicheType === 'real_estate_walkthrough')
+                      ? (lang === 'fr' ? 'Nous livrons des visites vidéo 4K immersives créées simplement à partir de photos de votre appartement ! Cliquez ci-dessus pour accéder à la démo.' : 'We deliver 4K video tours created from just pictures of your apartment! Click above to see the live demo.')
+                      : (lang === 'fr' ? 'Cliquez sur l\'aperçu ci-dessus pour naviguer sur la version interactive en temps réel !' : 'Click the preview above to navigate the interactive real-time version!')))}
+                </p>
+
+
+              </div>
+            </td>
+          </tr>
+          ` : ''}
+
+          ${(!options.hideWhatsAppAnimation && nicheType !== 'real_estate_walkthrough') ? `
+          <!-- SECTION 2: WHATSAPP CHATBOT MOBILE UI -->
           <tr>
             <td style="padding: 20px 32px 0 32px;">
               <div style="background-color: #0B141A; border: 1px solid #1F2C34; border-radius: 20px; padding: 16px; box-shadow: 0 12px 30px rgba(0,0,0,0.25);">
@@ -3111,8 +3914,10 @@ export function buildNicheHtmlEmail(
               </div>
             </td>
           </tr>
+          ` : ''}
 
-          <!-- SECTION 2: MINI INBOX EMAIL GENERATOR -->
+          ${(!options.hideEmailAutoAnimation) ? `
+          <!-- SECTION 3: MINI INBOX EMAIL GENERATOR -->
           <tr>
             <td style="padding: 16px 32px 0 32px;">
               <div style="background-color: #0F172A; border: 1px solid #1E293B; border-radius: 20px; padding: 16px; box-shadow: 0 12px 30px rgba(0,0,0,0.25);">
@@ -3156,43 +3961,154 @@ export function buildNicheHtmlEmail(
               </div>
             </td>
           </tr>
+          ` : ''}
 
-          ${(gifUrl || siteId || lead.deployedWebsiteUrl) ? `
-          <!-- SECTION 2.5: PERSONALIZED WEBSITE GIF PREVIEW -->
+          ${(!options.hideQuoteAnimation) ? `
+          <!-- SECTION 4: AI INSTANT QUOTE GENERATOR ANIMATION -->
           <tr>
-            <td style="padding: 16px 32px 0 32px; text-align: center;">
-              <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 20px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
-                <div style="font-size: 10px; font-weight: 800; color: #10B981; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.05em;">
-                  ✨ ${lang === 'fr' ? 'CONCEPTION WEB PERSONNALISÉE UNIQUE' : 'UNIQUE PERSONALIZED WEB DESIGN'}
-                </div>
-                <h3 style="color: #0F172A; font-size: 15px; font-weight: 800; margin: 0 0 12px 0;">
-                  ${lang === 'fr' ? 'Aperçu Animé de Votre Nouveau Site Web' : 'Animated Preview of Your New Website'}
-                </h3>
-                
-                <div style="border: 2px solid #E2E8F0; border-radius: 16px; overflow: hidden; background-color: #0F172A; line-height: 0; box-shadow: 0 8px 24px rgba(0,0,0,0.12);">
-                  <!-- Header bar for the simulated browser -->
-                  <div style="background-color: #1E293B; padding: 8px 14px; text-align: left; border-bottom: 2px solid #E2E8F0;">
-                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #EF4444; margin-right: 4px;"></span>
-                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #F59E0B; margin-right: 4px;"></span>
-                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #10B981; margin-right: 8px;"></span>
-                    <span style="display: inline-block; background-color: #0F172A; color: #94A3B8; font-size: 9.5px; padding: 3px 12px; border-radius: 10px; width: 180px; text-align: center; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;">
-                      ${company.toLowerCase().replace(/[^a-z0-9]/g, '')}.nesta.ai
-                    </span>
+            <td style="padding: 16px 32px 0 32px;">
+              <div style="background-color: #FFFFFF; border: 1.5px solid #10B981; border-radius: 20px; padding: 18px; box-shadow: 0 4px 20px rgba(0,0,0,0.06);">
+                <!-- Card Bar Header -->
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-bottom: 1px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 14px;">
+                  <tr>
+                    <td width="48" valign="middle">
+                      <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #EF4444; margin-right: 3px;"></span>
+                      <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #F59E0B; margin-right: 3px;"></span>
+                      <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #10B981; margin-right: 6px;"></span>
+                    </td>
+                    <td valign="middle">
+                      <div style="color: #059669; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;">
+                        ${quoteScenario.badge}
+                      </div>
+                      <div style="color: #475569; font-size: 10px;">
+                        ${quoteScenario.title}
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Step 1: iMessage Style Light Green Chat Bubble (No Blue) -->
+                <div style="background-color: #DCFCE7; border: 1px solid #86EFAC; border-radius: 16px; border-bottom-left-radius: 4px; padding: 12px 14px; margin-bottom: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.06);">
+                  <div style="font-size: 10px; font-weight: 800; color: #047857; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.02em;">
+                    DEMANDE CLIENT (WHATSAPP / PORTAIL)
                   </div>
-                  
-                  <!-- GIF Image wrapper with link -->
-                  <a href="${demoLink}" target="_blank" style="display: block; text-decoration: none;">
-                    <img 
-                      src="${gifUrl || `/api/website/${siteId}/preview.gif`}" 
-                      alt="Animated Website Prototype" 
-                      style="width: 100%; max-width: 100%; height: auto; display: block;" 
-                    />
+                  <div style="font-size: 12.5px; color: #064E3B; font-weight: 600; line-height: 1.4;">
+                    "${quoteScenario.clientRequestText}"
+                  </div>
+                  <div style="font-size: 10px; color: #059669; margin-top: 6px; font-weight: 700;">
+                    ${quoteScenario.clientPhotosAttached}
+                  </div>
+                </div>
+
+                <!-- Step 2: Generated Itemized Quote Box -->
+                <div style="background-color: #FFFFFF; border-radius: 14px; padding: 14px 16px; border: 1px solid #E2E8F0; color: #0F172A; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-bottom: 10px; border-bottom: 1px solid #F1F5F9; padding-bottom: 8px;">
+                    <tr>
+                      <td>
+                        <div style="font-size: 11px; font-weight: 800; color: #0F172A;">
+                          ${quoteScenario.quoteTitle}
+                        </div>
+                        <div style="font-size: 9.5px; color: #64748B;">
+                          ${lang === 'fr' ? `Généré en 8 secondes • Barème ${company}` : `Generated in 8 seconds • ${company} Rates`}
+                        </div>
+                      </td>
+                      <td align="right">
+                        <span style="background-color: #ECFDF5; color: #065F46; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px;">
+                          ${lang === 'fr' ? 'PRÊT À PAYER' : 'READY TO ACCEPT'}
+                        </span>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <!-- Itemized Table -->
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="font-size: 11px; margin-bottom: 10px;">
+                    <tr style="color: #64748B; font-size: 9.5px; font-weight: 700; border-bottom: 1px solid #F1F5F9;">
+                      <td style="padding-bottom: 4px;">${lang === 'fr' ? 'PRESTATION' : 'SERVICE'}</td>
+                      <td align="center" style="padding-bottom: 4px;">${lang === 'fr' ? 'QTE' : 'QTY'}</td>
+                      <td align="right" style="padding-bottom: 4px;">${lang === 'fr' ? 'MONTANT' : 'AMOUNT'}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 6px 0; font-weight: 600; color: #1E293B;">${quoteScenario.item1Name}</td>
+                      <td align="center" style="color: #64748B;">${quoteScenario.item1Qty}</td>
+                      <td align="right" style="font-weight: 700; color: #0F172A;">${quoteScenario.item1Price}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 4px 0 6px 0; font-weight: 600; color: #1E293B;">${quoteScenario.item2Name}</td>
+                      <td align="center" style="color: #64748B;">${quoteScenario.item2Qty}</td>
+                      <td align="right" style="font-weight: 700; color: #0F172A;">${quoteScenario.item2Price}</td>
+                    </tr>
+                  </table>
+
+                  <!-- Total and Deposit Bar -->
+                  <div style="background-color: #F8FAFC; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; border: 1px solid #E2E8F0;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                      <tr>
+                        <td>
+                          <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase;">${lang === 'fr' ? 'MONTANT TOTAL DEVIS' : 'TOTAL QUOTE AMOUNT'}</div>
+                          <div style="font-size: 15px; font-weight: 800; color: #0F172A;">${quoteScenario.totalTtc}</div>
+                        </td>
+                        <td align="right">
+                          <div style="font-size: 10px; font-weight: 700; color: #10B981; text-transform: uppercase;">${lang === 'fr' ? `ACOMPTE EXIGÉ (${quoteScenario.depositPercentage})` : `REQUIRED DEPOSIT (${quoteScenario.depositPercentage})`}</div>
+                          <div style="font-size: 15px; font-weight: 800; color: #059669;">${quoteScenario.depositAmount}</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </div>
+
+                  <!-- E-sign / Pay Button -->
+                  <a href="${demoLink}" target="_blank" style="display: block; text-align: center; background-color: #10B981; color: #FFFFFF; font-size: 11.5px; font-weight: 800; text-decoration: none; padding: 10px; border-radius: 10px; box-shadow: 0 3px 10px rgba(16,185,129,0.25);">
+                    ${quoteScenario.depositCtaText}
                   </a>
                 </div>
-                
-                <p style="color: #64748B; font-size: 11px; margin: 12px 0 0 0; line-height: 1.4;">
-                  ${lang === 'fr' ? 'Cliquez sur l\'aperçu ci-dessus pour naviguer sur la version interactive en temps réel !' : 'Click the preview above to navigate the interactive real-time version!'}
-                </p>
+
+                ${(!options.hideNotreMethode) ? `
+                <!-- Step 3: How It Works 3-Step Card Bubbles ("Notre Méthode") & 14-Day Free Trial Banner -->
+                <div style="margin-top: 14px; background-color: #F8FAFC; border-radius: 14px; padding: 14px; border: 1px solid #E2E8F0;">
+                  <div style="font-size: 11px; font-weight: 800; color: #059669; text-transform: uppercase; margin-bottom: 10px; letter-spacing: 0.03em;">
+                    ${lang === 'fr' ? 'NOTRE MÉTHODE :' : 'OUR METHOD:'}
+                  </div>
+                  
+                  <!-- Step Bubble 1 -->
+                  <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                    <span style="display: inline-block; background-color: #10B981; color: #FFFFFF; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 6px; margin-bottom: 4px;">${lang === 'fr' ? 'ÉTAPE 1' : 'STEP 1'}</span>
+                    <div style="font-size: 11px; color: #1E293B; line-height: 1.5; font-weight: 500;">
+                      ${lang === 'fr'
+                        ? `<strong>Analyse de vos anciens documents :</strong> L'IA analyse vos anciens devis et factures pour récupérer automatiquement vos tarifs et votre logique de chiffrage. C'est aussi simple que cela.`
+                        : `<strong>Analysis of your old documents:</strong> The AI analyzes your past quotes and invoices to automatically retrieve your pricing and data. It's that simple.`}
+                    </div>
+                  </div>
+
+                  <!-- Step Bubble 2 -->
+                  <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                    <span style="display: inline-block; background-color: #10B981; color: #FFFFFF; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 6px; margin-bottom: 4px;">${lang === 'fr' ? 'ÉTAPE 2' : 'STEP 2'}</span>
+                    <div style="font-size: 11px; color: #1E293B; line-height: 1.5; font-weight: 500;">
+                      ${lang === 'fr'
+                        ? `<strong>Devis basé sur vos données :</strong> Lorsqu'un client fait une demande (texte ou photo), l'IA génère immédiatement un devis exact basé sur l'historique récupéré.`
+                        : `<strong>Quote based on your data:</strong> When a client sends a request (text or photo), the AI immediately generates an accurate quote based directly on your retrieved history.`}
+                    </div>
+                  </div>
+
+                  <!-- Step Bubble 3 -->
+                  <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                    <span style="display: inline-block; background-color: #10B981; color: #FFFFFF; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 6px; margin-bottom: 4px;">${lang === 'fr' ? 'ÉTAPE 3' : 'STEP 3'}</span>
+                    <div style="font-size: 11px; color: #1E293B; line-height: 1.5; font-weight: 500;">
+                      ${lang === 'fr'
+                        ? `<strong>Validation & Acompte :</strong> Le client reçoit son devis instantané, le valide en 1 clic sur son smartphone et vous règle un acompte.`
+                        : `<strong>Acceptance & Deposit:</strong> The client gets their instant quote, approves it in 1 click on their phone, and pays a deposit.`}
+                    </div>
+                  </div>
+
+                  <!-- 14-Day Free Trial Callout Banner -->
+                  <div style="margin-top: 10px; background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 10px; padding: 10px 12px; text-align: center;">
+                    <div style="font-size: 11.5px; font-weight: 700; color: #047857; line-height: 1.4;">
+                      ${lang === 'fr'
+                        ? 'Voyons comment cela fonctionne pour vous : testez-le gratuitement pendant 2 semaines, sans engagement.'
+                        : "Let's see how that works for you: try it for 2 weeks for free without engagement."}
+                    </div>
+                  </div>
+                </div>
+                ` : ''}
+
               </div>
             </td>
           </tr>
@@ -3210,7 +4126,7 @@ export function buildNicheHtmlEmail(
             </td>
           </tr>
 
-          ${getNicheProofSection(nicheType, company, lang)}
+          ${(!options.hideProofSection) ? getNicheProofSection(nicheType, company, lang) : ''}
 
           ${nicheType === 'accountant' ? `
           <!-- VISUAL ONBOARDING CSS PICTURE GALLERY (Visual UI Mockups - Accountant Niche Only) -->
@@ -3332,9 +4248,9 @@ export function buildNicheHtmlEmail(
 
           <!-- Workflow / 4-Step Process Section (HORIZONTAL SLIDE PANEL LAYOUT) -->
           <tr>
-            <td style="padding: 28px 20px; background-color: #FFFFFF; color: #0F172A;">
+            <td style="padding: 28px 20px; background-color: ${nicheType === 'real_estate_walkthrough' ? '#000000' : '#FFFFFF'}; color: ${nicheType === 'real_estate_walkthrough' ? '#FFFFFF' : '#0F172A'}; ${nicheType === 'real_estate_walkthrough' ? 'border-bottom-left-radius: 24px; border-bottom-right-radius: 24px;' : ''}">
               <div style="text-align: center; margin-bottom: 20px;">
-                <h2 style="font-size: 18px; font-weight: 800; color: #0F172A; margin: 0; text-align: center; letter-spacing: -0.01em;">
+                <h2 style="font-size: 18px; font-weight: 800; color: ${nicheType === 'real_estate_walkthrough' ? '#FFFFFF' : '#0F172A'}; margin: 0; text-align: center; letter-spacing: -0.01em;">
                   ${workflowTitle}
                 </h2>
               </div>
@@ -3371,21 +4287,7 @@ export function buildNicheHtmlEmail(
             </td>
           </tr>
 
-          <!-- Why Choose Us / Value Proposition -->
-          <tr>
-            <td style="padding: 32px; background-color: #FFFFFF;">
-              <h2 style="font-size: 18px; font-weight: 700; color: #0F172A; margin: 0 0 16px 0; text-align: center;">
-                ${whyUsTitle}
-              </h2>
-
-              <ul style="margin: 0; padding: 0 0 0 20px; color: #0F172A; font-size: 13.5px; line-height: 1.8;">
-                ${template.whyUsPoints.map(point => `
-                  <li style="margin-bottom: 8px; font-weight: 800;"><strong>${point}</strong></li>
-                `).join('')}
-              </ul>
-            </td>
-          </tr>
-
+          ${nicheType !== 'real_estate_walkthrough' ? `
           <!-- Testimonial Section -->
           <tr>
             <td style="padding: 24px 32px; background-color: #F1F5F9; border-top: 1px solid #E2E8F0; text-align: center;">
@@ -3444,6 +4346,7 @@ export function buildNicheHtmlEmail(
               </div>
             </td>
           </tr>
+          ` : ''}
 
         </table>
       </td>

@@ -1,0 +1,300 @@
+import React, { useState, useEffect } from 'react';
+import { X, Sparkles, Download, Share2, Globe, RefreshCw, Code, Check, ExternalLink, Play, Pause, ChevronsLeftRight, Languages, Image, Upload, Trash2, Wand2, Search, Star, MessageSquare, Monitor, Tablet, Smartphone, Maximize2, Zap, MapPin, Award, Sliders, CheckCircle2, Compass, Mail, Linkedin, MessageCircle, Phone, BookOpen, Video, Palette } from 'lucide-react';
+
+export const COLOR_PALETTES = [
+  { id: 'gold', name: '👑 Amber Gold (Luxury)', hex: '#F59E0B', glow: 'rgba(245, 158, 11, 0.25)', bg: '#050507' },
+  { id: 'emerald', name: '🌿 Emerald Mint (Craft)', hex: '#10B981', glow: 'rgba(16, 185, 129, 0.25)', bg: '#040D0A' },
+  { id: 'crimson', name: '⚡ Cyber Crimson (Speed)', hex: '#EF4444', glow: 'rgba(239, 68, 68, 0.25)', bg: '#0A0506' },
+  { id: 'azure', name: '🔷 Royal Azure (Executive)', hex: '#3B82F6', glow: 'rgba(59, 130, 246, 0.25)', bg: '#050814' },
+  { id: 'violet', name: '🔮 Violet Quartz (Luxury)', hex: '#8B5CF6', glow: 'rgba(139, 92, 246, 0.25)', bg: '#080512' },
+  { id: 'cyan', name: '💎 Cyan Arctic (Pristine)', hex: '#06B6D4', glow: 'rgba(6, 182, 212, 0.25)', bg: '#040B0E' },
+  { id: 'cream', name: '🍦 Warm Cream (Minimalist)', hex: '#D97706', glow: 'rgba(217, 119, 6, 0.2)', bg: '#FAF9F5' },
+  { id: 'slate', name: '🖤 Monochrome Slate', hex: '#E2E8F0', glow: 'rgba(226, 232, 240, 0.2)', bg: '#090A0F' },
+];
+
+interface NestaWebsiteModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  lead: any;
+}
+
+export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, onClose, lead }) => {
+  const [loading, setLoading] = useState(false);
+  const [modifying, setModifying] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [downloadingZip, setDownloadingZip] = useState(false);
+
+  const [selectedLang, setSelectedLang] = useState<string>('auto');
+
+  const [siteData, setSiteData] = useState<{
+    siteId: string;
+    content: any;
+    html: string;
+    previewUrl: string;
+  } | null>(null);
+
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [activeTab, setActiveTab] = useState<'preview' | 'schema' | 'export' | 'media' | 'templates' | 'gif'>('preview');
+  const [generatingGif, setGeneratingGif] = useState(false);
+  const [gifUrl, setGifUrl] = useState<string | null>(null);
+  const [gifError, setGifError] = useState<string | null>(null);
+  const [copiedGifCode, setCopiedGifCode] = useState(false);
+  const [copiedGifUrl, setCopiedGifUrl] = useState(false);
+  const [outreachStyle, setOutreachStyle] = useState<'standard' | 'short'>('standard');
+  
+  // Outreach Mode & Dentist Smile Simulator states
+  const [outreachMode, setOutreachMode] = useState<'website' | 'dentist'>('website');
+  const [selectedChannel, setSelectedChannel] = useState<'email' | 'whatsapp' | 'linkedin' | 'coldcall'>('email');
+  
+  // Dentist Veneers Smile Simulator States
+  const [dentistActiveModel, setDentistActiveModel] = useState<'sophia' | 'marcus' | 'emily' | 'custom'>('sophia');
+  const [dentistSliderPos, setDentistSliderPos] = useState<number>(50);
+  const [dentistIsUploading, setDentistIsUploading] = useState<boolean>(false);
+  const [dentistVeneerShade, setDentistVeneerShade] = useState<'BL1' | 'B1' | 'A1'>('BL1');
+  const [dentistVeneerShape, setDentistVeneerShape] = useState<'hollywood' | 'natural' | 'oval' | 'youthful'>('hollywood');
+  const [dentistAutoPlay, setDentistAutoPlay] = useState<boolean>(true);
+  const [dentistUploadedImage, setDentistUploadedImage] = useState<string | null>(null);
+  
+  // Google Capture and Trust States
+  const [googleScreenshotUrl, setGoogleScreenshotUrl] = useState<string | null>(null);
+  const [capturingGoogle, setCapturingGoogle] = useState(false);
+  const [googleCaptureError, setGoogleCaptureError] = useState<string | null>(null);
+  const [googleSearchType, setGoogleSearchType] = useState<'search' | 'maps'>('maps');
+  
+  // Dynamic Badge States
+  const [badgeNiche, setBadgeNiche] = useState(lead?.sector || lead?.source || 'Services');
+  const [badgeRating, setBadgeRating] = useState(lead?.rating ? String(lead.rating) : '4.8');
+  const [badgeReviewsCount, setBadgeReviewsCount] = useState(lead?.reviewsCount ? String(lead.reviewsCount) : '24');
+  const [badgeCity, setBadgeCity] = useState(lead?.city || lead?.cityPhrase || 'votre région');
+  const [customBadgeText, setCustomBadgeText] = useState('Service Client 5 Étoiles');
+
+  // Dynamic Reviews List
+  const [reviewsList, setReviewsList] = useState<Array<{ name: string; text: string; stars: number; date: string; logoUrl?: string }>>([]);
+
+  const [downloadingTemplateId, setDownloadingTemplateId] = useState<string | null>(null);
+  const [behanceImportUrl, setBehanceImportUrl] = useState('');
+  const [importingBehance, setImportingBehance] = useState(false);
+  const [scrapedBehanceData, setScrapedBehanceData] = useState<{
+    url: string;
+    title: string;
+    description: string;
+    category: string;
+    templateStyle: string;
+    images: string[];
+  } | null>(null);
+  const [selectedScrapedImages, setSelectedScrapedImages] = useState<string[]>([]);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
+  // Device Viewport Mode State for Translucent Website Frame
+  const [viewMode, setViewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
+
+  // Behance Multi-Portfolio Search & Research Engine States
+  const [behanceSearchQuery, setBehanceSearchQuery] = useState(() => {
+    const company = lead?.name || lead?.companyName || lead?.businessName || '';
+    const sector = lead?.sector || lead?.source || 'website design';
+    return `${company} ${sector} website design`.trim();
+  });
+  const [behanceSearchResults, setBehanceSearchResults] = useState<Array<{
+    id: string;
+    title: string;
+    behanceUrl: string;
+    ownerName: string;
+    ownerAvatar?: string;
+    coverImage: string;
+    screenshots: string[];
+    views?: number;
+    appreciations?: number;
+    category?: string;
+    tags?: string[];
+  }>>([]);
+  const [searchingBehance, setSearchingBehance] = useState(false);
+  const [expandedPortfolioId, setExpandedPortfolioId] = useState<string | null>(null);
+
+  const handleSearchBehance = async (queryToSearch?: string) => {
+    const q = queryToSearch || behanceSearchQuery;
+    if (!q || !q.trim()) return;
+    setSearchingBehance(true);
+    try {
+      const res = await fetch('/api/behance/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: q,
+          limit: 8
+        })
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.portfolios)) {
+        setBehanceSearchResults(data.portfolios);
+        if (data.portfolios.length > 0) {
+          setExpandedPortfolioId(data.portfolios[0].id);
+        }
+      }
+    } catch (err) {
+      console.error('Behance search error:', err);
+    } finally {
+      setSearchingBehance(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'templates' && behanceSearchResults.length === 0) {
+      handleSearchBehance();
+    }
+  }, [activeTab]);
+
+  const BEHANCE_TEMPLATES_LIST = [
+    {
+      id: 'main-neumorphic',
+      name: 'Main Neumorphic Cutout Template (Universal All-Niches)',
+      behanceUrl: 'https://www.behance.net/gallery/main-neumorphic-universal-template',
+      category: 'Universal Multi-Niche & Cutouts',
+      badge: 'Main Template',
+      thumbnail: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=800&q=80&auto=format&fit=crop',
+      description: 'Universal Neumorphic cutouts for all niches (restauration, electrician, plumbers, serrurier, caterer, landscaping, renovations, driving school), hero video, iPad tablet cutout, notebook & steering wheel, formula cards & modifiable niche images.'
+    },
+    {
+      id: 'cinematic-luxury',
+      name: 'Cinematic Luxury 3D Video Template',
+      behanceUrl: 'https://www.behance.net/gallery/cinematic-luxury-video-landing',
+      category: 'Luxury & Video Showcase',
+      badge: '3D Video Master',
+      thumbnail: 'https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=800&q=80&auto=format&fit=crop',
+      description: 'Full-bleed 3D video hero background, bento grid showcase, translated catalogue & FAQ sections, glassmorphism contact form & company footer.'
+    },
+    {
+      id: 'behance-construction',
+      name: 'Industrial Construction & Building',
+      behanceUrl: 'https://www.behance.net/gallery/253285809/Landing-page-dlja-stroitelnoj-kompanii-lending-sajt',
+      category: 'Construction & Renovation',
+      badge: 'Behance Featured',
+      thumbnail: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=800&q=80&auto=format&fit=crop',
+      description: 'Heavy dark slate canvas, architectural blueprint lines, interactive estimate cost calculator, project specifications grid.'
+    },
+    {
+      id: 'behance-cleaning',
+      name: 'FreshSparkle Home Cleaning',
+      behanceUrl: 'https://www.behance.net/gallery/163204349/Home-Cleaning-Service-website',
+      category: 'Home Services & Housekeeping',
+      badge: 'Behance Gold',
+      thumbnail: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&q=80&auto=format&fit=crop',
+      description: 'Ultra-fresh sky blue & mint layout, interactive room cleaning price calculator slider, eco-friendly green seal.'
+    },
+    {
+      id: 'behance-plumbing',
+      name: 'AquaFlow Pro Emergency Plumbing',
+      behanceUrl: 'https://www.behance.net/gallery/245989723/Modern-Plumbing-Services-Website-Design',
+      category: 'Plumbing & Repairs',
+      badge: 'Behance Pro',
+      thumbnail: 'https://images.unsplash.com/photo-1504328345606-18bbc8c9d7d1?w=800&q=80&auto=format&fit=crop',
+      description: 'Deep ocean aquatic blue theme, 24/7 emergency dispatch ticker banner, upfront transparent price matrix.'
+    },
+    {
+      id: 'behance-restaurant',
+      name: 'LuxBite Premium Dining & Fast Food',
+      behanceUrl: 'https://www.behance.net/gallery/245591699/Restaurant-Web-Site-Design',
+      category: 'Dining & Fast Food',
+      badge: 'LuxBite Signature',
+      thumbnail: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&q=80&auto=format&fit=crop',
+      description: 'Dark luxury aesthetic, Playfair Display typography, crimson & gold accents, interactive food menu tabs, special deals, photo gallery & online table booking.'
+    }
+  ];
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const [uploadedVideos, setUploadedVideos] = useState<string[]>([]);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [videoSearchQuery, setVideoSearchQuery] = useState('');
+  const [videoSearchSource, setVideoSearchSource] = useState('pexels');
+  const [videoSearchPage, setVideoSearchPage] = useState(1);
+  const [isSearchingVideos, setIsSearchingVideos] = useState(false);
+  const [isLoadingMoreVideos, setIsLoadingMoreVideos] = useState(false);
+  const [researchedVideosList, setResearchedVideosList] = useState<any[]>([]);
+  const [videoPrompt, setVideoPrompt] = useState('');
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [videoGenerationSteps, setVideoGenerationSteps] = useState<string[]>([]);
+  const [currentVideoGenerationStep, setCurrentVideoGenerationStep] = useState('');
+  const [scrapingPhotos, setScrapingPhotos] = useState(false);
+  const [scrapedPhotosList, setScrapedPhotosList] = useState<string[]>([]);
+  const [jsonText, setJsonText] = useState('');
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [exportSuccess, setExportSuccess] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
+
+  const [researchQuery, setResearchQuery] = useState('');
+  const [researchingPhotos, setResearchingPhotos] = useState(false);
+  const [researchedPhotosList, setResearchedPhotosList] = useState<string[]>([]);
+  const [openSelectorUrl, setOpenSelectorUrl] = useState<string | null>(null);
+
+  const [uploadingZip, setUploadingZip] = useState(false);
+  const [zipSuccessMessage, setZipSuccessMessage] = useState<string | null>(null);
+
+  const [netlifyToken, setNetlifyToken] = useState<string>(() => localStorage.getItem('NETLIFY_AUTH_TOKEN') || '');
+  const [deployingNetlify, setDeployingNetlify] = useState(false);
+  const [netlifyDeployResult, setNetlifyDeployResult] = useState<{ url: string; siteName?: string; adminUrl?: string; message?: string; note?: string; requiresToken?: boolean } | null>(null);
+
+  const handleDeployToNetlify = async () => {
+    if (!siteData?.html && !siteData?.content && !siteData?.zipBase64) return;
+    setDeployingNetlify(true);
+    try {
+      if (netlifyToken) {
+        localStorage.setItem('NETLIFY_AUTH_TOKEN', netlifyToken);
+      }
+      const res = await fetch('/api/netlify/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          html: siteData.html || '',
+          zipBase64: siteData.zipBase64 || siteData.zipFile || undefined,
+          files: siteData.files || undefined,
+          name: lead.name || lead.companyName || lead.company || 'site',
+          siteName: (lead.name || lead.companyName || lead.company || 'site').toLowerCase().replace(/[^a-z0-9]/g, ''),
+          netlifyToken,
+          leadId: lead.id || lead.leadId
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.url) {
+        setNetlifyDeployResult(data);
+        if (data.gifUrl) {
+          setGifUrl(data.gifUrl);
+        }
+        if (siteData) {
+          setSiteData({ ...siteData, previewUrl: data.url, gifUrl: data.gifUrl || siteData.gifUrl });
+        }
+        lead.deployedWebsiteUrl = data.url;
+        if (data.gifUrl) lead.deployedWebsiteGif = data.gifUrl;
+        lead.previewUrl = data.url;
+      }
+    } catch (err: any) {
+      console.error('Netlify deployment error:', err);
+    } finally {
+      setDeployingNetlify(false);
+    }
+  };
+
+  const handleShareToWhatsApp = () => {
+    const url = netlifyDeployResult?.url || siteData?.previewUrl || lead.deployedWebsiteUrl || '';
+    const rawPhone = lead.phone || '';
+    const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+    const company = lead.companyName || lead.name || lead.company || 'votre entreprise';
+    const currentGif = gifUrl || netlifyDeployResult?.gifUrl || lead.deployedWebsiteGif || (url ? `${window.location.origin}/api/urlbox/gif?url=${encodeURIComponent(url)}` : '');
+    const text = encodeURIComponent(
+      `Bonjour, nous avons créé un nouveau site internet haute performance pour ${company} : ${url}\n\n` +
+      `🎬 Aperçu animé du site (GIF) : ${currentGif}\n\n` +
+      `Souhaitez-vous le consulter et voir comment Assix automatise vos appels manqués et vos e-mails ?`
+    );
+    window.open(`https://wa.me/${cleanPhone}?text=${text}`, '_blank');
+  };
+
+  const handleGenerateGif = async () => {
+    const targetUrl = netlifyDeployResult?.url || siteData?.previewUrl || lead.deployedWebsiteUrl;
+    setGeneratingGif(true);
+    setGifError(null);
+    try {
+      if (targetUrl && targetUrl.startsWith('http')) {
+        const urlboxGif = `/api/urlbox/gif?url=${encodeURIComponent(targetUrl)}&refresh=true&scroll=${gifScrollMode === 'scroll'}`;
+        setGifUrl(`${urlboxGif}&t=${Date.now()}`);
+      } else if (siteData?.siteId) {
+        const response = await fetch(`/api/website/${siteData.siteId}/generate-gif`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },

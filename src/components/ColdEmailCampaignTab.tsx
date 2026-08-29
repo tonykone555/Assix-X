@@ -4,7 +4,7 @@ import {
   Copy, Inbox, Plus, Search, Star, Trash2, CornerUpLeft,
   Wand2, Check, AlertCircle, HelpCircle, ExternalLink, ShieldCheck, Key,
   Zap, Users, Globe, Clock, Play, CheckCircle2, XCircle, CheckSquare, Square, Layers, Rocket,
-  Eye, Edit3, Sliders, RotateCcw, Smartphone, Monitor, Code, StopCircle
+  Eye, Edit3, Sliders, RotateCcw, Smartphone, Monitor, Code, StopCircle, PlusCircle
 } from 'lucide-react';
 import { buildNicheHtmlEmail, getNicheIntroText, formatBusinessName, NICHE_EMAIL_TEMPLATES, NicheType } from '../../services/nicheEmailTemplates';
 import { AccountantOnboardingModal } from './AccountantOnboardingModal';
@@ -97,6 +97,189 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
   const [customPrimaryCta, setCustomPrimaryCta] = useState<string>('');
   const [customSecondaryCta, setCustomSecondaryCta] = useState<string>('');
   const [customPainPoint, setCustomPainPoint] = useState<string>('');
+  const [customGifUrl, setCustomGifUrl] = useState<string>(() => {
+    return localStorage.getItem('assix_custom_gif_url') || '';
+  });
+  const [customGifBadge, setCustomGifBadge] = useState<string>('');
+  const [customGifTitle, setCustomGifTitle] = useState<string>('');
+  const [hideWhatsAppAnimation, setHideWhatsAppAnimation] = useState<boolean>(() => {
+    return localStorage.getItem('assix_hide_whatsapp_anim') === 'true';
+  });
+  const [hideEmailAutoAnimation, setHideEmailAutoAnimation] = useState<boolean>(() => {
+    return localStorage.getItem('assix_hide_email_auto_anim') === 'true';
+  });
+  const [hideQuoteAnimation, setHideQuoteAnimation] = useState<boolean>(() => {
+    return localStorage.getItem('assix_hide_quote_anim') === 'true';
+  });
+  const [hideProofSection, setHideProofSection] = useState<boolean>(() => {
+    return localStorage.getItem('assix_hide_proof_section') === 'true';
+  });
+  const [hideNotreMethode, setHideNotreMethode] = useState<boolean>(() => {
+    return localStorage.getItem('assix_hide_notre_methode') === 'true';
+  });
+  const [customQuoteAmount, setCustomQuoteAmount] = useState<string>(() => {
+    return localStorage.getItem('assix_custom_quote_amount') || '';
+  });
+  const [isUploadingGif, setIsUploadingGif] = useState<boolean>(false);
+
+  // Bulk add custom email & web lead state
+  const [customPastedEmails, setCustomPastedEmails] = useState<string>('');
+  const [customLeads, setCustomLeads] = useState<Array<{ id: string; company: string; contactName: string; email: string; time: string; snippet: string; subject: string; folder: string; website?: string; phone?: string; socialLinks?: Record<string, string> }>>([]);
+  const [isEnrichingCustomLeads, setIsEnrichingCustomLeads] = useState<boolean>(false);
+
+  const handleAddCustomEmails = () => {
+    if (!customPastedEmails.trim()) return;
+    const cleanedText = customPastedEmails.replace(/\bs:\/\/([a-zA-Z0-9.-]+)/gi, 'https://$1');
+    const linesOrTokens = cleanedText.split(/\r?\n|,|;/).map(t => t.trim()).filter(Boolean);
+    if (linesOrTokens.length === 0) return;
+
+    const newLeads: Array<{ id: string; company: string; contactName: string; email: string; time: string; snippet: string; subject: string; folder: string; website?: string; phone?: string }> = [];
+    const seenItems = new Set<string>();
+
+    linesOrTokens.forEach((token, i) => {
+      const emailMatch = token.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i);
+      const urlMatch = token.match(/(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s"',]*)?/i);
+
+      if (emailMatch) {
+        const email = emailMatch[0].toLowerCase();
+        if (seenItems.has(email)) return;
+        seenItems.add(email);
+        const namePart = email.split('@')[0];
+        const company = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+        const id = `custom_${Date.now()}_${i}_${Math.random().toString(36).substr(2, 4)}`;
+        newLeads.push({
+          id,
+          company,
+          contactName: company,
+          email,
+          time: 'Just added',
+          snippet: `Custom recipient email added`,
+          subject: `Quick question for ${company}`,
+          folder: 'inbox'
+        });
+      } else if (urlMatch) {
+        let fullUrl = urlMatch[0];
+        if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+          fullUrl = `https://${fullUrl}`;
+        }
+        const lowerUrl = fullUrl.toLowerCase();
+        if (seenItems.has(lowerUrl)) return;
+        seenItems.add(lowerUrl);
+
+        let host = '';
+        try {
+          const u = new URL(fullUrl);
+          host = u.hostname.replace(/^www\./i, '');
+        } catch (e) {
+          host = fullUrl.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0];
+        }
+
+        const baseDomain = host.split('.')[0];
+        const company = baseDomain
+          .replace(/[-_]/g, ' ')
+          .replace(/([a-z])([A-Z])/g, '$1 $2')
+          .replace(/\b\w/g, c => c.toUpperCase()) || 'Web Lead';
+        const id = `custom_${Date.now()}_${i}_${Math.random().toString(36).substr(2, 4)}`;
+
+        newLeads.push({
+          id,
+          company,
+          contactName: company,
+          email: '',
+          website: fullUrl,
+          time: 'Just added',
+          snippet: `Web lead: ${fullUrl} (Ready for enrichment)`,
+          subject: `Quick question for ${company}`,
+          folder: 'inbox'
+        });
+      }
+    });
+
+    if (newLeads.length === 0) {
+      showNotification('No valid email addresses or website URLs found in input.');
+      return;
+    }
+
+    setCustomLeads(prev => [...prev, ...newLeads]);
+    setSelectedBulkLeadIds(prev => [...prev, ...newLeads.map(l => l.id)]);
+    setCustomPastedEmails('');
+    showNotification(`Added ${newLeads.length} custom lead(s) to target list!`);
+  };
+
+    const handleBatchEnrichCustomLeads = async () => {
+    const leadsToEnrich = customLeads.filter(l => l.website || !l.email);
+    if (leadsToEnrich.length === 0) {
+      showNotification("No custom web leads found requiring contact enrichment.");
+      return;
+    }
+
+    setIsEnrichingCustomLeads(true);
+    showNotification(`⚡ Scraping emails & social profiles for ${leadsToEnrich.length} domain(s)...`);
+
+    const CHUNK_SIZE = 12;
+    let enrichedFound = 0;
+
+    try {
+      for (let i = 0; i < leadsToEnrich.length; i += CHUNK_SIZE) {
+        const chunk = leadsToEnrich.slice(i, i + CHUNK_SIZE);
+        showNotification(`⚡ Live Enriching batch ${Math.floor(i / CHUNK_SIZE) + 1} of ${Math.ceil(leadsToEnrich.length / CHUNK_SIZE)} (${i + chunk.length}/${leadsToEnrich.length} leads)...`);
+
+        try {
+          const res = await fetch("/api/lead/batch-enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              leads: chunk.map(l => ({
+                id: l.id,
+                company: l.company,
+                businessName: l.company,
+                website: l.website || `https://${l.company.toLowerCase().replace(/\s+/g, "")}.com`,
+                email: l.email || "",
+                phone: l.phone || ""
+              })),
+              concurrency: 6,
+              fastOnly: true
+            })
+          });
+
+          const data = await res.json();
+          if (data.success && Array.isArray(data.leads)) {
+            const enrichedMap = new Map<string, any>();
+            data.leads.forEach((el: any) => {
+              if (el.id || el.leadId) enrichedMap.set(el.id || el.leadId, el);
+            });
+
+            setCustomLeads(prev => prev.map(l => {
+              const enriched = enrichedMap.get(l.id);
+              if (enriched) {
+                if (enriched.email || enriched.phone) enrichedFound++;
+                return {
+                  ...l,
+                  company: enriched.company || enriched.businessName || l.company,
+                  email: enriched.email || l.email,
+                  phone: enriched.phone || l.phone,
+                  website: enriched.website || l.website,
+                  socialLinks: enriched.socialLinks || l.socialLinks,
+                  snippet: enriched.email 
+                    ? `Verified Email: ${enriched.email} ${enriched.phone ? "• Phone: " + enriched.phone : ""}` 
+                    : l.snippet
+                };
+              }
+              return l;
+            }));
+          }
+        } catch (chunkErr) {
+          console.error("Chunk enrichment error in ColdEmailTab:", chunkErr);
+        }
+      }
+
+      showNotification(`⚡ Live Web Enrichment Complete! ${enrichedFound} contact(s) enriched with verified details.`);
+    } catch (err: any) {
+      showNotification(`Enrichment error: ${err.message}`);
+    } finally {
+      setIsEnrichingCustomLeads(false);
+    }
+  };
 
   // Live Email Preview Settings
   const [previewLeadId, setPreviewLeadId] = useState<string | null>(null);
@@ -106,6 +289,76 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
   const [showAccountantModal, setShowAccountantModal] = useState<boolean>(false);
   const [accountantModalInitialView, setAccountantModalInitialView] = useState<'workflow' | 'email_preview' | 'roi'>('email_preview');
 
+  // Track deleted leads locally so deleted source run leads vanish immediately
+  const [deletedLeadIds, setDeletedLeadIds] = useState<string[]>([]);
+
+  const handleDeleteLead = async (leadId: string, companyName: string) => {
+    try {
+      await fetch(`/api/leads/${leadId}`, { method: 'DELETE' });
+      await fetch('/api/leads/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadIds: [leadId] })
+      });
+      showNotification(`Deleted lead ${companyName}`);
+      setDeletedLeadIds(prev => [...prev, leadId]);
+      setSelectedBulkLeadIds(prev => prev.filter(id => id !== leadId));
+    } catch (err: any) {
+      showNotification(`Error deleting lead: ${err.message}`);
+    }
+  };
+
+  const handleBatchDeleteLeads = async () => {
+    if (selectedBulkLeadIds.length === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedBulkLeadIds.length} selected lead(s)?`)) return;
+    try {
+      await fetch('/api/leads/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadIds: selectedBulkLeadIds })
+      });
+      showNotification(`Successfully deleted ${selectedBulkLeadIds.length} lead(s)!`);
+      setDeletedLeadIds(prev => [...prev, ...selectedBulkLeadIds]);
+      setSelectedBulkLeadIds([]);
+    } catch (err: any) {
+      showNotification(`Error deleting leads: ${err.message}`);
+    }
+  };
+
+  const handleSaveTemplateEdits = () => {
+    const templateState = {
+      selectedNiche,
+      bulkLanguage,
+      customSubject,
+      customHeroTitle,
+      customHeroSubtitle,
+      customPrimaryCta,
+      customSecondaryCta,
+      customPainPoint,
+      customGifUrl,
+      customGifBadge,
+      customGifTitle,
+      hideWhatsAppAnimation,
+      hideEmailAutoAnimation,
+      hideQuoteAnimation,
+      hideProofSection,
+      hideNotreMethode,
+      customQuoteAmount
+    };
+    try {
+      localStorage.setItem('assix_custom_template_state', JSON.stringify(templateState));
+      localStorage.setItem('assix_hide_whatsapp_anim', String(hideWhatsAppAnimation));
+      localStorage.setItem('assix_hide_email_auto_anim', String(hideEmailAutoAnimation));
+      localStorage.setItem('assix_hide_quote_anim', String(hideQuoteAnimation));
+      localStorage.setItem('assix_hide_proof_section', String(hideProofSection));
+      localStorage.setItem('assix_hide_notre_methode', String(hideNotreMethode));
+      localStorage.setItem('assix_custom_quote_amount', customQuoteAmount);
+      showNotification('Template edits & animation toggles saved!');
+    } catch (e) {
+      showNotification('Template edits active for current session.');
+    }
+  };
+
   const resetTemplateToNicheDefaults = (niche: NicheType = selectedNiche, lang: 'fr' | 'en' = bulkLanguage) => {
     const tmpl = NICHE_EMAIL_TEMPLATES[niche]?.[lang] || NICHE_EMAIL_TEMPLATES.general[lang];
     setCustomSubject(tmpl.subject);
@@ -114,6 +367,16 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
     setCustomPrimaryCta(tmpl.primaryCta);
     setCustomSecondaryCta(lang === 'fr' ? `💬 Planifier un échange avec ${senderName}` : `💬 Schedule a call with ${senderName}`);
     setCustomPainPoint(lang === 'fr' ? "Réponse instantanée 24/7 & accueil client personnalisé" : "24/7 instant response & personalized client welcome");
+
+    const isRealEstate = niche === 'real_estate' || niche === 'real_estate_walkthrough';
+    setCustomGifBadge(isRealEstate
+      ? (lang === 'fr' ? 'ÉCHANTILLON VIDÉO WALKTHROUGH OFFERT' : 'FREE SAMPLE VIDEO WALKTHROUGH')
+      : (lang === 'fr' ? 'CONCEPTION WEB PERSONNALISÉE UNIQUE' : 'UNIQUE PERSONALIZED WEB DESIGN')
+    );
+    setCustomGifTitle(isRealEstate
+      ? (lang === 'fr' ? 'Aperçu de la Visite Vidéo Immersive' : 'Animated Preview of Interactive Property Walkthrough')
+      : (lang === 'fr' ? 'Aperçu Animé de Votre Nouveau Site Web' : 'Animated Preview of Your New Website')
+    );
   };
 
   // Restore saved email provider configuration on mount
@@ -194,8 +457,8 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
     }
   ];
 
-  // Combine scraped leads with mock fallback
-  const leadThreads = leads.length > 0 
+  // Combine custom pasted leads, scraped leads, and mock fallback
+  const baseLeads = leads.length > 0 
     ? leads.map((l, i) => {
         const companyName = formatBusinessName(l.company || l.businessName || l.name || 'Target Business');
         const contactName = formatBusinessName(l.contactName || l.company || l.businessName || l.name || companyName);
@@ -211,6 +474,10 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
         };
       })
     : defaultLeadThreads;
+
+  const rawLeadThreads = [...customLeads, ...baseLeads];
+
+  const leadThreads = rawLeadThreads.filter(l => !deletedLeadIds.includes(l.id));
 
   // Selected thread object
   const activeLead = leadThreads.find(l => l.id === selectedLeadId) || leadThreads[0];
@@ -299,6 +566,15 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
             customPrimaryCta: customPrimaryCta || undefined,
             customSecondaryCta: customSecondaryCta || undefined,
             customPainPoint: customPainPoint || undefined,
+            customGifUrl: customGifUrl || undefined,
+            customGifBadge: customGifBadge || undefined,
+            customGifTitle: customGifTitle || undefined,
+            hideWhatsAppAnimation: hideWhatsAppAnimation,
+            hideEmailAutoAnimation: hideEmailAutoAnimation,
+            hideQuoteAnimation: hideQuoteAnimation,
+            hideProofSection: hideProofSection,
+            hideNotreMethode: hideNotreMethode,
+            customQuoteAmount: customQuoteAmount || undefined,
             senderName: fromName || senderName,
             senderTitle: senderTitle
           }
@@ -1355,21 +1631,40 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
 
       {/* --- BULK EMAIL CAMPAIGN LAUNCHER MODAL --- */}
       {showBulkModal && (() => {
-        const nicheOptions: Array<{ id: NicheType; label: string; icon: string }> = [
+        const nicheOptions: Array<{ id: NicheType; label: string; icon: string }> = bulkLanguage === 'en' ? [
           { id: 'general', label: 'General Business', icon: '💼' },
-          { id: 'real_estate', label: 'Real Estate & Immobilier', icon: '🏠' },
-          { id: 'restaurant', label: 'Restaurant & Traiteur', icon: '🍽️' },
-          { id: 'plumbing', label: 'Plumbing & Chauffage (Emergency Routing)', icon: '🚰' },
-          { id: 'electrical', label: 'Electrical & Énergie', icon: '⚡' },
+          { id: 'real_estate', label: 'Real Estate - Automation Leads & AI Portal', icon: '🏠' },
+          { id: 'real_estate_walkthrough', label: 'Real Estate - 4K Video Tour (GIF)', icon: '🎬' },
+          { id: 'restaurant', label: 'Restaurant & Catering', icon: '🍽️' },
+          { id: 'plumbing', label: 'Plumbing & Emergency Repair', icon: '🚰' },
+          { id: 'electrical', label: 'Electrical & Power', icon: '⚡' },
           { id: 'disaster_restoration', label: 'Disaster Restoration', icon: '🛠️' },
-          { id: 'locksmith', label: 'Locksmith & Sécurité', icon: '🔑' },
-          { id: 'driving_school', label: 'Driving School (Student Lifecycle)', icon: '🚗' },
-          { id: 'law_firm', label: 'Law Firm & Avocats', icon: '⚖️' },
-          { id: 'accountant', label: 'Accountant & CPA (AI Client Onboarding)', icon: '📊' },
-          { id: 'funeral_home', label: 'Funeral Home & Pompes Funèbres', icon: '🕊️' },
-          { id: 'dog_groomer', label: 'Dog Groomer & Toilettage', icon: '🐾' },
-          { id: 'photographer', label: 'Photographer & Studio Photo', icon: '📸' },
-          { id: 'dentist', label: 'Dentist Veneers Widget', icon: '🦷' },
+          { id: 'locksmith', label: 'Locksmith & Security', icon: '🔑' },
+          { id: 'driving_school', label: 'Driving School', icon: '🚗' },
+          { id: 'law_firm', label: 'Law Firm & Attorneys', icon: '⚖️' },
+          { id: 'accountant', label: 'Accountant & CPA Onboarding', icon: '📊' },
+          { id: 'funeral_home', label: 'Funeral Services', icon: '🕊️' },
+          { id: 'dog_groomer', label: 'Pet Grooming', icon: '🐾' },
+          { id: 'photographer', label: 'Photographer & Photo Studio', icon: '📸' },
+          { id: 'dentist', label: 'Aesthetic Dental Practice', icon: '🦷' },
+          { id: 'ecom_clothing', label: 'E-Commerce Clothing Brands (AI Virtual Try-On)', icon: '👗' },
+        ] : [
+          { id: 'general', label: 'Entreprise Générale', icon: '💼' },
+          { id: 'real_estate', label: 'Immobilier - Automation Leads & Portail AI', icon: '🏠' },
+          { id: 'real_estate_walkthrough', label: 'Immobilier - Visite Vidéo 4K & GIF', icon: '🎬' },
+          { id: 'restaurant', label: 'Restaurant & Traiteur', icon: '🍽️' },
+          { id: 'plumbing', label: 'Plomberie & Chauffage (Routage Urgence)', icon: '🚰' },
+          { id: 'electrical', label: 'Électricité & Énergie', icon: '⚡' },
+          { id: 'disaster_restoration', label: 'Rénovation après Sinistre', icon: '🛠️' },
+          { id: 'locksmith', label: 'Serrurerie & Sécurité', icon: '🔑' },
+          { id: 'driving_school', label: 'Auto-École (Cycle Élève)', icon: '🚗' },
+          { id: 'law_firm', label: 'Cabinet d\'Avocats', icon: '⚖️' },
+          { id: 'accountant', label: 'Expert-Comptable & CPA (Onboarding Client AI)', icon: '📊' },
+          { id: 'funeral_home', label: 'Pompes Funèbres', icon: '🕊️' },
+          { id: 'dog_groomer', label: 'Toilettage Canin', icon: '🐾' },
+          { id: 'photographer', label: 'Studio Photographie', icon: '📸' },
+          { id: 'dentist', label: 'Cabinet Dentaire Esthétique', icon: '🦷' },
+          { id: 'ecom_clothing', label: 'E-Commerce & Marques de Mode (Cabine Virtuelle IDM-VTON)', icon: '👗' },
         ];
 
         const activePreviewLead = leadThreads.find(l => l.id === (previewLeadId || selectedBulkLeadIds[0] || leadThreads[0]?.id)) || leadThreads[0];
@@ -1392,6 +1687,15 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
             customPrimaryCta: customPrimaryCta || undefined,
             customSecondaryCta: customSecondaryCta || undefined,
             customPainPoint: customPainPoint || undefined,
+            customGifUrl: customGifUrl || undefined,
+            customGifBadge: customGifBadge || undefined,
+            customGifTitle: customGifTitle || undefined,
+            hideWhatsAppAnimation: hideWhatsAppAnimation,
+            hideEmailAutoAnimation: hideEmailAutoAnimation,
+            hideQuoteAnimation: hideQuoteAnimation,
+            hideProofSection: hideProofSection,
+            hideNotreMethode: hideNotreMethode,
+            customQuoteAmount: customQuoteAmount || undefined,
             senderName: fromName || senderName,
             senderTitle: senderTitle
           }
@@ -1659,6 +1963,46 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                       </div>
                     )}
 
+                    {/* Bulk Add Custom Email & Web Lead Recipients Input */}
+                    <div className="p-3.5 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-2 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-extrabold text-emerald-950 uppercase tracking-wider flex items-center gap-1.5">
+                          <PlusCircle size={14} className="text-emerald-600" />
+                          Add Custom Emails or Domain URLs in Bulk
+                        </label>
+                        <span className="text-[10px] text-emerald-800 font-semibold">Paste emails or website URLs (e.g. purrclothing.ca, otcvintageretroclothing.com.au)</span>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <textarea
+                          rows={2}
+                          value={customPastedEmails}
+                          onChange={(e) => setCustomPastedEmails(e.target.value)}
+                          placeholder="e.g. https://purrclothing.ca, https://otcvintageretroclothing.com.au, contact@store.com"
+                          className="flex-1 border border-emerald-300 focus:border-emerald-500 focus:bg-white text-slate-800 focus:outline-none rounded-xl px-3 py-1.5 text-xs font-mono bg-white shadow-xs"
+                        />
+                        <div className="flex flex-col gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={handleAddCustomEmails}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <PlusCircle size={14} /> Add to Target List
+                          </button>
+                          {customLeads.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleBatchEnrichCustomLeads}
+                              disabled={isEnrichingCustomLeads}
+                              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-extrabold text-[11px] rounded-xl transition shadow-xs flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <Sparkles size={12} className={isEnrichingCustomLeads ? "animate-spin" : ""} />
+                              {isEnrichingCustomLeads ? 'Crawling Websites...' : '⚡ Enrich Web Leads'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Lead Selection Checklist */}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
@@ -1683,6 +2027,19 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                           >
                             Deselect All
                           </button>
+                          {selectedBulkLeadIds.length > 0 && (
+                            <>
+                              <span className="text-slate-300 font-bold">•</span>
+                              <button
+                                type="button"
+                                onClick={handleBatchDeleteLeads}
+                                className="text-[10px] font-black text-red-600 hover:text-red-700 hover:underline cursor-pointer flex items-center gap-1"
+                              >
+                                <Trash2 size={11} />
+                                Delete Selected ({selectedBulkLeadIds.length})
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -1721,9 +2078,22 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                                 </div>
                               </div>
 
-                              <span className="text-[10px] font-semibold text-slate-400 font-mono">
-                                {lead.folder === 'sent' ? '✓ Sent' : 'Inbox Lead'}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-semibold text-slate-400 font-mono">
+                                  {lead.folder === 'sent' ? '✓ Sent' : 'Inbox Lead'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteLead(lead.id, lead.company);
+                                  }}
+                                  title="Delete this lead"
+                                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
@@ -1962,12 +2332,277 @@ export const ColdEmailCampaignTab: React.FC<ColdEmailCampaignTabProps> = ({
                             />
                           </div>
                         </div>
+
+                        {/* Walkthrough GIF Upload / Override Section */}
+                        <div className="p-3.5 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-2.5 mt-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-black uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
+                              🎬 Attached Walkthrough GIF Video (Every Email)
+                            </label>
+                            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded">
+                              Auto-Embedded
+                            </span>
+                          </div>
+
+                          <p className="text-[11px] text-slate-600 font-medium leading-relaxed">
+                            Upload your local walkthrough GIF/video file or paste a direct GIF link. It will automatically host and embed into all real estate outreach emails.
+                          </p>
+
+                          <div className="flex flex-col sm:flex-row items-center gap-2.5">
+                            {/* File Upload Button */}
+                            <label className="w-full sm:w-auto px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-2 shrink-0">
+                              <Zap size={14} />
+                              {isUploadingGif ? 'Uploading File...' : '📁 Upload Local GIF / Video File'}
+                              <input
+                                type="file"
+                                accept="image/gif,image/png,image/jpeg,video/mp4"
+                                className="hidden"
+                                disabled={isUploadingGif}
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  setIsUploadingGif(true);
+                                  try {
+                                    // 1. First convert file to Base64 Data URL so it is 100% persistent locally & embedded
+                                    const base64Url = await new Promise<string>((resolve, reject) => {
+                                      const reader = new FileReader();
+                                      reader.onload = () => resolve(reader.result as string);
+                                      reader.onerror = reject;
+                                      reader.readAsDataURL(file);
+                                    });
+
+                                    let finalUrl = base64Url;
+
+                                    // 2. Try uploading to ImgBB CDN for a permanent hosted URL (expires: never)
+                                    try {
+                                      const imgbbData = new FormData();
+                                      imgbbData.append('image', file);
+                                      const imgbbRes = await fetch('https://api.imgbb.com/1/upload?key=6d0029c0b04250462719213192243dbe', {
+                                        method: 'POST',
+                                        body: imgbbData
+                                      });
+                                      const imgbbJson = await imgbbRes.json();
+                                      if (imgbbJson?.data?.url) {
+                                        finalUrl = imgbbJson.data.url;
+                                      }
+                                    } catch (imgbbErr) {
+                                      console.warn('ImgBB upload fallback to Base64:', imgbbErr);
+                                    }
+
+                                    // 3. Save permanent URL to state & localStorage
+                                    setCustomGifUrl(finalUrl);
+                                    localStorage.setItem('assix_custom_gif_url', finalUrl);
+                                    showNotification('Permanent GIF link saved! It will stay forever across all sessions.');
+                                  } catch (err: any) {
+                                    showNotification(`Upload error: ${err.message}`);
+                                  } finally {
+                                    setIsUploadingGif(false);
+                                  }
+                                }}
+                              />
+                            </label>
+
+                            {/* Direct URL Input */}
+                            <div className="flex-1 w-full">
+                              <input
+                                type="text"
+                                value={customGifUrl}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setCustomGifUrl(val);
+                                  localStorage.setItem('assix_custom_gif_url', val);
+                                }}
+                                placeholder="https://.../my_walkthrough.gif or uploaded URL"
+                                className="w-full border border-emerald-300 focus:border-emerald-500 focus:bg-white text-slate-900 focus:outline-none rounded-xl px-3 py-1.5 text-xs font-mono bg-white shadow-xs"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Active GIF Live Thumbnail Preview */}
+                          {customGifUrl && (
+                            <div className="flex items-center gap-3 pt-1 border-t border-emerald-200/60">
+                              <img
+                                src={customGifUrl}
+                                alt="Walkthrough GIF Preview"
+                                className="w-20 h-14 object-cover rounded-lg border border-emerald-300 shadow-xs shrink-0 bg-slate-900"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLElement).style.display = 'none';
+                                }}
+                              />
+                              <div className="text-[10px] text-slate-600 font-mono truncate flex-1">
+                                <span className="font-bold text-emerald-800 block font-sans text-xs">Active Embedded GIF Link:</span>
+                                <span className="truncate block font-semibold text-slate-700">{customGifUrl}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Customizable GIF Header & Category Badge Text */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2.5 border-t border-emerald-200/80">
+                            <div>
+                              <label className="text-[10px] font-extrabold text-emerald-950 uppercase block mb-1">
+                                🎬 GIF Category Badge Text
+                              </label>
+                              <input
+                                type="text"
+                                value={customGifBadge}
+                                onChange={(e) => setCustomGifBadge(e.target.value)}
+                                placeholder="e.g. CONCEPTION WEB PERSONNALISÉE UNIQUE"
+                                className="w-full border border-emerald-300 focus:border-emerald-500 focus:bg-white text-slate-900 focus:outline-none rounded-xl px-3 py-1.5 text-xs font-semibold bg-white shadow-xs"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-extrabold text-emerald-950 uppercase block mb-1">
+                                📌 GIF Headline Title Text
+                              </label>
+                              <input
+                                type="text"
+                                value={customGifTitle}
+                                onChange={(e) => setCustomGifTitle(e.target.value)}
+                                placeholder="e.g. Aperçu Animé de Votre Nouveau Site Web"
+                                className="w-full border border-emerald-300 focus:border-emerald-500 focus:bg-white text-slate-900 focus:outline-none rounded-xl px-3 py-1.5 text-xs font-semibold bg-white shadow-xs"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Interactive Animation Toggles Section */}
+                        <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-xl space-y-3 mt-3 text-slate-200 shadow-xs">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                              ⚡ Interactive Section Animation Toggles
+                            </label>
+                            <span className="text-[10px] bg-slate-800 text-slate-300 font-bold px-2 py-0.5 rounded border border-slate-700">
+                              CSS Animations
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {/* WhatsApp Animation Toggle */}
+                            <label className={`flex items-center gap-3 p-2.5 rounded-lg border transition cursor-pointer ${hideWhatsAppAnimation ? 'bg-slate-800/80 border-slate-700 text-slate-400' : 'bg-emerald-950/40 border-emerald-700/50 text-slate-100'}`}>
+                              <input
+                                type="checkbox"
+                                checked={hideWhatsAppAnimation}
+                                onChange={(e) => {
+                                  const val = e.target.checked;
+                                  setHideWhatsAppAnimation(val);
+                                  localStorage.setItem('assix_hide_whatsapp_anim', String(val));
+                                }}
+                                className="w-4 h-4 rounded border-slate-600 text-emerald-500 focus:ring-emerald-500 accent-emerald-500 cursor-pointer"
+                              />
+                              <div className="text-xs font-semibold leading-tight">
+                                <span className="block font-extrabold text-white">Remove WhatsApp Chatbot Animation</span>
+                                <span className="text-[10px] text-slate-400 font-normal">Hides the simulated WhatsApp mobile conversation section</span>
+                              </div>
+                            </label>
+
+                            {/* Auto Email Writer Animation Toggle */}
+                            <label className={`flex items-center gap-3 p-2.5 rounded-lg border transition cursor-pointer ${hideEmailAutoAnimation ? 'bg-slate-800/80 border-slate-700 text-slate-400' : 'bg-emerald-950/40 border-emerald-700/50 text-slate-100'}`}>
+                              <input
+                                type="checkbox"
+                                checked={hideEmailAutoAnimation}
+                                onChange={(e) => {
+                                  const val = e.target.checked;
+                                  setHideEmailAutoAnimation(val);
+                                  localStorage.setItem('assix_hide_email_auto_anim', String(val));
+                                }}
+                                className="w-4 h-4 rounded border-slate-600 text-emerald-500 focus:ring-emerald-500 accent-emerald-500 cursor-pointer"
+                              />
+                              <div className="text-xs font-semibold leading-tight">
+                                <span className="block font-extrabold text-white">Remove Email Auto Writing Animation</span>
+                                <span className="text-[10px] text-slate-400 font-normal">Hides the simulated mini inbox typewriter email block</span>
+                              </div>
+                            </label>
+
+                            {/* AI Instant Quote Engine Animation Toggle */}
+                            <label className={`flex items-center gap-3 p-2.5 rounded-lg border transition cursor-pointer ${hideQuoteAnimation ? 'bg-slate-800/80 border-slate-700 text-slate-400' : 'bg-emerald-950/40 border-emerald-700/50 text-slate-100'}`}>
+                              <input
+                                type="checkbox"
+                                checked={hideQuoteAnimation}
+                                onChange={(e) => {
+                                  const val = e.target.checked;
+                                  setHideQuoteAnimation(val);
+                                  localStorage.setItem('assix_hide_quote_anim', String(val));
+                                }}
+                                className="w-4 h-4 rounded border-slate-600 text-emerald-500 focus:ring-emerald-500 accent-emerald-500 cursor-pointer"
+                              />
+                              <div className="text-xs font-semibold leading-tight">
+                                <span className="block font-extrabold text-white">Remove AI Quote Generator Section</span>
+                                <span className="text-[10px] text-slate-400 font-normal">Hides the simulated AI instant quote & deposit block</span>
+                              </div>
+                            </label>
+
+                            {/* Proof Section Toggle */}
+                            <label className={`flex items-center gap-3 p-2.5 rounded-lg border transition cursor-pointer ${hideProofSection ? 'bg-slate-800/80 border-slate-700 text-slate-400' : 'bg-emerald-950/40 border-emerald-700/50 text-slate-100'}`}>
+                              <input
+                                type="checkbox"
+                                checked={hideProofSection}
+                                onChange={(e) => {
+                                  const val = e.target.checked;
+                                  setHideProofSection(val);
+                                  localStorage.setItem('assix_hide_proof_section', String(val));
+                                }}
+                                className="w-4 h-4 rounded border-slate-600 text-emerald-500 focus:ring-emerald-500 accent-emerald-500 cursor-pointer"
+                              />
+                              <div className="text-xs font-semibold leading-tight">
+                                <span className="block font-extrabold text-white">Remove Proof Section</span>
+                                <span className="text-[10px] text-slate-400 font-normal">Hides the social proof and metric showcase block</span>
+                              </div>
+                            </label>
+
+                            {/* Notre Methode Section Toggle */}
+                            <label className={`flex items-center gap-3 p-2.5 rounded-lg border transition cursor-pointer ${hideNotreMethode ? 'bg-slate-800/80 border-slate-700 text-slate-400' : 'bg-emerald-950/40 border-emerald-700/50 text-slate-100'}`}>
+                              <input
+                                type="checkbox"
+                                checked={hideNotreMethode}
+                                onChange={(e) => {
+                                  const val = e.target.checked;
+                                  setHideNotreMethode(val);
+                                  localStorage.setItem('assix_hide_notre_methode', String(val));
+                                }}
+                                className="w-4 h-4 rounded border-slate-600 text-emerald-500 focus:ring-emerald-500 accent-emerald-500 cursor-pointer"
+                              />
+                              <div className="text-xs font-semibold leading-tight">
+                                <span className="block font-extrabold text-white">Remove Notre Méthode Section</span>
+                                <span className="text-[10px] text-slate-400 font-normal">Hides the 3-step explanation bubble section</span>
+                              </div>
+                            </label>
+                          </div>
+
+                          {/* Custom Quote Total Override Input */}
+                          <div className="pt-2 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                              <span>💰 Custom Quote Total Amount Override:</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={customQuoteAmount}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCustomQuoteAmount(val);
+                                localStorage.setItem('assix_custom_quote_amount', val);
+                              }}
+                              placeholder="e.g. 2,850 € TTC or $2,400"
+                              className="w-full sm:w-64 border border-slate-700 bg-slate-950 focus:border-emerald-500 text-emerald-300 focus:outline-none rounded-lg px-3 py-1 text-xs font-mono font-semibold"
+                            />
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="pt-2 flex justify-end">
+                      <div className="pt-2 flex items-center justify-between gap-2">
                         <button
                           type="button"
-                          onClick={() => setBulkModalTab('preview')}
+                          onClick={handleSaveTemplateEdits}
+                          className="px-4 py-2.5 bg-slate-900 hover:bg-black text-white font-black text-[10px] uppercase tracking-wider rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        >
+                          <Check size={13} className="text-emerald-400" /> Save Template Edits
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleSaveTemplateEdits();
+                            setBulkModalTab('preview');
+                          }}
                           className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[10px] uppercase tracking-widest rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-sm hover:shadow"
                         >
                           <Eye size={13} /> View in Live Preview ↗

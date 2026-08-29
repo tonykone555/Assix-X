@@ -52,7 +52,8 @@ export async function enrichWebsiteViaPlaywriter(
   userId: string,
   sessionId: string,
   websiteUrl: string,
-  taskId?: string
+  taskId?: string,
+  fastOnly: boolean = false
 ): Promise<{ 
   email: string | null; 
   phone?: string | null;
@@ -144,9 +145,9 @@ export async function enrichWebsiteViaPlaywriter(
       };
 
       // If BOTH email and phone were successfully found by fast HTTP direct scrape, return instantly!
-      if (result.email && result.phone) {
+      if ((result.email && result.phone) || fastOnly) {
         if (taskId) {
-          await logAction(taskId, `⚡ Fast web contact extraction succeeded for ${websiteUrl} (Email: ${result.email || 'N/A'}, Phone: ${result.phone || 'N/A'})`, 'success').catch(() => {});
+          await logAction(taskId, `⚡ Fast web contact extraction completed for ${websiteUrl} (Email: ${result.email || N/A}, Phone: ${result.phone || N/A})`, info).catch(() => {});
         }
         return result;
       }

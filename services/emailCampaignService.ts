@@ -337,20 +337,27 @@ export async function sendColdEmail(
 
   // 1. SMTP Provider (Nodemailer)
   if (config.provider === 'smtp') {
-    if (!config.smtpHost || !config.smtpUser || !config.smtpPass) {
-      throw new Error('SMTP Configuration incomplete. Please specify Host, Username, and Password in System Settings.');
+    const rawHost = (config.smtpHost || 'smtp.gmail.com').trim();
+    const rawUser = (config.smtpUser || config.fromEmail || '').trim();
+    const rawPass = (config.smtpPass || '').replace(/\s+/g, '');
+    const port = Number(config.smtpPort) || 587;
+    const isSecurePort = port === 465;
+
+    if (!rawHost || !rawUser || !rawPass) {
+      throw new Error('SMTP Configuration incomplete. Please specify Email Address and Password (App Password) in Gmail & Email Settings.');
     }
 
-    const cleanPass = (config.smtpPass || '').replace(/\s+/g, '');
-    const isSecurePort = Number(config.smtpPort) === 465;
+    const senderEmail = config.fromEmail || rawUser;
+    const senderFromHeader = config.fromName ? `"${config.fromName}" <${senderEmail}>` : senderEmail;
 
     const transporter = nodemailer.createTransport({
-      host: config.smtpHost,
-      port: Number(config.smtpPort) || 587,
+      host: rawHost,
+      port: port,
       secure: isSecurePort, // true for 465, false for 587
+      requireTLS: !isSecurePort, // require STARTTLS for 587
       auth: {
-        user: (config.smtpUser || '').trim(),
-        pass: cleanPass,
+        user: rawUser,
+        pass: rawPass,
       },
       tls: {
         rejectUnauthorized: false
@@ -359,7 +366,7 @@ export async function sendColdEmail(
 
     try {
       const info = await transporter.sendMail({
-        from: fromAddress,
+        from: senderFromHeader,
         to: toEmail,
         subject,
         text: bodyText,
@@ -370,8 +377,8 @@ export async function sendColdEmail(
     } catch (err: any) {
       console.error('[SMTP Send Error]:', err);
       let errorMsg = err.message || 'SMTP Authentication Failed';
-      if (errorMsg.includes('Invalid login') || errorMsg.includes('535') || errorMsg.includes('Username and Password not accepted') || errorMsg.includes('BadCredentials')) {
-        errorMsg = 'Gmail Authentication Failed: Please use a 16-character Google App Password (not your main Google password). Make sure 2-Step Verification is enabled on your Google Account.';
+      if (errorMsg.includes('Invalid login') || errorMsg.includes('535') || errorMsg.includes('Username and Password not accepted') || errorMsg.includes('BadCredentials') || errorMsg.includes('EAUTH')) {
+        errorMsg = 'Gmail Authentication Failed: Google requires a 16-character App Password (not your regular Gmail password). 1) Enable 2-Step Verification in Google Account > Security. 2) Search "App Passwords" in Google Account to create a 16-letter password and paste it in settings.';
       }
       throw new Error(errorMsg);
     }

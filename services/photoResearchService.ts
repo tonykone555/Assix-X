@@ -670,3 +670,40 @@ export async function searchWebVideos(query: string, source: string = 'mixkit', 
 
   return results.slice(0, 16); // limit to top 16 beautiful matching results
 }
+
+/**
+ * Capture Google search or maps page as a live screenshot
+ */
+export async function captureGoogleScreenshot(query: string, type: 'search' | 'maps' = 'search'): Promise<{ success: boolean; imageBase64?: string; error?: string }> {
+  try {
+    const { chromium } = await import('playwright');
+    const url = type === 'maps'
+      ? `https://www.google.com/maps/search/${encodeURIComponent(query)}`
+      : `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+
+    const browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    });
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    });
+    const page = await context.newPage();
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.waitForTimeout(1500);
+    const buffer = await page.screenshot({ type: 'jpeg', quality: 80 });
+    await browser.close();
+    return {
+      success: true,
+      imageBase64: buffer.toString('base64')
+    };
+  } catch (err: any) {
+    console.error('[Google Screenshot Error]:', err);
+    return {
+      success: false,
+      error: err.message || 'Failed to capture Google screenshot'
+    };
+  }
+}
+

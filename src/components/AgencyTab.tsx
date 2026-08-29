@@ -4,6 +4,7 @@ import {
   Plus, Check, Send, ChevronRight, ChevronLeft, RefreshCw, 
   Trash2, FileText, Bookmark, Save, Sparkles, AlertCircle, Play
 } from 'lucide-react';
+import { InstagramAutomation } from './InstagramAutomation';
 import { Socket } from 'socket.io-client';
 import { BusinessContext, GTMPlan, Segment } from '../types';
 
@@ -117,6 +118,7 @@ export const AgencyTab: React.FC<AgencyTabProps> = ({
   setActiveTaskId,
   fetchTasks
 }) => {
+  const [agencyMode, setAgencyMode] = useState<'b2b' | 'instagram'>('b2b');
   // Session UI flow states: 'showcase' | 'intake' | 'confirm' | 'running' | 'complete'
   const [sessionState, setSessionState] = useState<'showcase' | 'intake' | 'confirm' | 'running' | 'complete'>('showcase');
   const [intakeStep, setIntakeStep] = useState<number>(0); // 0 to 5 for the 6 questions
@@ -316,9 +318,52 @@ export const AgencyTab: React.FC<AgencyTabProps> = ({
     setGtmPlan(null);
   };
 
+  if (agencyMode === 'instagram') {
+    return (
+      <div className="flex-1 flex flex-col h-full bg-[#080808]">
+        <div className="px-6 py-2 border-b border-[#1A1A22] bg-[#0A0A0C] flex items-center justify-between">
+          <div className="flex items-center gap-2 bg-[#1A1A22] p-1 rounded-xl">
+            <button
+              onClick={() => setAgencyMode('b2b')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-zinc-400 hover:text-zinc-200`}
+            >
+              B2B Agency Teams
+            </button>
+            <button
+              onClick={() => setAgencyMode('instagram')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-[#27272A] text-white shadow`}
+            >
+              Instagram Automation
+            </button>
+          </div>
+        </div>
+        <InstagramAutomation />
+      </div>
+    );
+  }
+
   return (
     <section className="flex-1 flex flex-col overflow-hidden bg-[#080808]">
+      {/* Mode Switcher */}
+      <div className="px-6 py-2 border-b border-[#1A1A22] bg-[#0A0A0C] flex items-center justify-between z-10 shrink-0">
+        <div className="flex items-center gap-2 bg-[#1A1A22] p-1 rounded-xl">
+          <button
+            onClick={() => setAgencyMode('b2b')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-[#27272A] text-white shadow`}
+          >
+            B2B Agency Teams
+          </button>
+          <button
+            onClick={() => setAgencyMode('instagram')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-zinc-400 hover:text-zinc-200`}
+          >
+            Instagram Automation
+          </button>
+        </div>
+      </div>
+      
       <AnimatePresence mode="wait">
+
         
         {/* STATE A — SHOWCASE INTRO */}
         {sessionState === 'showcase' && (

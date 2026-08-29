@@ -21,6 +21,7 @@ export interface Task {
 export interface Lead {
   leadId: string;
   taskId?: string;
+  sourceTaskId?: string;
   businessName: string;
   name?: string;
   phone: string;

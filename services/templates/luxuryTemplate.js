@@ -400,7 +400,7 @@ export function buildLuxuryTemplate(lead, content = {}, nicheKey = 'traiteur') {
   const displayPhone = lead.phone || '01 89 00 00 00';
   const phoneClean = (lead.phone || '').replace(/\D/g, '') || '33189000000';
   const phoneHref = lead.phone ? `tel:${lead.phone}` : '#devis';
-  const displayAddress = currentContent.mapAddress || currentContent.address || lead.address || (displayCity ? `${displayCity} & environs` : 'France');
+  const displayAddress = lead.address || (displayCity ? `${displayCity} & environs` : 'France');
   const accentColor = currentContent.accentColor || config.accent || '#C9A96E';
 
   const brandWords = brandName.split(' ');
@@ -433,6 +433,7 @@ export function buildLuxuryTemplate(lead, content = {}, nicheKey = 'traiteur') {
     : defaultGalleryList;
 
   const heroImage = currentContent.heroImage || (lead.siteData?.heroPhoto) || config.heroImage || fallbackUnsplash;
+  const heroVideo = currentContent.heroVideo || currentContent.heroVideoUrl || currentContent.videoUrl || null;
 
   // Title formatting with em
   const rawHeroTitle = currentContent.heroTitle || config.defaultHeroTitle;
@@ -1525,7 +1526,8 @@ footer {
 <!-- HERO -->
 <section class="hero">
   <div class="hero-bg"></div>
-  <div class="hero-overlay"></div>
+  ${heroVideo ? `<video id="mainHeroVideo" class="hero-bg-video" autoplay loop muted playsinline style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;pointer-events:none;"><source src="${heroVideo}" type="video/mp4"></video>` : `<video id="mainHeroVideo" class="hero-bg-video" autoplay loop muted playsinline style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;pointer-events:none;display:none;"></video>`}
+  <div class="hero-overlay" style="z-index:2;"></div>
   <div class="hero-content">
     <div class="hero-label">
       <div class="hero-label-line"></div>
@@ -1810,18 +1812,12 @@ footer {
   </div>
 </section>
 
-${(currentContent.showGoogleMaps !== false && currentContent.showMap !== false) ? `
 <!-- GOOGLE MAPS LOCATION -->
 <section id="localisation" style="padding: 60px 20px; background: var(--noir, #0e0d0b); border-top: 1px solid rgba(255, 255, 255, 0.08); text-align: center;">
   <div style="max-width: 1100px; margin: 0 auto;">
     <h2 style="font-family: var(--font-serif); font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 8px;">Plan & Localisation</h2>
-    <p style="color: #999; font-size: 14px; margin-bottom: 20px;">📍 ${displayAddress} — ${displayCity}</p>
-    <div style="margin-bottom: 24px;">
-      <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayAddress || (brandName + ' ' + displayCity))}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; background: #C5A059; color: #000; font-weight: 800; text-decoration: none; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 15px rgba(197, 160, 89, 0.3);">
-        📍 Ouvrir sur Google Maps
-      </a>
-    </div>
-    <div style="border-radius: 16px; overflow: hidden; border: 1px solid rgba(197, 160, 89, 0.3); height: 380px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+    <p style="color: #999; font-size: 14px; margin-bottom: 30px;">${displayAddress} — ${displayCity}</p>
+    <div style="border-radius: 16px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.12); height: 380px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
       <iframe
         title="Google Maps - ${brandName}"
         width="100%"
@@ -1834,7 +1830,6 @@ ${(currentContent.showGoogleMaps !== false && currentContent.showMap !== false) 
     </div>
   </div>
 </section>
-` : ''}
 
 <!-- FOOTER -->
 <footer>
@@ -2001,6 +1996,96 @@ async function handleSubmit(e) {
   form.style.display = 'none';
   if (successMsg) successMsg.style.display = 'block';
 }
+</script>
+
+<script>
+(function() {
+  var v = document.getElementById('mainHeroVideo');
+  var heroSection = document.querySelector('.hero') || document.body;
+  var currentEffect = "${currentContent.heroVideoEffect || 'scroll-scrub'}";
+  var currentTiming = parseFloat("${currentContent.heroScrollTiming || 1.5}") || 1.5;
+
+  function handleVideoScroll() {
+    if (!v) v = document.getElementById('mainHeroVideo');
+    if (!v || v.style.display === 'none') return;
+
+    var scrolled = window.scrollY || window.pageYOffset || 0;
+    var heroHeight = heroSection ? heroSection.offsetHeight : (window.innerHeight || 600);
+    var scrollSpan = Math.max(100, heroHeight * currentTiming);
+    var scrollRatio = Math.min(1, Math.max(0, scrolled / scrollSpan));
+
+    if (currentEffect === 'scroll-scrub') {
+      try { if (!v.paused) v.pause(); } catch(e) {}
+      if (v.duration && !isNaN(v.duration) && v.duration > 0) {
+        var targetTime = scrollRatio * (v.duration - 0.05);
+        try { v.currentTime = Math.min(v.duration - 0.05, Math.max(0, targetTime)); } catch(e) {}
+      }
+      v.style.transform = 'scale(' + (1 + scrollRatio * 0.15) + ')';
+      v.style.filter = 'brightness(' + (1 - scrollRatio * 0.3) + ')';
+    } else if (currentEffect === 'sticky-zoom') {
+      try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+      v.style.transform = 'scale(' + (1 + scrollRatio * 0.45) + ')';
+      v.style.filter = 'brightness(' + (1 - scrollRatio * 0.35) + ') blur(' + (scrollRatio * 6) + 'px)';
+    } else if (currentEffect === 'parallax-fade') {
+      try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+      v.style.transform = 'translateY(' + (scrolled * 0.35) + 'px)';
+      v.style.opacity = Math.max(0.1, 1 - scrollRatio * 0.8);
+    } else if (currentEffect === '3d-tilt') {
+      try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+      v.style.transform = 'perspective(1000px) rotateX(' + (scrollRatio * 20) + 'deg) scale(' + (1 + scrollRatio * 0.1) + ')';
+    } else {
+      try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+      v.style.transform = 'none';
+      v.style.filter = 'none';
+      v.style.opacity = '1';
+    }
+  }
+
+  window.addEventListener('scroll', handleVideoScroll, { passive: true });
+  if (v) {
+    v.addEventListener('loadedmetadata', handleVideoScroll);
+    v.addEventListener('canplay', handleVideoScroll);
+  }
+
+  window.addEventListener('message', function(event) {
+    if (!event || !event.data) return;
+    var d = event.data;
+    
+    if (d.type === 'UPDATE_IMAGE' && d.url) {
+      var f = d.field;
+      var targetEl = document.getElementById(f) || document.querySelector('[data-site-img="' + f + '"]');
+      if (targetEl && targetEl.tagName === 'IMG') {
+        targetEl.src = d.url;
+      }
+    }
+    if ((d.type === 'PINTEREST_PHOTOS' || d.type === 'UPDATE_ALL_PHOTOS') && Array.isArray(d.photos) && d.photos.length > 0) {
+      d.photos.forEach(function(pUrl, idx) {
+        var targetEl = document.getElementById('img_' + idx) || document.querySelector('[data-site-img="photo_' + idx + '"]');
+        if (targetEl && targetEl.tagName === 'IMG') {
+          targetEl.src = pUrl;
+        }
+      });
+    }
+
+    if (d.type === 'UPDATE_VIDEO' || d.type === 'UPDATE_HERO_VIDEO' || d.heroVideo || d.heroVideoUrl || d.videoUrl) {
+      var videoUrl = d.url || d.heroVideo || d.videoUrl || d.heroVideoUrl;
+      if (d.heroVideoEffect) currentEffect = d.heroVideoEffect;
+      if (d.heroScrollTiming) currentTiming = parseFloat(d.heroScrollTiming) || 1.5;
+
+      if (videoUrl) {
+        if (!v) v = document.getElementById('mainHeroVideo');
+        if (v) {
+          v.style.display = 'block';
+          var src = v.querySelector('source');
+          if (src) src.src = videoUrl;
+          else v.src = videoUrl;
+          v.load();
+          setTimeout(handleVideoScroll, 150);
+        }
+      }
+    }
+  });
+})();
 </script>
 
 </body>

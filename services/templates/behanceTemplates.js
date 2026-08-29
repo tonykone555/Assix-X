@@ -103,6 +103,7 @@ export function buildBehanceConstructionTemplate(lead, content, lang = 'fr') {
   const email = lead.email || content.contactEmail || 'contact@' + companyName.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com';
   const city = lead.city || content.city || 'votre région';
   const isEn = lang === 'en';
+  const heroVideo = content.heroVideo || content.heroVideoUrl || content.videoUrl || null;
 
   const photos = content.photos && content.photos.length >= 3 ? content.photos : [
     'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=1000&q=80&auto=format&fit=crop',
@@ -215,7 +216,8 @@ export function buildBehanceConstructionTemplate(lead, content, lang = 'fr') {
       <div class="lg:col-span-5 relative">
         <div class="relative rounded-3xl overflow-hidden border-2 border-amber-500/40 shadow-2xl">
           <img src="${photos[0]}" alt="Construction Project" class="w-full h-[520px] object-cover">
-          <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent"></div>
+          ${heroVideo ? `<video id="mainHeroVideo" class="hero-bg-video w-full h-[520px] object-cover absolute inset-0 z-10" autoplay loop muted playsinline><source src="${heroVideo}" type="video/mp4"></video>` : `<video id="mainHeroVideo" class="hero-bg-video w-full h-[520px] object-cover absolute inset-0 z-10" autoplay loop muted playsinline style="display:none;"></video>`}
+          <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent pointer-events-none" style="z-index: 11;"></div>
           <div class="absolute bottom-6 left-6 right-6 p-6 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-800">
             <span class="text-xs font-bold text-amber-400 uppercase tracking-widest block mb-1">📐 ${isEn ? 'Blueprint Specs' : 'Normes Qualité High-Tech'}</span>
             <div class="text-sm font-extrabold text-white">${isEn ? 'Certifications & Compliance ISO 9001' : 'Conformité RE2020 & Normes Énergétiques'}</div>
@@ -371,6 +373,102 @@ export function buildBehanceConstructionTemplate(lead, content, lang = 'fr') {
       calcSurface.addEventListener('input', updateCalc);
       updateCalc();
     }
+
+    // Hero Scroll-Video Engine
+    (function() {
+      var v = document.getElementById('mainHeroVideo');
+      var heroSection = document.querySelector('section') || document.body;
+      var currentEffect = "${content.heroVideoEffect || 'scroll-scrub'}";
+      var currentTiming = parseFloat("${content.heroScrollTiming || 1.5}") || 1.5;
+
+      function handleVideoScroll() {
+        if (!v) v = document.getElementById('mainHeroVideo');
+        if (!v || v.style.display === 'none') return;
+
+        var scrolled = window.scrollY || window.pageYOffset || 0;
+        var heroHeight = heroSection ? heroSection.offsetHeight : (window.innerHeight || 600);
+        var scrollSpan = Math.max(100, heroHeight * currentTiming);
+        var scrollRatio = Math.min(1, Math.max(0, scrolled / scrollSpan));
+
+        if (currentEffect === 'scroll-scrub') {
+          try { if (!v.paused) v.pause(); } catch(e) {}
+          if (v.duration && !isNaN(v.duration) && v.duration > 0) {
+            var targetTime = scrollRatio * (v.duration - 0.05);
+            try { v.currentTime = Math.min(v.duration - 0.05, Math.max(0, targetTime)); } catch(e) {}
+          }
+          v.style.transform = 'scale(' + (1 + scrollRatio * 0.15) + ')';
+          v.style.filter = 'brightness(' + (1 - scrollRatio * 0.3) + ')';
+        } else if (currentEffect === 'sticky-zoom') {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'scale(' + (1 + scrollRatio * 0.45) + ')';
+          v.style.filter = 'brightness(' + (1 - scrollRatio * 0.35) + ') blur(' + (scrollRatio * 6) + 'px)';
+        } else if (currentEffect === 'parallax-fade') {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'translateY(' + (scrolled * 0.35) + 'px)';
+          v.style.opacity = Math.max(0.1, 1 - scrollRatio * 0.8);
+        } else if (currentEffect === '3d-tilt') {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'perspective(1000px) rotateX(' + (scrollRatio * 20) + 'deg) scale(' + (1 + scrollRatio * 0.1) + ')';
+        } else {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'none';
+          v.style.filter = 'none';
+          v.style.opacity = '1';
+        }
+      }
+
+      window.addEventListener('scroll', handleVideoScroll, { passive: true });
+      if (v) {
+        v.addEventListener('loadedmetadata', handleVideoScroll);
+        v.addEventListener('canplay', handleVideoScroll);
+      }
+
+      window.addEventListener('message', function(e) {
+        if (!e || !e.data) return;
+        var d = e.data;
+        if (d.type === 'UPDATE_IMAGE' && d.url) {
+          var f = d.field;
+          var targetEl = document.getElementById(f) || document.querySelector('[data-site-img="' + f + '"]');
+          if (targetEl && targetEl.tagName === 'IMG') {
+            targetEl.src = d.url;
+          }
+        }
+        if ((d.type === 'PINTEREST_PHOTOS' || d.type === 'UPDATE_ALL_PHOTOS') && Array.isArray(d.photos) && d.photos.length > 0) {
+          d.photos.forEach(function(pUrl, idx) {
+            var targetEl = document.getElementById('img_' + idx) || document.querySelector('[data-site-img="photo_' + idx + '"]');
+            if (targetEl && targetEl.tagName === 'IMG') {
+              targetEl.src = pUrl;
+            }
+          });
+        }
+        if (d.type === 'UPDATE_VIDEO' || d.type === 'UPDATE_HERO_VIDEO' || d.heroVideo || d.heroVideoUrl || d.videoUrl) {
+          var url = d.url || d.videoUrl || d.heroVideo || d.heroVideoUrl;
+          if (d.heroVideoEffect) currentEffect = d.heroVideoEffect;
+          if (d.heroScrollTiming) currentTiming = parseFloat(d.heroScrollTiming) || 1.5;
+
+          if (url) {
+            if (!v) {
+              v = document.createElement('video');
+              v.id = 'mainHeroVideo';
+              v.className = 'hero-bg-video w-full h-[520px] object-cover absolute inset-0 z-10';
+              v.autoplay = true;
+              v.loop = true;
+              v.muted = true;
+              v.playsInline = true;
+              var container = document.querySelector('.relative.rounded-3xl.overflow-hidden');
+              if (container) container.insertBefore(v, container.firstChild);
+            }
+            v.style.display = 'block';
+            v.style.opacity = '1';
+            var srcEl = v.querySelector('source');
+            if (srcEl) srcEl.src = url;
+            else v.src = url;
+            v.load();
+            setTimeout(handleVideoScroll, 150);
+          }
+        }
+      });
+    })();
   </script>
 </body>
 </html>`;

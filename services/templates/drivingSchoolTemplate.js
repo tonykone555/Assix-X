@@ -286,7 +286,16 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
     formBtn: 'Envoyer ma Demande',
     bannerTitle: `Entreprise "${brandName}" — Référence à ${displayCity} !`,
     bannerSub: 'Bénéficiez d\'un accompagnement personnalisé et de conseils d\'experts.',
-    alertSent: 'Merci ! Votre demande a bien été envoyée à '
+    alertSent: 'Merci ! Votre demande a bien été envoyée à ',
+    whyUsTag: 'POURQUOI NOUS ?',
+    whyUsTitle: 'Notre engagement : votre réussite',
+    whyUsSub: 'Découvrez les atouts qui font la différence au quotidien.',
+    whyUs1Title: 'Expertise & Pédagogie',
+    whyUs1Desc: 'Des équipes diplômées, passionnées et expérimentées pour vous faire progresser en toute confiance.',
+    whyUs2Title: 'Parcours 100 % personnalisé',
+    whyUs2Desc: `Chaque client est unique. Chez ${brandName}, on s’adapte à vos besoins, votre niveau et votre rythme.`,
+    whyUs3Title: 'Une plateforme digitale tout-en-un',
+    whyUs3Desc: 'Réservation, suivi personnalisé, gestion administrative... tout se passe en ligne simplement.'
   };
 
   if (isDrivingSchool) {
@@ -296,6 +305,15 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
       heroTitle: `${brandName}<br>Académie de Conduite & Moto`,
       heroSubtext: 'Maîtrisez la route sur 4 roues ou 2 roues. Formations professionnelles axées sur la sécurité et la confiance.',
       showcaseLabel: 'Présentation de notre auto-école',
+      whyUsTag: 'POURQUOI NOUS ?',
+      whyUsTitle: 'Notre engagement : votre réussite',
+      whyUsSub: 'Accompagnement d\'excellence et pédagogie moderne',
+      whyUs1Title: 'Expertise & Pédagogie',
+      whyUs1Desc: 'Tous nos moniteurs sont diplômés, patients et passionnés. Ils cumulent des années d’expérience dans la formation à la conduite, avec un seul objectif : vous faire progresser en toute confiance.',
+      whyUs2Title: 'Parcours 100 % personnalisé',
+      whyUs2Desc: `Chaque élève est unique. Chez ${brandName}, on s’adapte à votre emploi du temps, votre niveau, et votre rythme d’apprentissage. Vous avancez à votre façon, avec un vrai suivi.`,
+      whyUs3Title: 'Une plateforme digitale tout-en-un',
+      whyUs3Desc: 'Réservez vos heures de conduite, révisez le code, suivez votre progression ou gérez votre dossier administratif... tout se passe en ligne, simplement, depuis votre espace personnel.',
       prog1Title: 'Code en Salle', prog1Sub: 'Cours théoriques en agence avec moniteur diplômé.',
       prog2Title: 'Code en Ligne 24/7', prog2Sub: 'Entraînement au Code sur smartphone et visioconférence.',
       prog3Title: 'Conduite Automobile', prog3Sub: 'Leçons personnalisées sur boîte manuelle ou automatique.',
@@ -1228,6 +1246,92 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
       filter: grayscale(0.3) contrast(1.1);
     }
 
+    /* WHY US / POURQUOI NOUS SECTION STYLES */
+    .why-us-section {
+      background: var(--card-solid);
+      border-radius: var(--radius-xl);
+      padding: 36px 32px;
+      box-shadow: var(--clay-shadow);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      margin-bottom: 32px;
+    }
+
+    .why-us-header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .why-us-header span {
+      color: var(--accent-red);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .why-us-header h2 {
+      font-size: 26px;
+      font-weight: 800;
+      margin-top: 4px;
+      color: var(--text-dark);
+    }
+
+    .why-us-header p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-weight: 600;
+    }
+
+    .why-us-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .why-us-card {
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: var(--radius-lg);
+      padding: 24px 20px;
+      border: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .why-us-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
+    }
+
+    .why-us-icon-wrapper {
+      width: 44px;
+      height: 44px;
+      background: rgba(225, 29, 72, 0.1);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent-red);
+      font-size: 20px;
+      font-weight: 800;
+    }
+
+    .why-us-card h3 {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text-dark);
+      line-height: 1.3;
+    }
+
+    .why-us-card p {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
     /* RESPONSIVE LAYOUT BREAKPOINTS */
     @media (max-width: 868px) {
       .hero-container {
@@ -1246,7 +1350,7 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
         text-align: left;
         max-width: 100%;
       }
-      .floating-glass-row, .programs-grid, .license-cards-grid, .french-cards-grid, .pricing-grid {
+      .floating-glass-row, .programs-grid, .license-cards-grid, .french-cards-grid, .pricing-grid, .why-us-grid {
         grid-template-columns: 1fr;
       }
       .safety-banner {
@@ -1333,13 +1437,13 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
           <p>${t.prog1Sub}</p>
         </div>
         <div class="card-asset-container">
-          <img id="programNotebookImg" src="${notebookImage}" alt="Program Asset 1">
+          <img id="programNotebookImg" data-site-img="program1" src="${notebookImage}" alt="Program Asset 1">
         </div>
       </div>
 
       <div class="program-card">
         <div class="card-asset-container" style="height: 110px; margin-top: 6px;">
-          <img id="programTabletImg" src="${tabletImage}" alt="Program Asset 2">
+          <img id="programTabletImg" data-site-img="program2" src="${tabletImage}" alt="Program Asset 2">
         </div>
         <div>
           <h4>${t.prog2Title}</h4>
@@ -1353,7 +1457,7 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
           <p>${t.prog3Sub}</p>
         </div>
         <div class="card-asset-container">
-          <img id="programSteeringWheelImg" src="${steeringWheelImage}" alt="Program Asset 3">
+          <img id="programSteeringWheelImg" data-site-img="program3" src="${steeringWheelImage}" alt="Program Asset 3">
         </div>
       </div>
 
@@ -1363,7 +1467,36 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
           <p>${t.prog4Sub}</p>
         </div>
         <div class="card-asset-container">
-          <img id="programMotorcycleImg" src="${motorcycleImage}" alt="Program Asset 4">
+          <img id="programMotorcycleImg" data-site-img="program4" src="${motorcycleImage}" alt="Program Asset 4">
+        </div>
+      </div>
+    </div>
+
+    <!-- 3.5. WHY US / POURQUOI NOUS SECTION -->
+    <div class="why-us-section" id="why-us">
+      <div class="why-us-header">
+        <span>${t.whyUsTag}</span>
+        <h2>${t.whyUsTitle}</h2>
+        <p>${t.whyUsSub}</p>
+      </div>
+
+      <div class="why-us-grid">
+        <div class="why-us-card">
+          <div class="why-us-icon-wrapper">🎓</div>
+          <h3>${t.whyUs1Title}</h3>
+          <p>${t.whyUs1Desc}</p>
+        </div>
+
+        <div class="why-us-card">
+          <div class="why-us-icon-wrapper">🎯</div>
+          <h3>${t.whyUs2Title}</h3>
+          <p>${t.whyUs2Desc}</p>
+        </div>
+
+        <div class="why-us-card">
+          <div class="why-us-icon-wrapper">📱</div>
+          <h3>${t.whyUs3Title}</h3>
+          <p>${t.whyUs3Desc}</p>
         </div>
       </div>
     </div>
@@ -1388,7 +1521,7 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
             <h3>${t.card1Title}</h3>
             <p style="font-size: 11px; color: var(--text-muted);">${t.card1Sub}</p>
           </div>
-          <img class="license-card-img" id="autoCarImg" src="${autoCarImage}" alt="Card 1">
+          <img class="license-card-img" id="autoCarImg" data-site-img="card1" src="${autoCarImage}" alt="Card 1">
           <button class="submit-btn" onclick="document.getElementById('booking').scrollIntoView({behavior: 'smooth'})">${t.card1Btn}</button>
         </div>
 
@@ -1399,7 +1532,7 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
             <h3>${t.card2Title}</h3>
             <p style="font-size: 11px; color: var(--text-muted);">${t.card2Sub}</p>
           </div>
-          <img class="license-card-img" id="manualCarImg" src="${manualCarImage}" alt="Card 2">
+          <img class="license-card-img" id="manualCarImg" data-site-img="card2" src="${manualCarImage}" alt="Card 2">
           <button class="submit-btn" onclick="document.getElementById('booking').scrollIntoView({behavior: 'smooth'})">${t.card2Btn}</button>
         </div>
 
@@ -1410,7 +1543,7 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
             <h3>${t.card3Title}</h3>
             <p style="font-size: 11px; color: var(--text-muted);">${t.card3Sub}</p>
           </div>
-          <img class="license-card-img" id="motoAcademyImg" src="${motoAcademyImage}" alt="Card 3">
+          <img class="license-card-img" id="motoAcademyImg" data-site-img="card3" src="${motoAcademyImage}" alt="Card 3">
           <button class="submit-btn primary" onclick="document.getElementById('booking').scrollIntoView({behavior: 'smooth'})">${t.card3Btn}</button>
         </div>
       </div>
@@ -1473,7 +1606,7 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
         </div>
       </div>
       <div>
-        <img id="safetyBannerImg" src="${safetyImage}" alt="Quality & Safety">
+        <img id="safetyBannerImg" data-site-img="safety" src="${safetyImage}" alt="Quality & Safety">
       </div>
     </div>
 
@@ -1596,73 +1729,148 @@ export function buildDrivingSchoolTemplate(lead = {}, content = {}, nicheKey = '
     // Real-time message listener for live settings updates
     window.addEventListener('message', function(event) {
       if (!event.data) return;
+      var d = event.data;
       
-      // Update Hero Video
-      if (event.data.type === 'UPDATE_VIDEO' || event.data.type === 'UPDATE_HERO_VIDEO') {
-        const videoUrl = event.data.url || event.data.heroVideo || event.data.videoUrl;
-        if (videoUrl) {
-          const v = document.getElementById('mainHeroVideo');
-          if (v) {
-            const src = v.querySelector('source');
-            if (src) src.src = videoUrl;
-            else v.src = videoUrl;
-            v.load();
-            v.play().catch(function() {});
+    // Universal Scroll Video Engine for Hero Video
+    (function() {
+      var v = document.getElementById('mainHeroVideo');
+      var heroSection = document.querySelector('.hero') || document.body;
+      var currentEffect = "${currentContent.heroVideoEffect || 'scroll-scrub'}";
+      var currentTiming = parseFloat("${currentContent.heroScrollTiming || 1.5}") || 1.5;
+
+      function handleVideoScroll() {
+        if (!v) v = document.getElementById('mainHeroVideo');
+        if (!v || v.style.display === 'none') return;
+
+        var scrolled = window.scrollY || window.pageYOffset || 0;
+        var heroHeight = heroSection ? heroSection.offsetHeight : (window.innerHeight || 600);
+        var scrollSpan = Math.max(100, heroHeight * currentTiming);
+        var scrollRatio = Math.min(1, Math.max(0, scrolled / scrollSpan));
+
+        if (currentEffect === 'scroll-scrub') {
+          try { if (!v.paused) v.pause(); } catch(e) {}
+          if (v.duration && !isNaN(v.duration) && v.duration > 0) {
+            var targetTime = scrollRatio * (v.duration - 0.05);
+            try { v.currentTime = Math.min(v.duration - 0.05, Math.max(0, targetTime)); } catch(e) {}
           }
+          v.style.transform = 'scale(' + (1 + scrollRatio * 0.15) + ')';
+          v.style.filter = 'brightness(' + (1 - scrollRatio * 0.3) + ')';
+        } else if (currentEffect === 'sticky-zoom') {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'scale(' + (1 + scrollRatio * 0.45) + ')';
+          v.style.filter = 'brightness(' + (1 - scrollRatio * 0.35) + ') blur(' + (scrollRatio * 6) + 'px)';
+        } else if (currentEffect === 'parallax-fade') {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'translateY(' + (scrolled * 0.35) + 'px)';
+          v.style.opacity = Math.max(0.1, 1 - scrollRatio * 0.8);
+        } else if (currentEffect === '3d-tilt') {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'perspective(1000px) rotateX(' + (scrollRatio * 20) + 'deg) scale(' + (1 + scrollRatio * 0.1) + ')';
+        } else {
+          try { if (v.paused) v.play().catch(function(){}); } catch(e) {}
+          v.style.transform = 'none';
+          v.style.filter = 'none';
+          v.style.opacity = '1';
         }
       }
 
+      window.addEventListener('scroll', handleVideoScroll, { passive: true });
+      if (v) {
+        v.addEventListener('loadedmetadata', handleVideoScroll);
+        v.addEventListener('canplay', handleVideoScroll);
+      }
+
+      window.addEventListener('message', function(event) {
+        if (!event || !event.data) return;
+        var d = event.data;
+        
+        // Update Hero Video
+        if (d.type === 'UPDATE_VIDEO' || d.type === 'UPDATE_HERO_VIDEO' || d.heroVideo || d.heroVideoUrl || d.videoUrl) {
+          var videoUrl = d.url || d.heroVideo || d.videoUrl || d.heroVideoUrl;
+          if (d.heroVideoEffect) currentEffect = d.heroVideoEffect;
+          if (d.heroScrollTiming) currentTiming = parseFloat(d.heroScrollTiming) || 1.5;
+
+          if (videoUrl) {
+            if (!v) v = document.getElementById('mainHeroVideo');
+            if (v) {
+              v.style.display = 'block';
+              var src = v.querySelector('source');
+              if (src) src.src = videoUrl;
+              else v.src = videoUrl;
+              v.load();
+              setTimeout(handleVideoScroll, 150);
+            }
+          }
+        }
+
       // Update Hero Image
-      if (event.data.type === 'UPDATE_HERO_IMAGE' || event.data.type === 'UPDATE_IMAGE') {
-        const imgUrl = event.data.url || event.data.heroImage;
-        if (imgUrl) {
-          const heroImg = document.getElementById('mainHeroImg');
+      if (d.type === 'UPDATE_HERO_IMAGE' || (d.type === 'UPDATE_IMAGE' && (d.field === 'hero' || d.field === 'heroImage' || !d.field))) {
+        var imgUrl = d.url || d.heroImage;
+        if (imgUrl && d.field !== 'showcase' && d.field !== 'program1' && d.field !== 'program2' && d.field !== 'program3' && d.field !== 'program4' && d.field !== 'card1' && d.field !== 'card2' && d.field !== 'card3' && d.field !== 'safety' && d.field !== 'about') {
+          var heroImg = document.getElementById('mainHeroImg');
           if (heroImg) heroImg.src = imgUrl;
         }
       }
 
       // Update Showcase Cutout
-      if (event.data.type === 'UPDATE_SHOWCASE' || event.data.type === 'UPDATE_SHOWCASE_IMAGE' || event.data.type === 'UPDATE_SHOWCASE_VIDEO') {
-        const showcaseUrl = event.data.url || event.data.showcaseCarImage || event.data.showcaseCutout;
+      if (d.type === 'UPDATE_SHOWCASE' || d.type === 'UPDATE_SHOWCASE_IMAGE' || d.type === 'UPDATE_SHOWCASE_VIDEO' || (d.type === 'UPDATE_IMAGE' && (d.field === 'showcaseCutout' || d.field === 'showcase' || d.field === 'catalog' || d.field === 'catalogImage'))) {
+        var showcaseUrl = d.url || d.showcaseCarImage || d.showcaseCutout;
         if (showcaseUrl) {
-          const scImg = document.getElementById('showcaseCarImg');
+          var scImg = document.getElementById('showcaseCarImg');
           if (scImg) scImg.src = showcaseUrl;
         }
       }
 
       // Update Program Images
-      if (event.data.type === 'UPDATE_PROGRAM_IMAGE' || event.data.program1Image || event.data.program2Image || event.data.program3Image || event.data.program4Image) {
-        if (event.data.program1Image || event.data.notebookImage) {
-          const el = document.getElementById('programNotebookImg');
-          if (el) el.src = event.data.program1Image || event.data.notebookImage;
+      if (d.type === 'UPDATE_PROGRAM_IMAGE' || d.program1Image || d.program2Image || d.program3Image || d.program4Image || (d.type === 'UPDATE_IMAGE' && (d.field === 'program1' || d.field === 'program2' || d.field === 'program3' || d.field === 'program4' || d.field === 'section1' || d.field === 'section2'))) {
+        if (d.field === 'program1' || d.field === 'section1' || d.program1Image || d.notebookImage) {
+          var el1 = document.getElementById('programNotebookImg');
+          if (el1) el1.src = d.url || d.program1Image || d.notebookImage;
         }
-        if (event.data.program2Image || event.data.tabletImage) {
-          const el = document.getElementById('programTabletImg');
-          if (el) el.src = event.data.program2Image || event.data.tabletImage;
+        if (d.field === 'program2' || d.field === 'section2' || d.program2Image || d.tabletImage) {
+          var el2 = document.getElementById('programTabletImg');
+          if (el2) el2.src = d.url || d.program2Image || d.tabletImage;
         }
-        if (event.data.program3Image || event.data.steeringWheelImage) {
-          const el = document.getElementById('programSteeringWheelImg');
-          if (el) el.src = event.data.program3Image || event.data.steeringWheelImage;
+        if (d.field === 'program3' || d.program3Image || d.steeringWheelImage) {
+          var el3 = document.getElementById('programSteeringWheelImg');
+          if (el3) el3.src = d.url || d.program3Image || d.steeringWheelImage;
         }
-        if (event.data.program4Image || event.data.motorcycleImage) {
-          const el = document.getElementById('programMotorcycleImg');
-          if (el) el.src = event.data.program4Image || event.data.motorcycleImage;
+        if (d.field === 'program4' || d.program4Image || d.motorcycleImage) {
+          var el4 = document.getElementById('programMotorcycleImg');
+          if (el4) el4.src = d.url || d.program4Image || d.motorcycleImage;
         }
       }
 
       // Update Service Cards
-      if (event.data.type === 'UPDATE_CARD_IMAGE' || event.data.card1Image || event.data.card2Image || event.data.card3Image) {
-        if (event.data.card1Image || event.data.autoCarImage) {
-          const el = document.getElementById('autoCarImg');
-          if (el) el.src = event.data.card1Image || event.data.autoCarImage;
+      if (d.type === 'UPDATE_CARD_IMAGE' || d.card1Image || d.card2Image || d.card3Image || (d.type === 'UPDATE_IMAGE' && (d.field === 'card1' || d.field === 'card2' || d.field === 'card3'))) {
+        if (d.field === 'card1' || d.card1Image || d.autoCarImage) {
+          var elC1 = document.getElementById('autoCarImg');
+          if (elC1) elC1.src = d.url || d.card1Image || d.autoCarImage;
         }
-        if (event.data.card2Image || event.data.manualCarImage) {
-          const el = document.getElementById('manualCarImg');
-          if (el) el.src = event.data.card2Image || event.data.manualCarImage;
+        if (d.field === 'card2' || d.card2Image || d.manualCarImage) {
+          var elC2 = document.getElementById('manualCarImg');
+          if (elC2) elC2.src = d.url || d.card2Image || d.manualCarImage;
         }
-        if (event.data.card3Image || event.data.motoAcademyImage) {
-          const el = document.getElementById('motoAcademyImg');
-          if (el) el.src = event.data.card3Image || event.data.motoAcademyImage;
+        if (d.field === 'card3' || d.card3Image || d.motoAcademyImage) {
+          var elC3 = document.getElementById('motoAcademyImg');
+          if (elC3) elC3.src = d.url || d.card3Image || d.motoAcademyImage;
+        }
+      }
+
+      // Update Safety / Fleet Banner Image
+      if (d.type === 'UPDATE_SAFETY_IMAGE' || (d.type === 'UPDATE_IMAGE' && (d.field === 'safety' || d.field === 'about' || d.field === 'contact' || d.field === 'safetyBannerImg' || d.field === 'safetyImage' || d.field === 'aboutImage'))) {
+        var safetyUrl = d.url || d.safetyImage;
+        if (safetyUrl) {
+          var elS = document.getElementById('safetyBannerImg');
+          if (elS) elS.src = safetyUrl;
+        }
+      }
+
+      // Direct target fallback by element ID or data-site-img attribute
+      if (d.type === 'UPDATE_IMAGE' && d.url && d.field) {
+        var targetEl = document.getElementById(d.field) || document.querySelector('[data-site-img="' + d.field + '"]');
+        if (targetEl && targetEl.tagName === 'IMG') {
+          targetEl.src = d.url;
         }
       }
     });

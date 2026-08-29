@@ -9,7 +9,10 @@ import {
 } from './templates/behanceTemplates.js';
 import { buildTasteMinimalTemplate, buildTasteEditorialTemplate } from './templates/tasteTemplate.js';
 import { buildDrivingSchoolTemplate } from './templates/drivingSchoolTemplate.js';
+import { buildElanPermisTemplate } from './templates/elanPermisTemplate.js';
 import { buildOutlandHomesTemplate } from './templates/outlandHomesTemplate.js';
+import { buildAirTemplate } from './templates/airTemplate.js';
+import { buildLuminaTemplate } from './templates/luminaDropshippingTemplate.js';
 
 export const DEFAULT_GALLERY: Record<string, string[]> = {
   restaurant: [
@@ -143,9 +146,6 @@ export interface SiteContent {
   email?: string;
   contactAddress?: string;
   address?: string;
-  mapAddress?: string;
-  showGoogleMaps?: boolean;
-  showMap?: boolean;
   templateStyle?: 'premium-dark' | 'luxury-serif' | 'classic' | 'behance-construction' | 'behance-cleaning' | 'behance-plumbing' | 'behance-restaurant' | string;
   nicheOverride?: string;
   primaryColor?: string;
@@ -223,12 +223,20 @@ export interface SiteContent {
   uploadedImages?: string[];
   customCss?: string;
   heroVideo?: string;
+  heroVideoUrl?: string;
+  heroVideoEffect?: 'autoplay' | 'scroll-scrub' | 'sticky-zoom' | 'parallax-fade' | '3d-tilt' | 'none' | string;
+  heroScrollSpeed?: number;
+  heroScrollTiming?: number;
+  heroScrollOpacity?: number;
+  heroScrollDamping?: number;
+  catalogList?: any[];
   section2Video?: string;
   beforeAfterTitle?: string;
   beforeAfterHeadline?: string;
   beforeAfterDescription?: string;
   beforeAfterBullets?: string[];
   beforeAfterBtnLabel?: string;
+  enableSmartQualify?: boolean;
 }
 
 export function getSectorKey(sectorStr: string = ''): string {
@@ -689,6 +697,7 @@ export function extractCity(lead: any): string {
 export function detectNicheKey(lead: any): string {
   if (!lead) return 'traiteur';
   const str = ((lead.niche || lead.sector || lead.source || lead.category || '') + ' ' + (lead.name || '')).toLowerCase();
+  if (str.includes('cake') || str.includes('pastry') || str.includes('pâtiss') || str.includes('patiss')) return 'cakedesign';
   if (str.includes('traiteur') || str.includes('cater') || str.includes('restau') || str.includes('food')) return 'traiteur';
   if (str.includes('electr') || str.includes('électr')) return 'electricien';
   if (str.includes('plumb') || str.includes('plomb')) return 'plombier';
@@ -705,14 +714,26 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
   const lang = detectLanguage(lead);
 
   // 1. Explicit templateStyle checks (highest priority)
-  if (content.templateStyle === 'outland-homes' || content.templateStyle === 'outland' || content.templateStyle === 'airbnb' || content.templateStyle === 'main-outland' || content.templateStyle === 'main-template') {
+  if (content.templateStyle === 'lumina' || content.templateStyle === 'dropshipping' || content.templateStyle === 'lumina-dropshipping' || content.templateStyle === 'ecom' || content.templateStyle === 'ecommerce' || content.templateStyle === 'shopify') {
+    return buildLuminaTemplate(lead, content, nicheKey);
+  }
+  if (content.templateStyle === 'elan-permis' || content.templateStyle === 'elan' || content.templateStyle === 'elanPermis' || content.templateStyle === 'elan-template' || content.templateStyle === 'elan-permis-template') {
+    return buildElanPermisTemplate(lead, content, nicheKey);
+  }
+  if (content.templateStyle === 'air' || content.templateStyle === 'air-template') {
+    return buildAirTemplate(lead, content, nicheKey);
+  }
+  if (content.templateStyle === 'outland-homes' || content.templateStyle === 'outland' || content.templateStyle === 'outlandHomes' || content.templateStyle === 'airbnb' || content.templateStyle === 'main-outland' || content.templateStyle === 'main-template') {
     return buildOutlandHomesTemplate(lead, content, nicheKey);
   }
-  if (content.templateStyle === 'cinematic-luxury' || (content.templateStyle && content.templateStyle.includes('cinematic'))) {
+  if (content.templateStyle === 'realestate' || content.templateStyle === 'realEstate' || content.templateStyle === 'immobilier') {
+    return buildOutlandHomesTemplate(lead, content, 'realestate');
+  }
+  if (content.templateStyle === 'cinematic' || content.templateStyle === 'cinematic-luxury' || (content.templateStyle && content.templateStyle.includes('cinematic'))) {
     return buildCinematicTemplate(lead, content, nicheKey);
   }
   if (content.templateStyle === 'driving-school' || content.templateStyle === 'autoecole' || content.templateStyle === 'main-neumorphic' || content.templateStyle === 'behance-cutout') {
-    return buildDrivingSchoolTemplate(lead, content, nicheKey);
+    return buildElanPermisTemplate(lead, content, nicheKey);
   }
 
   // 2. Behance Portfolio Template Styles
@@ -730,26 +751,30 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
   }
 
   // 3. Leon Taste-Skill Premium Layout Templates
-  if (content.templateStyle === 'taste-minimal') {
+  if (content.templateStyle === 'taste' || content.templateStyle === 'taste-minimal') {
     return buildTasteMinimalTemplate(lead, content, lang);
   }
   if (content.templateStyle === 'taste-editorial') {
     return buildTasteEditorialTemplate(lead, content, lang);
   }
-  if (content.templateStyle === 'luxury-serif') {
+  if (content.templateStyle === 'luxury' || content.templateStyle === 'luxury-serif') {
     return buildLuxuryTemplate(lead, content, nicheKey);
   }
 
   // 4. Fallback niche checks if templateStyle is unassigned
+  if (nicheKey === 'ecom' || nicheKey === 'dropshipping' || nicheKey === 'fashion' || nicheKey === 'beauty' || nicheKey === 'wigs' || nicheKey === 'eyewear' || nicheKey === 'jewelry' || nicheKey === 'boutique' || nicheKey === 'store') {
+    return buildLuminaTemplate(lead, content, nicheKey);
+  }
   if (nicheKey === 'autoecole' || nicheKey === 'driving_school' || nicheKey === 'drivingschool') {
     return buildDrivingSchoolTemplate(lead, content, nicheKey);
   }
 
   if (content.templateStyle !== 'classic') {
-    return buildPremiumDynamicTemplate(lead, content, nicheKey);
+    return buildOutlandHomesTemplate(lead, content, nicheKey);
   }
 
   const sectorKey = getSectorKey(lead.sector || lead.source);
+  const sector = lead.sector || lead.niche || sectorKey || 'general';
   const i18n = getLanguageDictionary(lang);
   const fontConfig = getSectorFont(sectorKey, lang, content.fontStyle);
   const sectorImgs = getSectorImages(sectorKey);
@@ -851,73 +876,46 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
     switch (secName.toLowerCase()) {
       case 'hero':
         return `
-        <!-- HERO SECTION -->
-        <section class="relative py-24 lg:py-32 bg-slate-950 text-white overflow-hidden min-h-[85vh] flex items-center">
-          ${content.heroVideo ? `
-          <video autoplay loop muted playsinline class="absolute inset-0 w-full h-full object-cover z-0 opacity-40">
-            <source src="${content.heroVideo}" type="video/mp4">
+        <!-- HERO SECTION (IMAGE-MATCHING LAYOUT) -->
+        <section class="relative min-h-[95vh] flex flex-col justify-between overflow-hidden bg-slate-950 text-white pt-24 pb-8 px-4 sm:px-6">
+          <video id="heroBgVideo" autoplay loop muted playsinline class="absolute inset-0 w-full h-full object-cover z-0 opacity-70">
+            <source src="${content.heroVideo || content.heroVideoUrl || (content as any).videoUrl || 'https://assets.mixkit.co/videos/preview/mixkit-decorating-and-renovating-a-room-41580-large.mp4'}" type="video/mp4">
           </video>
-          ` : `
-          <div class="absolute inset-0 z-0 opacity-25 bg-cover bg-center" style="background-image: url('${heroBgImage}');"></div>
-          `}
-          <div class="absolute inset-0 z-0 bg-gradient-to-r from-slate-950 via-slate-950/90 to-slate-950/45"></div>
-
-          <div class="max-w-7xl mx-auto px-6 relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center w-full">
-            <div class="lg:col-span-7 text-left space-y-6">
-              <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm" style="background-color: ${accentColor}26; color: ${accentColor}; border: 1px solid ${accentColor}40;">
-                <span class="w-1.5 h-1.5 rounded-full" style="background-color: ${accentColor}"></span>
-                ${content.tagline || 'Excellence & Service Garanti'}
-              </span>
-
-              <h1 class="text-4xl sm:text-6xl font-black text-white leading-[1.1] tracking-tight">
-                ${content.heroTitle || `${companyName} - Services d'Excellence`}
+          <!-- Overlay to ensure readability -->
+          <div class="absolute inset-0 z-0 bg-black/40"></div>
+          
+          <div class="relative z-10 flex flex-col items-center w-full max-w-lg mx-auto mt-4 sm:mt-10">
+            
+            <!-- Top Dark Card for Titles -->
+            <div class="w-full bg-[#1A1A1A]/95 backdrop-blur-xl rounded-[2.5rem] p-8 sm:p-10 text-center shadow-2xl border border-white/5">
+              <h1 class="text-5xl sm:text-7xl font-black text-white leading-[1.05] tracking-tight uppercase">
+                ${content.heroTitle || companyName}
               </h1>
-
-              <p class="text-base sm:text-lg text-slate-300 max-w-2xl leading-relaxed">
-                ${content.heroSubtitle || 'Intervention rapide, transparence totale et qualité professionnelle garantie à ' + (city || 'votre adresse') + '.'}
-              </p>
-
-              <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 pt-4">
-                <a href="#devis" class="${btnCss.class}" style="${btnCss.style}">
-                  ${content.ctaButton || i18n.getQuote}
-                </a>
-                ${phone ? `
-                  <a href="tel:${phone}" class="px-8 py-4 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-white font-bold text-sm transition-all text-center flex items-center justify-center gap-2">
-                    <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
-                    ${i18n.callUs}: ${phone}
-                  </a>
-                ` : ''}
+              ${content.heroSubtitle ? `
+              <div class="mt-8 pt-8 border-t border-white/10">
+                <h2 class="text-xl sm:text-2xl text-white/90 tracking-widest font-light uppercase">
+                  ${content.heroSubtitle}
+                </h2>
               </div>
-
-              <!-- TRUST BADGES -->
-              <div class="pt-8 border-t border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-4">
-                ${stats.map(s => `
-                  <div>
-                    <div class="text-2xl font-black text-white">${s.value}</div>
-                    <div class="text-xs text-slate-400 font-medium">${s.label}</div>
-                  </div>
-                `).join('')}
-              </div>
+              ` : ''}
             </div>
 
-            <div class="lg:col-span-5 relative">
-              <div class="relative rounded-3xl overflow-hidden border border-slate-800 shadow-2xl group">
-                <img src="${heroBgImage}" alt="${companyName}" class="w-full h-[420px] object-cover group-hover:scale-105 transition-transform duration-700" referrerpolicy="no-referrer" loading="lazy" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=80';" />
-                <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent"></div>
-                
-                <div class="absolute bottom-6 left-6 right-6 p-6 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/60 shadow-lg">
-                  <div class="flex items-center gap-3 mb-2">
-                    <div class="flex text-amber-400 text-sm">★★★★★</div>
-                    <span class="text-xs font-bold text-white">4.9/5 Avis Clients</span>
-                  </div>
-                  <p class="text-xs text-slate-300 italic">"Intervention extrêmement rapide et travail irréprochable. Je recommande vivement !"</p>
-                  <span class="text-[10px] text-slate-400 font-bold block mt-2">— Client vérifié (${city || 'Local'})</span>
-                </div>
-              </div>
+            <!-- Action Button placed OUTSIDE the card, directly on the background -->
+            <button onclick="openReservationModal()" class="mt-12 bg-white text-black hover:bg-zinc-200 rounded-[2rem] px-10 py-5 font-bold text-lg sm:text-xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] transition-transform hover:scale-105 inline-flex items-center justify-center">
+              ${content.ctaButton || 'Découvrir nos services'}
+            </button>
+
+          </div>
+
+          <!-- Bottom Stats Card -->
+          <div class="relative z-10 w-full max-w-lg mx-auto mt-auto pt-16">
+            <div class="w-full bg-[#1A1A1A]/95 backdrop-blur-xl rounded-[2.5rem] p-6 text-center shadow-2xl border border-white/5 flex flex-col items-center justify-center">
+                <div class="text-5xl sm:text-6xl font-black text-white">${stats[0]?.value || '+1000'}</div>
+                <div class="text-xs sm:text-sm text-white/50 font-medium tracking-wide mt-2">${stats[0]?.label || 'Clients accueillis'}</div>
             </div>
           </div>
-        </section>`;
-
+        </section>
+        `;
       case 'beforeafter': {
         const transVideo = content.section2Video || "https://assets.mixkit.co/videos/preview/mixkit-decorating-and-renovating-a-room-41580-large.mp4";
         const transTitle = content.beforeAfterTitle || "--- ACCÈS AUX COULISSES";
@@ -981,6 +979,63 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
         </section>
         `;
       }
+
+      
+      case 'crafts':
+        if (!content.services || content.services.length === 0) return '';
+        return `
+        <!-- CRAFTS ACCORDION SECTION (INTERACTIVE) -->
+        <section class="py-24 bg-[#F5F5F0]">
+          <div class="max-w-7xl mx-auto px-6">
+            <div class="mb-12">
+              <h4 class="text-[10px] font-bold tracking-[0.2em] text-slate-400 uppercase mb-4">What We Make</h4>
+              <h2 class="text-4xl md:text-5xl font-serif text-slate-800">Four crafts, <span class="italic text-amber-600">one roof.</span></h2>
+            </div>
+
+            <!-- Accordion Container -->
+            <div class="flex flex-col lg:flex-row w-full h-[800px] lg:h-[600px] gap-2 lg:gap-4">
+              ${(content.services || []).slice(0, 4).map((srv: any, idx) => `
+                <!-- Panel -->
+                <div class="relative group flex-1 hover:flex-[4] lg:hover:flex-[5] transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] overflow-hidden rounded-xl cursor-pointer">
+                  
+                  <!-- Background Image -->
+                  <img src="${(sectorImgs as any)[`portfolio${idx + 1}`] || (sectorImgs as any).aboutImg || sectorImgs.heroBg}" class="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" referrerpolicy="no-referrer" />
+                  
+                  <!-- Darken Overlay -->
+                  <div class="absolute inset-0 bg-black/50 lg:bg-black/30 group-hover:bg-black/10 transition-all duration-700"></div>
+
+                  <!-- Desktop Unexpanded Text (Rotated) -->
+                  <div class="hidden lg:flex absolute inset-0 items-center justify-center p-6 opacity-100 group-hover:opacity-0 transition-opacity duration-300 pointer-events-none">
+                    <h3 class="text-white font-serif tracking-widest uppercase -rotate-90 whitespace-nowrap text-lg drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+                      ${srv.title}
+                    </h3>
+                  </div>
+
+                  <!-- Mobile Unexpanded Text -->
+                  <div class="flex lg:hidden absolute inset-0 items-end justify-start p-6 opacity-100 group-hover:opacity-0 transition-opacity duration-300 pointer-events-none">
+                    <h3 class="text-white font-serif tracking-widest uppercase text-xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+                      ${srv.title}
+                    </h3>
+                  </div>
+
+                  <!-- Expanded Content -->
+                  <div class="absolute inset-x-0 bottom-0 p-8 md:p-12 opacity-0 group-hover:opacity-100 transition-opacity duration-700 delay-100 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/50 to-transparent h-[80%] pointer-events-none">
+                    <div class="transform translate-y-4 group-hover:translate-y-0 transition-transform duration-700">
+                      <h3 class="text-3xl md:text-5xl font-serif text-white mb-3 flex items-center gap-3">
+                        <span class="text-amber-400/80 italic font-light text-2xl md:text-4xl">0${idx + 1}.</span> 
+                        <span class="leading-none">${srv.title}</span>
+                      </h3>
+                      <p class="text-white/90 text-sm md:text-base max-w-lg leading-relaxed font-light">
+                        ${srv.desc || srv.description || ''}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </section>
+        `;
 
       case 'about':
         return `
@@ -1201,7 +1256,28 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
           </div>
         </section>`;
 
+      
+      case 'qualify':
+        return `
+        <!-- IN-PAGE SMART QUALIFICATION SECTION -->
+        <section class="py-24 bg-zinc-50 border-t border-zinc-200" id="qualify-funnel">
+          <div class="max-w-4xl mx-auto px-6 text-center">
+            <div class="mb-12">
+              <span class="text-xs font-bold uppercase tracking-[0.2em] text-amber-600 block mb-3">Instant Booking</span>
+              <h2 class="text-3xl md:text-5xl font-black text-zinc-900 mb-4">Ready to start?</h2>
+              <p class="text-zinc-500 max-w-xl mx-auto">Get an instant estimate and book your service without filling out any long forms.</p>
+            </div>
+            
+            <div class="bg-white rounded-[2rem] shadow-[0_20px_60px_rgba(0,0,0,0.08)] border border-zinc-100 p-8 md:p-14 max-w-2xl mx-auto">
+               <div id="inline-qualify-root">
+                 <!-- Injected by script below -->
+               </div>
+            </div>
+          </div>
+        </section>
+        `;
       case 'devis':
+
       case 'form':
         return `
         <!-- INSTANT ESTIMATE & BOOKING FORM -->
@@ -1255,23 +1331,16 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
 
       case 'map':
       case 'location': {
-        if (content.showGoogleMaps === false || content.showMap === false) {
-          return '';
-        }
-        const mapSearch = content.mapAddress || content.address || address || (companyName + ' ' + (city || ''));
+        const mapSearch = address || (companyName + ' ' + (city || ''));
         const mapUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapSearch)}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
-        const directMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapSearch)}`;
         return `
         <!-- GOOGLE MAPS LOCATION SECTION -->
-        <section class="py-16 ${isDarkTheme ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-900'} border-t ${isDarkTheme ? 'border-slate-800/60' : 'border-slate-200'}" id="location">
+        <section class="py-16 ${isDarkTheme ? 'bg-slate-900' : 'bg-slate-100'} border-t border-slate-800/30" id="location">
           <div class="max-w-7xl mx-auto px-6">
-            <div class="text-center max-w-2xl mx-auto mb-8">
+            <div class="text-center max-w-2xl mx-auto mb-10">
               <span class="text-xs font-bold uppercase tracking-wider text-blue-500 block mb-2">${lang === 'fr' ? 'Localisation & Accès' : 'Location & Access'}</span>
               <h2 class="text-2xl sm:text-3xl font-black mb-2">${companyName} — ${city || 'Notre Établissement'}</h2>
-              <p class="${isDarkTheme ? 'text-slate-400' : 'text-slate-600'} text-sm mb-4">📍 ${mapSearch}</p>
-              <a href="${directMapsUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition shadow-lg shadow-blue-500/25">
-                📍 ${lang === 'fr' ? 'Ouvrir dans Google Maps' : 'Open in Google Maps'}
-              </a>
+              <p class="text-slate-400 text-sm">${address ? address : (city ? `Retrouvez-nous au cœur de ${city} et ses environs.` : 'Localisez facilement notre établissement.')}</p>
             </div>
             
             <div class="rounded-3xl overflow-hidden shadow-2xl border ${isDarkTheme ? 'border-slate-800' : 'border-slate-200'} h-[380px] w-full relative bg-slate-900">
@@ -1295,7 +1364,18 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
   };
 
   // Determine section layout order
-  const defaultLayout = ['hero', 'beforeafter', 'about', 'services', 'portfolio', 'whyus', 'steps', 'reviews', 'faq', 'devis', 'map'];
+  
+  const defaultLayout = ['hero', 'crafts', 'beforeafter', 'about', 'services', 'portfolio', 'whyus', 'steps', 'reviews', 'faq', 'devis', 'map'];
+  if (content.enableSmartQualify) {
+    // Replace 'devis' with 'qualify'
+    const devisIndex = defaultLayout.indexOf('devis');
+    if (devisIndex !== -1) {
+      defaultLayout[devisIndex] = 'qualify';
+    } else {
+      defaultLayout.push('qualify');
+    }
+  }
+
   let layout = (content.layoutOrder && content.layoutOrder.length > 0)
     ? [...content.layoutOrder]
     : [...defaultLayout];
@@ -1329,6 +1409,11 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
     h1, h2, h3, h4, .font-heading { font-family: ${fontConfig.headingCss}; }
     html { scroll-behavior: smooth; }
     ${content.customCss || ''}
+  
+    @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slide-up { from { opacity: 0; transform: translateY(20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .animate-fade-in { animation: fade-in 0.25s ease-out forwards; }
+    .animate-slide-up { animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
   </style>
 </head>
 <body class="${isDarkTheme ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'} antialiased selection:bg-blue-500 selection:text-white">
@@ -1381,6 +1466,14 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
     </div>
   </header>
 
+  
+  <!-- HIDDEN NETLIFY FORM FOR QUOTES -->
+  <form name="quote-request" netlify netlify-honeypot="bot-field" hidden>
+    <input type="text" name="step1" />
+    <input type="text" name="step2" />
+    <input type="text" name="name" />
+    <input type="tel" name="phone" />
+  </form>
   <!-- DYNAMICALLY ORDERED BODY SECTIONS -->
   ${renderedBodySections}
 
@@ -1446,6 +1539,275 @@ export function buildHTMLTemplate(lead: any, content: SiteContent = {}, designFr
         });
       });
     });
+  
+
+  <!-- DYNAMIC RESERVATION MODAL SCRIPT -->
+  <script>
+    // Configuration based on niche
+    const nicheQuestions = {
+      default: {
+        step1: { q: "What do you need done?", opts: ["Service", "Consultation", "Emergency"] },
+        step2: { q: "How big, roughly?", opts: ["Small", "Medium", "Large"] }
+      },
+      landscaping: {
+        step1: { q: "What do you need done?", opts: ["Driveway", "Patio", "Garden", "Lawn Care"] },
+        step2: { q: "How big, roughly?", opts: ["Small", "Medium", "Large", "Full Property"] }
+      },
+      plumbing: {
+        step1: { q: "What is the issue?", opts: ["Leak", "Clog", "Install", "Emergency"] },
+        step2: { q: "Where is it located?", opts: ["Kitchen", "Bathroom", "Basement", "Outside"] }
+      },
+      electrical: {
+        step1: { q: "What service do you need?", opts: ["Repair", "Installation", "Inspection", "Panel Upgrade"] },
+        step2: { q: "Property Type?", opts: ["Residential", "Commercial", "Industrial"] }
+      },
+      cleaning: {
+        step1: { q: "Type of cleaning?", opts: ["Standard", "Deep Clean", "Move In/Out"] },
+        step2: { q: "Number of Bedrooms?", opts: ["1-2", "3-4", "5+"] }
+      },
+      roofing: {
+        step1: { q: "What do you need?", opts: ["Repair", "Replacement", "Inspection"] },
+        step2: { q: "Type of roof?", opts: ["Asphalt", "Metal", "Flat", "Tile"] }
+      }
+    };
+
+    // Determine questions based on the sector keywords
+    const sectorKeyword = "${sector}".toLowerCase();
+    let currentQuestions = nicheQuestions.default;
+    for (const key in nicheQuestions) {
+      if (sectorKeyword.includes(key)) {
+        currentQuestions = nicheQuestions[key];
+        break;
+      }
+    }
+
+    let currentStep = 1;
+    let answers = {};
+    let inlineStep = 1;
+    let inlineAnswers = {};
+
+    function renderInlineQualify() {
+      const root = document.getElementById('inline-qualify-root');
+      if (!root) return;
+
+      let html = '';
+      if (inlineStep === 1) {
+        html = getStepHTML(1, 3, currentQuestions.step1.q, currentQuestions.step1.opts, 'step1', true);
+      } else if (inlineStep === 2) {
+        html = getStepHTML(2, 3, currentQuestions.step2.q, currentQuestions.step2.opts, 'step2', true);
+      } else if (inlineStep === 3) {
+        const leadPhone = "${phone}".replace(/[^0-9]/g, '');
+        const message = encodeURIComponent("Hello, I would like to book a service:\n\n- " + currentQuestions.step1.q + ": " + (inlineAnswers.step1 || '') + "\n- " + currentQuestions.step2.q + ": " + (inlineAnswers.step2 || '') + "\n\nPlease let me know your availability.");
+        const waLink = "https://wa.me/" + leadPhone + "?text=" + message;
+
+        html = '<div class="text-center animate-fade-in">' +
+          '<div class="text-xs font-bold tracking-widest text-gray-400 uppercase mb-4">Step 3 of 3</div>' +
+          '<h2 class="text-3xl font-black text-black mb-4">Perfect.</h2>' +
+          '<p class="text-gray-500 font-medium mb-8">We have matched your request with our availability. Book instantly via WhatsApp without filling out forms.</p>' +
+          '<div class="space-y-3 max-w-sm mx-auto">' +
+            '<a href="' + waLink + '" target="_blank" class="w-full flex items-center justify-center gap-2 py-4 px-6 bg-[#25D366] text-white font-bold rounded-2xl hover:bg-[#20bd5a] transition shadow-lg hover:-translate-y-0.5">' +
+              '<svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>' +
+              'Book instantly via WhatsApp' +
+            '</a>' +
+          '</div>' +
+        '</div>';
+      }
+      root.innerHTML = html;
+    }
+
+    window.selectInlineOption = function(key, value) {
+      inlineAnswers[key] = value;
+      inlineStep++;
+      renderInlineQualify();
+    };
+
+    // Initialize inline if present
+    document.addEventListener("DOMContentLoaded", function() {
+      renderInlineQualify();
+    });
+
+    window.openReservationModal = function() {
+      currentStep = 1;
+      answers = {};
+      renderModalStep();
+    };
+
+    function closeReservationModal() {
+      const modal = document.getElementById('reservation-modal');
+      if (modal) modal.remove();
+    }
+
+    function renderModalStep() {
+      let modal = document.getElementById('reservation-modal');
+      if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'reservation-modal';
+        modal.className = 'fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in';
+        document.body.appendChild(modal);
+      }
+
+      let innerHTML = '';
+      if (currentStep === 1) {
+        innerHTML = getStepHTML(1, 3, currentQuestions.step1.q, currentQuestions.step1.opts, 'step1');
+      } else if (currentStep === 2) {
+        innerHTML = getStepHTML(2, 3, currentQuestions.step2.q, currentQuestions.step2.opts, 'step2');
+      } else if (currentStep === 3) {
+        // Final NO-WRITING booking step
+        const leadPhone = "${phone}".replace(/[^0-9]/g, '');
+        const message = encodeURIComponent("Hello, I would like to book a service:\n\n- " + currentQuestions.step1.q + ": " + (answers.step1 || '') + "\n- " + currentQuestions.step2.q + ": " + (answers.step2 || '') + "\n\nPlease let me know your availability.");
+        const waLink = "https://wa.me/" + leadPhone + "?text=" + message;
+
+        innerHTML = '<div class="bg-white rounded-3xl w-full max-w-md p-10 shadow-2xl relative animate-slide-up text-center">' +
+          '<button onclick="closeReservationModal()" class="absolute top-4 right-4 text-gray-400 hover:text-black transition">' +
+            '<svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>' +
+          '</button>' +
+          '<div class="text-xs font-bold tracking-widest text-gray-400 uppercase mb-4">Step 3 of 3</div>' +
+          '<h2 class="text-3xl font-black text-black mb-4">Perfect.</h2>' +
+          '<p class="text-gray-500 font-medium mb-8">We have matched your request with our availability. Book instantly via WhatsApp without filling out forms.</p>' +
+          '<div class="space-y-3">' +
+            '<a href="' + waLink + '" target="_blank" onclick="closeReservationModal()" class="w-full flex items-center justify-center gap-2 py-4 px-6 bg-[#25D366] text-white font-bold rounded-2xl hover:bg-[#20bd5a] transition shadow-lg hover:shadow-xl hover:-translate-y-0.5">' +
+              '<svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>' +
+              'Book instantly via WhatsApp' +
+            '</a>' +
+            '<button onclick="submitReservation(event)" class="w-full flex items-center justify-center gap-2 py-4 px-6 bg-black text-white font-bold rounded-2xl hover:bg-gray-800 transition shadow-lg hover:shadow-xl hover:-translate-y-0.5">' +
+              '<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>' +
+              'Request via Email' +
+            '</button>' +
+          '</div>' +
+        '</div>';
+      } else if (currentStep === 4) {
+        innerHTML = '<div class="bg-white rounded-3xl w-full max-w-md p-10 shadow-2xl relative animate-slide-up text-center">' +
+          '<button onclick="closeReservationModal()" class="absolute top-4 right-4 text-gray-400 hover:text-black">' +
+            '<svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>' +
+          '</button>' +
+          '<div class="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">' +
+            '<svg width="32" height="32" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>' +
+          '</div>' +
+          '<h2 class="text-3xl font-black text-black mb-2">Request Sent!</h2>' +
+          '<p class="text-gray-500 font-medium">We will contact you shortly with your estimate.</p>' +
+          '<button onclick="closeReservationModal()" class="mt-8 px-8 py-3 bg-gray-100 text-black font-bold rounded-xl hover:bg-gray-200 transition">Done</button>' +
+        '</div>';
+      }
+      modal.innerHTML = innerHTML;
+    }
+
+    function getStepHTML(step, totalSteps, question, options, answerKey, isInline) {
+      if (isInline === undefined) isInline = false;
+      let dots = '';
+      for (let i = 0; i < totalSteps; i++) {
+        const dotClass = (i + 1 === step) ? 'bg-green-500' : ((i + 1 < step) ? 'bg-green-200' : 'bg-gray-200');
+        dots += '<div class="w-2 h-2 rounded-full ' + dotClass + '"></div>';
+      }
+
+      const funcName = isInline ? 'selectInlineOption' : 'selectOption';
+
+      let buttons = '';
+      for (let i = 0; i < options.length; i++) {
+        const opt = options[i];
+        const safeOpt = opt.replace(/'/g, "\\'");
+        buttons += '<button onclick="' + funcName + '(\'' + answerKey + '\', \'' + safeOpt + '\')" class="w-full py-4 px-6 text-center text-lg font-bold bg-white border-2 border-gray-100 rounded-2xl hover:border-black hover:shadow-md transition shadow-sm">' + opt + '</button>';
+      }
+
+      const closeBtn = isInline ? '' : '<button onclick="closeReservationModal()" class="absolute top-4 right-4 text-gray-400 hover:text-black"><svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>';
+      const containerClass = isInline ? 'animate-fade-in text-center' : 'bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl relative animate-slide-up';
+      const listClass = 'space-y-3 flex flex-col items-center ' + (isInline ? 'max-w-sm mx-auto' : '');
+
+      return '<div class="' + containerClass + '">' +
+        closeBtn +
+        '<div class="text-center mb-6">' +
+          '<div class="text-[10px] font-black tracking-[0.2em] text-gray-400 uppercase mb-4">ONE QUESTION AT A TIME</div>' +
+          '<div class="text-xs font-bold text-gray-400 mb-3">STEP ' + step + ' OF ' + totalSteps + '</div>' +
+          '<div class="flex items-center justify-center gap-2 mb-8">' + dots + '</div>' +
+          '<h2 class="text-3xl font-black text-black leading-tight">' + question + '</h2>' +
+        '</div>' +
+        '<div class="' + listClass + '">' +
+          buttons +
+        '</div>' +
+      '</div>';
+    }
+
+    window.selectOption = function(key, value) {
+      answers[key] = value;
+      currentStep++;
+      renderModalStep();
+    };
+
+    window.submitReservation = function(e) {
+      e.preventDefault();
+      const name = (document.getElementById('res-name') && document.getElementById('res-name').value) || '';
+      const phone = (document.getElementById('res-phone') && document.getElementById('res-phone').value) || '';
+      answers['name'] = name;
+      answers['phone'] = phone;
+      console.log('Lead submitted:', answers);
+      
+      // Submit to Netlify forms if needed
+      try {
+        const formData = new FormData();
+        formData.append('form-name', 'quote-request');
+        Object.keys(answers).forEach(k => formData.append(k, answers[k]));
+        fetch('/', { method: 'POST', body: formData }).catch(e => console.log(e));
+      } catch (err) {}
+
+      currentStep++;
+      renderModalStep();
+    };
+
+    // Hero Scroll Video Animation Engine
+    (function() {
+      var v = document.getElementById('heroBgVideo');
+      if (!v) return;
+      var effect = "${content.heroVideoEffect || 'scroll-scrub'}";
+      var speed = parseFloat("${content.heroScrollSpeed || 1.0}") || 1.0;
+      var hero = v.closest('section');
+      
+      v.muted = true;
+      v.playsInline = true;
+
+      if (effect === 'scroll-scrub') {
+        try { v.pause(); } catch(e){}
+        var duration = v.duration || 0;
+        function updateScrub() {
+          if (!hero || !v) return;
+          var rect = hero.getBoundingClientRect();
+          var winH = window.innerHeight;
+          var total = (rect.height * parseFloat("${content.heroScrollTiming || 1.5}")) + winH;
+          var scrolled = Math.max(0, winH - rect.top);
+          var fraction = Math.min(1, Math.max(0, (scrolled / total) * speed));
+          duration = v.duration || duration || 10;
+          if (duration && !isNaN(duration) && duration > 0) {
+            try { v.currentTime = fraction * duration; } catch(e){}
+          }
+        }
+        v.addEventListener('loadedmetadata', updateScrub);
+        v.addEventListener('canplay', updateScrub);
+        v.addEventListener('loadeddata', updateScrub);
+        updateScrub();
+        var isTicking = false;
+        window.addEventListener('scroll', function() {
+          if (!isTicking) {
+            requestAnimationFrame(function() {
+              updateScrub();
+              isTicking = false;
+            });
+            isTicking = true;
+          }
+        }, { passive: true });
+      } else {
+        try {
+          var p = v.play();
+          if (p && p.catch) p.catch(function(){});
+        } catch(e){}
+        if (effect === 'sticky-zoom') {
+          window.addEventListener('scroll', function() {
+            if (!hero) return;
+            var scrollY = window.scrollY;
+            var ratio = Math.min(1, scrollY / (hero.offsetHeight || 600));
+            v.style.transform = 'scale(' + (1 + ratio * 0.35) + ')';
+            v.style.filter = 'brightness(' + (1 - ratio * 0.3) + ') blur(' + (ratio * 8) + 'px)';
+          }, { passive: true });
+        }
+      }
+    })();
   </script>
 </body>
 </html>`;

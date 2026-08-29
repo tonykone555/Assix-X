@@ -24,6 +24,7 @@ export const WhatsAppBulkSend: React.FC<WhatsAppBulkSendProps> = ({
 }) => {
   const [customUrl, setCustomUrl] = useState('');
   const [message, setMessage] = useState('');
+  const [attachWebsiteScreenshot, setAttachWebsiteScreenshot] = useState(true);
   const [status, setStatus] = useState<any>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [progress, setProgress] = useState<any[]>([]);
@@ -94,7 +95,7 @@ export const WhatsAppBulkSend: React.FC<WhatsAppBulkSendProps> = ({
 
     setLogs([`Initiating bulk campaign to ${phoneNumbers.length} recipients...`]);
 
-    const url = `${endpoint}?message=${encodeURIComponent(message)}&phoneNumbers=${encodeURIComponent(JSON.stringify(phoneNumbers))}`;
+    const url = `${endpoint}?message=${encodeURIComponent(message)}&attachScreenshot=${attachWebsiteScreenshot}&phoneNumbers=${encodeURIComponent(JSON.stringify(phoneNumbers))}`;
     
     try {
       const es = new EventSource(url);
@@ -269,6 +270,26 @@ export const WhatsAppBulkSend: React.FC<WhatsAppBulkSendProps> = ({
               disabled={sending}
               className="w-full bg-[#0A0A0C] border border-[#222] text-[#F5F5F5] rounded-lg p-3 text-xs outline-none focus:border-[#25D366] transition placeholder-[#52525B] font-sans resize-none"
             />
+            
+            <div className="mt-2.5 p-2.5 bg-[#0D0D10] border border-[#222] rounded-lg flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">📸</span>
+                <div>
+                  <label className="text-xs font-bold text-white block">
+                    Attach Website Screenshot / Picture
+                  </label>
+                  <span className="text-[10px] text-zinc-400 block">
+                    Attaches picture of personalized website to WhatsApp messages sent from CSV
+                  </span>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={attachWebsiteScreenshot}
+                onChange={(e) => setAttachWebsiteScreenshot(e.target.checked)}
+                className="w-4 h-4 accent-[#25D366] rounded cursor-pointer"
+              />
+            </div>
           </div>
 
           {/* Progress visualizer */}

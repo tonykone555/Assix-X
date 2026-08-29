@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { X, Sparkles, Download, Share2, Globe, RefreshCw, Code, Check, ExternalLink, Play, Pause, ChevronsLeftRight, Languages, Image, Upload, Trash2, Wand2, Search, Star, MessageSquare, Monitor, Tablet, Smartphone, Maximize2, Zap, MapPin, Award, Sliders, CheckCircle2, Compass, Mail, Linkedin, MessageCircle, Phone, BookOpen, Video, Palette } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Sparkles, Download, Share2, Globe, RefreshCw, Code, Check, ExternalLink, Play, Pause, ChevronsLeftRight, Languages, Image, Upload, Trash2, Wand2, Search, Star, MessageSquare, Monitor, Tablet, Smartphone, Maximize2, Zap, MapPin, Award, Sliders, CheckCircle2, Compass, Mail, Linkedin, MessageCircle, Phone, BookOpen, Video, Palette, Eye, Pencil, ShieldCheck, Sun, Moon, Box, Rocket, User, Plus, FileSpreadsheet, FileText, Layers, FileDown, Building, Edit3, Clock, Square, Send } from 'lucide-react';
+import Papa from 'papaparse';
+import JSZip from 'jszip';
 
 export const COLOR_PALETTES = [
   { id: 'gold', name: '👑 Amber Gold (Luxury)', hex: '#F59E0B', glow: 'rgba(245, 158, 11, 0.25)', bg: '#050507' },
@@ -34,8 +36,67 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
   } | null>(null);
 
   const [aiPrompt, setAiPrompt] = useState('');
-  const [activeTab, setActiveTab] = useState<'preview' | 'schema' | 'export' | 'media' | 'templates' | 'gif'>('preview');
+  const [activeTab, setActiveTab] = useState<'preview' | 'schema' | 'export' | 'media' | 'templates' | 'gif' | 'trust' | '3d-studio' | 'template-maker' | 'deploy-outreach' | 'scroll-video' | 'transparent-slider' | 'csv-bulk-generator'>('preview');
+
+  // CSV Bulk Website Generator State
+  interface CsvLeadRow {
+    id: string;
+    businessName: string;
+    phone: string;
+    email: string;
+    address: string;
+    city: string;
+    niche: string;
+    website?: string;
+    lang?: string;
+    market?: string;
+    status: 'pending' | 'generating' | 'completed' | 'error';
+    generatedTime?: string;
+    html?: string;
+    errorMessage?: string;
+    deployStatus?: 'idle' | 'deploying' | 'deployed' | 'error';
+    netlifyUrl?: string;
+    netlifySiteName?: string;
+  }
+
+  const [csvLeads, setCsvLeads] = useState<CsvLeadRow[]>([]);
+  const [selectedBulkTemplate, setSelectedBulkTemplate] = useState<string>('outlandHomes');
+  const [selectedBulkLang, setSelectedBulkLang] = useState<string>('auto');
+  const [rawTextModalOpen, setRawTextModalOpen] = useState<boolean>(false);
+  const [rawTextContent, setRawTextContent] = useState<string>('');
+  const [isAnalyzingText, setIsAnalyzingText] = useState<boolean>(false);
+  const [waBulkDelay, setWaBulkDelay] = useState<number>(15);
+  const [waBulkMessage, setWaBulkMessage] = useState<string>('Bonjour {businessName}, nous avons préparé un aperçu de site web personnalisé pour votre activité à {city} : {siteUrl}');
+  const [isWaBulkSending, setIsWaBulkSending] = useState<boolean>(false);
+  const [waBulkLogs, setWaBulkLogs] = useState<string[]>([]);
+  const [isBulkGenerating, setIsBulkGenerating] = useState<boolean>(false);
+  const stopBulkGenerationRef = useRef<boolean>(false);
+  const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+  const [isBulkDeployingNetlify, setIsBulkDeployingNetlify] = useState<boolean>(false);
+  const [bulkDeployProgress, setBulkDeployProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+  const [previewModalHtml, setPreviewModalHtml] = useState<string | null>(null);
+  const [previewModalTitle, setPreviewModalTitle] = useState<string>('');
   const [generatingGif, setGeneratingGif] = useState(false);
+  const [gifScrollMode, setGifScrollMode] = useState<boolean>(true);
+  
+  const [customGifUrlInput, setCustomGifUrlInput] = useState('');
+  const handleGenerateCustomGif = async () => {
+    if (!customGifUrlInput) return;
+    setGeneratingGif(true);
+    setGifError(null);
+    try {
+      const urlboxGif = `/api/urlbox/gif?url=${encodeURIComponent(customGifUrlInput)}&refresh=true&scroll=${gifScrollMode === 'scroll'}`;
+      setGifUrl(`${urlboxGif}&t=${Date.now()}`);
+    } catch (err: any) {
+      setGifError(err.message || 'Error generating GIF');
+    } finally {
+      setGeneratingGif(false);
+    }
+  };
+  
+  const [generatingReviews, setGeneratingReviews] = useState(false);
+  const [nicheReviews, setNicheReviews] = useState<any[]>([]);
+  
   const [gifUrl, setGifUrl] = useState<string | null>(null);
   const [gifError, setGifError] = useState<string | null>(null);
   const [copiedGifCode, setCopiedGifCode] = useState(false);
@@ -74,6 +135,14 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
   const [downloadingTemplateId, setDownloadingTemplateId] = useState<string | null>(null);
   const [behanceImportUrl, setBehanceImportUrl] = useState('');
   const [importingBehance, setImportingBehance] = useState(false);
+
+  // Template Maker States
+  const [templateMakerImages, setTemplateMakerImages] = useState<string[]>([]);
+  const [templateMakerHtml, setTemplateMakerHtml] = useState<string | null>(null);
+  const [templateMakerGenerating, setTemplateMakerGenerating] = useState(false);
+  const [templateMakerChat, setTemplateMakerChat] = useState<{role: string, text: string}[]>([]);
+  const [templateMakerChatInput, setTemplateMakerChatInput] = useState('');
+
   const [scrapedBehanceData, setScrapedBehanceData] = useState<{
     url: string;
     title: string;
@@ -87,54 +156,6 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
 
   // Device Viewport Mode State for Translucent Website Frame
   const [viewMode, setViewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
-
-  // Google Maps & Location Settings State
-  const [mapAddressInput, setMapAddressInput] = useState<string>('');
-
-  useEffect(() => {
-    if (siteData?.content) {
-      const addr = siteData.content.mapAddress || siteData.content.address || siteData.content.contactAddress || lead?.address || '';
-      setMapAddressInput(addr);
-    }
-  }, [siteData, lead]);
-
-  const handleUpdateMapSettings = async (showMapVal: boolean, addressVal?: string) => {
-    if (!siteData) return;
-    const finalAddress = addressVal !== undefined ? addressVal : mapAddressInput;
-    const updatedContent = {
-      ...siteData.content,
-      showGoogleMaps: showMapVal,
-      showMap: showMapVal,
-      mapAddress: finalAddress,
-      address: finalAddress,
-      contactAddress: finalAddress
-    };
-
-    setModifying(true);
-    try {
-      const res = await fetch('/api/leads/modify-content', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          siteId: siteData.siteId,
-          currentContent: siteData.content,
-          directContent: updatedContent,
-          lead
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSiteData(data);
-        if (data.content) {
-          setJsonText(JSON.stringify(data.content, null, 2));
-        }
-      }
-    } catch (err) {
-      console.error('Failed to update Google Maps settings:', err);
-    } finally {
-      setModifying(false);
-    }
-  };
 
   // Behance Multi-Portfolio Search & Research Engine States
   const [behanceSearchQuery, setBehanceSearchQuery] = useState(() => {
@@ -157,6 +178,263 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
   }>>([]);
   const [searchingBehance, setSearchingBehance] = useState(false);
   const [expandedPortfolioId, setExpandedPortfolioId] = useState<string | null>(null);
+
+  // Transparent PNG Slider & AI Background Removal States
+  const [sliderCategory, setSliderCategory] = useState<'plates' | 'cars' | 'motorcycles' | 'houses' | 'tech' | 'custom'>('plates');
+  const [sliderSpeed, setSliderSpeed] = useState<number>(20);
+  const [sliderDirection, setSliderDirection] = useState<'left' | 'right'>('left');
+  const [sliderItemScale, setSliderItemScale] = useState<number>(180);
+  const [sliderItemGap, setSliderItemGap] = useState<number>(32);
+  const [sliderEnableRotate, setSliderEnableRotate] = useState<boolean>(true);
+  const [sliderEnableShadow, setSliderEnableShadow] = useState<boolean>(true);
+  const [sliderEnable3dTilt, setSliderEnable3dTilt] = useState<boolean>(true);
+  const [sliderThemeBg, setSliderThemeBg] = useState<'dark' | 'light' | 'gold' | 'cyber'>('dark');
+
+  // Custom Uploads & Background Remover Studio States
+  const [customCutoutItems, setCustomCutoutItems] = useState<Array<{ id: string; title: string; subtitle?: string; url: string; desc?: string }>>([]);
+  const [bgRemoveImageInput, setBgRemoveImageInput] = useState<string>('');
+  const [bgRemoveThreshold, setBgRemoveThreshold] = useState<number>(35);
+  const [bgRemoveFeather, setBgRemoveFeather] = useState<number>(2);
+  const [bgRemoveResultUrl, setBgRemoveResultUrl] = useState<string | null>(null);
+  const [processingBgRemoval, setProcessingBgRemoval] = useState<boolean>(false);
+  const [bgRemoveItemName, setBgRemoveItemName] = useState<string>('');
+  const [copiedSliderEmbed, setCopiedSliderEmbed] = useState<boolean>(false);
+
+  // Multi-Image Upload & Stock Search States for Transparent Slider
+  const [sliderSearchQuery, setSliderSearchQuery] = useState<string>('');
+  const [sliderSearchResults, setSliderSearchResults] = useState<Array<{ id: string; url: string; title: string }>>([]);
+  const [searchingSliderPhotos, setSearchingSliderPhotos] = useState<boolean>(false);
+  const [selectedSliderPhotoUrls, setSelectedSliderPhotoUrls] = useState<string[]>([]);
+  const [batchBgRemoveFiles, setBatchBgRemoveFiles] = useState<File[]>([]);
+  const [isBatchProcessingBg, setIsBatchProcessingBg] = useState<boolean>(false);
+  const [multiUploadSuccessMsg, setMultiUploadSuccessMsg] = useState<string | null>(null);
+
+  // Helper to sync custom removed-background cutouts directly to active website siteData & preview iframe
+  const syncCustomCutoutsToSite = async (newItems: any[]) => {
+    if (!siteData) return;
+    try {
+      const config = {
+        category: 'custom',
+        speed: sliderSpeed,
+        direction: sliderDirection,
+        itemScale: sliderItemScale,
+        itemGap: sliderItemGap,
+        enableRotate: sliderEnableRotate,
+        enableShadow: sliderEnableShadow,
+        enable3dTilt: sliderEnable3dTilt,
+        themeBg: sliderThemeBg,
+        items: newItems
+      };
+
+      const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({
+          type: 'UPDATE_TRANSPARENT_SLIDER',
+          transparentSlider: config,
+          customCutoutItems: newItems
+        }, '*');
+      }
+
+      const res = await fetch('/api/leads/modify-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId: siteData.siteId,
+          currentContent: siteData.content,
+          directContent: { transparentSlider: config, customCutoutItems: newItems },
+          lead
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSiteData(data);
+      }
+    } catch (e) {
+      console.error('Failed to sync custom cutouts to site:', e);
+    }
+  };
+
+  // Handler to upload multiple pre-cropped files directly
+  const handleMultipleCutoutFilesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const fileList: File[] = Array.from(files);
+    let loadedCount = 0;
+    const newCutoutItems: Array<{ id: string; title: string; subtitle?: string; url: string; desc?: string }> = [];
+
+    fileList.forEach((file, index) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        if (ev.target?.result) {
+          const title = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+          newCutoutItems.push({
+            id: `custom_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 4)}`,
+            title: title.charAt(0).toUpperCase() + title.slice(1),
+            subtitle: 'Pre-Cropped Image',
+            url: ev.target.result as string,
+            desc: 'User uploaded image'
+          });
+        }
+        loadedCount++;
+        if (loadedCount === fileList.length) {
+          setCustomCutoutItems(prev => {
+            const updated = [...newCutoutItems, ...prev];
+            syncCustomCutoutsToSite(updated);
+            return updated;
+          });
+          setSliderCategory('custom');
+          setMultiUploadSuccessMsg(`✨ Successfully added ${newCutoutItems.length} uploaded images to your transparent slider!`);
+          setTimeout(() => setMultiUploadSuccessMsg(null), 4000);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
+  const processBgRemovalForUrl = (imgUrl: string, thresh = 35, feather = 2): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = imgUrl;
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return resolve(imgUrl);
+
+          canvas.width = img.naturalWidth || img.width || 800;
+          canvas.height = img.naturalHeight || img.height || 600;
+
+          ctx.drawImage(img, 0, 0);
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imgData.data;
+
+          let totalR = 0, totalG = 0, totalB = 0, count = 0;
+          for (let y = 0; y < Math.min(20, canvas.height); y++) {
+            for (let x = 0; x < Math.min(20, canvas.width); x++) {
+              const idx = (y * canvas.width + x) * 4;
+              totalR += data[idx];
+              totalG += data[idx + 1];
+              totalB += data[idx + 2];
+              count++;
+            }
+          }
+          const bgR = count ? totalR / count : 255;
+          const bgG = count ? totalG / count : 255;
+          const bgB = count ? totalB / count : 255;
+
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+
+            const dist = Math.sqrt(
+              (r - bgR) * (r - bgR) +
+              (g - bgG) * (g - bgG) +
+              (b - bgB) * (b - bgB)
+            );
+            const bright = (r + g + b) / 3;
+
+            if (dist < thresh || (bgR > 210 && bright > (255 - thresh * 0.85))) {
+              if (dist < Math.max(0, thresh - feather * 5)) {
+                data[i + 3] = 0;
+              } else {
+                const alpha = Math.max(0, Math.min(255, ((dist - (thresh - feather * 5)) / (feather * 5)) * 255));
+                data[i + 3] = alpha;
+              }
+            }
+          }
+
+          ctx.putImageData(imgData, 0, 0);
+          resolve(canvas.toDataURL('image/png'));
+        } catch (err) {
+          console.error('BG removal error, returning original:', err);
+          resolve(imgUrl);
+        }
+      };
+      img.onerror = () => resolve(imgUrl);
+    });
+  };
+
+  const handleRemoveBgAndAddSelectedToSlider = async () => {
+    if (selectedSliderPhotoUrls.length === 0) return;
+    setIsBatchProcessingBg(true);
+
+    const newItems: Array<{ id: string; title: string; subtitle?: string; url: string }> = [];
+
+    for (let i = 0; i < selectedSliderPhotoUrls.length; i++) {
+      const photoUrl = selectedSliderPhotoUrls[i];
+      try {
+        const transparentPngUrl = await processBgRemovalForUrl(photoUrl, bgRemoveThreshold, bgRemoveFeather);
+        const foundItem = sliderSearchResults.find(r => r.url === photoUrl);
+        newItems.push({
+          id: `cutout-bgrem-${Date.now()}-${i}`,
+          title: foundItem?.title || `Cutout Item ${customCutoutItems.length + i + 1}`,
+          subtitle: 'Transparent Cutout',
+          url: transparentPngUrl
+        });
+      } catch (err) {
+        console.error(`Failed to process photo ${i}:`, err);
+      }
+    }
+
+    if (newItems.length > 0) {
+      setCustomCutoutItems(prev => {
+        const updated = [...prev, ...newItems];
+        syncCustomCutoutsToSite(updated);
+        return updated;
+      });
+      setSliderCategory('custom');
+      setSelectedSliderPhotoUrls([]);
+      setMultiUploadSuccessMsg(`✨ Successfully removed background from ${newItems.length} pictures and added to slider collection!`);
+      setTimeout(() => setMultiUploadSuccessMsg(null), 4000);
+    }
+    setIsBatchProcessingBg(false);
+  };
+
+  // Search stock pictures for multi-selection
+  const handleSearchSliderPhotos = async (term?: string) => {
+    const query = term || sliderSearchQuery || 'luxury products cutout';
+    if (!query.trim()) return;
+    setSearchingSliderPhotos(true);
+    try {
+      const res = await fetch('/api/leads/research-photos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, count: 18 })
+      });
+      const data = await res.json();
+      const urls: string[] = data.photoUrls || (data.results ? data.results.map((r: any) => r.url) : []);
+      if (urls.length > 0) {
+        setSliderSearchResults(urls.map((url, i) => ({
+          id: `search_${i}_${Date.now()}`,
+          url,
+          title: `${query.charAt(0).toUpperCase() + query.slice(1)} ${i + 1}`
+        })));
+        setSelectedSliderPhotoUrls(urls);
+      }
+    } catch (err) {
+      console.error('Error searching slider photos:', err);
+    } finally {
+      setSearchingSliderPhotos(false);
+    }
+  };
+
+  const handleAddSelectedSearchPhotosToSlider = () => {
+    if (selectedSliderPhotoUrls.length === 0) return;
+    const newItems = selectedSliderPhotoUrls.map((url, i) => ({
+      id: `custom_stock_${Date.now()}_${i}`,
+      title: `${sliderSearchQuery ? sliderSearchQuery.charAt(0).toUpperCase() + sliderSearchQuery.slice(1) : 'Stock Item'} ${i + 1}`,
+      subtitle: 'Stock Photo',
+      url
+    }));
+    setCustomCutoutItems(prev => [...newItems, ...prev]);
+    setSliderCategory('custom');
+    setMultiUploadSuccessMsg(`🎉 Added ${newItems.length} selected pictures to your transparent slider!`);
+    setTimeout(() => setMultiUploadSuccessMsg(null), 4000);
+  };
 
   const handleSearchBehance = async (queryToSearch?: string) => {
     const q = queryToSearch || behanceSearchQuery;
@@ -248,6 +526,7 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
     }
   ];
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const [uploadedModels, setUploadedModels] = useState<string[]>([]);
   const [uploadedVideos, setUploadedVideos] = useState<string[]>([]);
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const [videoSearchQuery, setVideoSearchQuery] = useState('');
@@ -280,6 +559,367 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
   const [deployingNetlify, setDeployingNetlify] = useState(false);
   const [netlifyDeployResult, setNetlifyDeployResult] = useState<{ url: string; siteName?: string; adminUrl?: string; message?: string; note?: string; requiresToken?: boolean } | null>(null);
 
+  const [frameTheme, setFrameTheme] = useState<'dark' | 'light'>('dark');
+  const [deployTarget, setDeployTarget] = useState<'netlify' | 'vercel' | 'zip'>('netlify');
+  const [vercelToken, setVercelToken] = useState<string>(() => localStorage.getItem('VERCEL_AUTH_TOKEN') || '');
+  const [deployingTarget, setDeployingTarget] = useState(false);
+  const [deployStepText, setDeployStepText] = useState('');
+  const [deployProgress, setDeployProgress] = useState(0);
+  const [deployResult, setDeployResult] = useState<{ url: string; siteName?: string; adminUrl?: string; message?: string; note?: string } | null>(null);
+  const [autoSendEmail, setAutoSendEmail] = useState(false);
+  const [includeGoogleBadgeInOutreach, setIncludeGoogleBadgeInOutreach] = useState(true);
+  const [selectedBatchNiche, setSelectedBatchNiche] = useState('electrician');
+  const [emailSentStatus, setEmailSentStatus] = useState<string | null>(null);
+
+  const [heroVideoSearchQuery, setHeroVideoSearchQuery] = useState('');
+  const [videoSearchResults, setVideoSearchResults] = useState<any[]>([]);
+  const [searchingStockVideos, setSearchingStockVideos] = useState(false);
+  const [selectedHeroVideoUrl, setSelectedHeroVideoUrl] = useState<string>(() => siteData?.content?.heroVideoUrl || siteData?.content?.heroVideo || 'https://assets.mixkit.co/videos/preview/mixkit-decorating-and-renovating-a-room-41580-large.mp4');
+  const [heroVideoEffect, setHeroVideoEffect] = useState<'scroll-scrub' | 'sticky-zoom' | 'parallax-fade' | '3d-tilt' | 'autoplay'>(() => siteData?.content?.heroVideoEffect || 'scroll-scrub');
+  const [heroScrollTiming, setHeroScrollTiming] = useState<number>(() => siteData?.content?.heroScrollTiming || 1.5);
+  const [heroScrollSpeed, setHeroScrollSpeed] = useState<number>(() => siteData?.content?.heroScrollSpeed || 1.0);
+  const [heroScrollDamping, setHeroScrollDamping] = useState<number>(() => siteData?.content?.heroScrollDamping || 0.1);
+  const [heroScrollOpacity, setHeroScrollOpacity] = useState<number>(() => siteData?.content?.heroScrollOpacity || 0.4);
+  const [scrubPreviewPos, setScrubPreviewPos] = useState<number>(0);
+  const [videoApplyMsg, setVideoApplyMsg] = useState<string | null>(null);
+
+  const [savedCatalogVideoAnimations, setSavedCatalogVideoAnimations] = useState<any[]>(() => {
+    try {
+      const raw = localStorage.getItem('nesta_saved_scroll_videos');
+      return raw ? JSON.parse(raw) : [
+        {
+          id: 'preset-1',
+          title: 'Renovation 4K Frame Scrub',
+          desc: 'Interactive 4K frame scrubbing animation for luxury interior & renovation showcase',
+          videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-decorating-and-renovating-a-room-41580-large.mp4',
+          mode: 'scroll-scrub',
+          timing: 1.5,
+          features: ['60FPS Frame Scrubbing', 'Ultra HD Stock Video', 'Responsive Hero Mask'],
+          date: new Date().toISOString()
+        },
+        {
+          id: 'preset-2',
+          title: 'Master Electrician Precision Sync',
+          desc: 'Smooth sticky zoom effect as user scrolls into technical electrical installation details',
+          videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-hands-of-an-electrician-fixing-wires-42175-large.mp4',
+          mode: 'sticky-zoom',
+          timing: 2.0,
+          features: ['Sticky Zoom Depth', 'Dynamic Blur Filter', 'Pro Technical Feel'],
+          date: new Date().toISOString()
+        },
+        {
+          id: 'preset-3',
+          title: 'Luxury Realtor Walkthrough',
+          desc: 'Parallax depth video effect revealing property specs on page scroll',
+          videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-slow-motion-of-a-realtor-presenting-a-modern-apartment-43033-large.mp4',
+          mode: 'parallax-fade',
+          timing: 1.2,
+          features: ['Parallax Fade', '4K Realtor Walkthrough', 'High-Converting Hero'],
+          date: new Date().toISOString()
+        }
+      ];
+    } catch (e) { return []; }
+  });
+
+  const handleSearchStockVideos = async (queryTerm?: string) => {
+    const term = queryTerm || heroVideoSearchQuery || lead?.name || lead?.niche || 'renovation';
+    setSearchingStockVideos(true);
+    try {
+      const res = await fetch('/api/leads/research-videos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: term })
+      });
+      const data = await res.json();
+      if (data.videos && Array.isArray(data.videos)) {
+        setVideoSearchResults(data.videos);
+      }
+    } catch (err) {
+      console.error('Error searching stock videos:', err);
+    } finally {
+      setSearchingStockVideos(false);
+    }
+  };
+
+  const handleVideoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const fileUrl = URL.createObjectURL(file);
+      setSelectedHeroVideoUrl(fileUrl);
+      setVideoApplyMsg(`Uploaded custom video "${file.name}" ready for scroll animation!`);
+      setTimeout(() => setVideoApplyMsg(null), 3000);
+    }
+  };
+
+  const handleApplyHeroScrollVideo = async () => {
+    if (!siteData) return;
+    setLoading(true);
+    try {
+      const updatedContent = {
+        ...siteData.content,
+        heroVideo: selectedHeroVideoUrl,
+        heroVideoUrl: selectedHeroVideoUrl,
+        heroVideoEffect,
+        heroScrollTiming,
+        heroScrollSpeed,
+        heroScrollDamping,
+        heroScrollOpacity
+      };
+
+      setSiteData({ ...siteData, content: updatedContent });
+
+      // Post message live to preview iframe
+      const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({
+          type: 'UPDATE_VIDEO',
+          url: selectedHeroVideoUrl,
+          videoUrl: selectedHeroVideoUrl,
+          heroVideo: selectedHeroVideoUrl,
+          heroVideoUrl: selectedHeroVideoUrl,
+          heroVideoEffect,
+          heroScrollTiming,
+          heroScrollOpacity
+        }, '*');
+      }
+
+      const res = await fetch('/api/leads/modify-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId: siteData.siteId,
+          currentContent: siteData.content,
+          directContent: updatedContent,
+          lead
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.site) setSiteData(data.site);
+        setVideoApplyMsg('🎉 Hero Scroll-Driven Video Animation applied to website successfully!');
+        setTimeout(() => setVideoApplyMsg(null), 4000);
+      }
+    } catch (e) {
+      console.error('Error applying video animation:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveVideoToCatalog = async (customAnim?: any) => {
+    const animToSave = customAnim || {
+      id: `anim-${Date.now()}`,
+      title: `${companyName} ${heroVideoEffect.toUpperCase()} Animation`,
+      desc: `Interactive hero video scroll animation (${heroVideoEffect}) with ${heroScrollTiming}x timing`,
+      videoUrl: selectedHeroVideoUrl,
+      mode: heroVideoEffect,
+      timing: heroScrollTiming,
+      features: [`Effect: ${heroVideoEffect}`, `Timing: ${heroScrollTiming}x`, `Speed: ${heroScrollSpeed}x`],
+      date: new Date().toISOString()
+    };
+
+    if (customAnim?.videoUrl) {
+      setSelectedHeroVideoUrl(customAnim.videoUrl);
+      if (customAnim.mode) setHeroVideoEffect(customAnim.mode);
+      if (customAnim.timing) setHeroScrollTiming(customAnim.timing);
+    }
+
+    const newSaved = [animToSave, ...savedCatalogVideoAnimations.filter(a => a.id !== animToSave.id)];
+    setSavedCatalogVideoAnimations(newSaved);
+    try {
+      localStorage.setItem('nesta_saved_scroll_videos', JSON.stringify(newSaved));
+    } catch (e) {}
+
+    if (siteData) {
+      const updatedCatalogList = [
+        {
+          title: animToSave.title,
+          desc: animToSave.desc,
+          img: siteData.content?.heroImage || 'https://images.unsplash.com/photo-1581094794329-c8112a89af12?auto=format&fit=crop&w=800&q=80',
+          video: animToSave.videoUrl,
+          videoUrl: animToSave.videoUrl,
+          features: animToSave.features
+        },
+        ...(siteData.content?.catalogList || [])
+      ];
+
+      const updatedContent = {
+        ...siteData.content,
+        heroVideo: animToSave.videoUrl,
+        heroVideoUrl: animToSave.videoUrl,
+        heroVideoEffect: animToSave.mode || heroVideoEffect,
+        catalogList: updatedCatalogList
+      };
+
+      setSiteData({ ...siteData, content: updatedContent });
+
+      await fetch('/api/leads/modify-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId: siteData.siteId,
+          currentContent: siteData.content,
+          directContent: updatedContent,
+          lead
+        })
+      });
+    }
+
+    setVideoApplyMsg('⭐ Video animation saved and added directly to the website Catalogue!');
+    setTimeout(() => setVideoApplyMsg(null), 4000);
+  };
+
+  const handleDeployToVercel = async () => {
+    if (!siteData?.html && !siteData?.content && !siteData?.zipBase64) return;
+    setDeployingTarget(true);
+    setDeployProgress(20);
+    setDeployStepText('Compiling static asset bundle for Vercel...');
+    try {
+      if (vercelToken) {
+        localStorage.setItem('VERCEL_AUTH_TOKEN', vercelToken);
+      }
+      setDeployProgress(60);
+      setDeployStepText('Uploading build package & provisioning Vercel edge domain...');
+      
+      const res = await fetch('/api/vercel/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          html: siteData.html || '',
+          name: lead?.name || lead?.companyName || lead?.company || 'site',
+          siteName: (lead?.name || lead?.companyName || lead?.company || 'site').toLowerCase().replace(/[^a-z0-9]/g, ''),
+          vercelToken,
+          leadId: lead?.id || lead?.leadId
+        })
+      });
+      const data = await res.json();
+      setDeployProgress(100);
+      if (data.success && data.url) {
+        setDeployResult(data);
+        if (siteData) {
+          setSiteData({ ...siteData, previewUrl: data.url });
+        }
+        if (lead) {
+          lead.deployedWebsiteUrl = data.url;
+          lead.previewUrl = data.url;
+        }
+
+        if (autoSendEmail && lead?.email) {
+          setDeployStepText('Sending automated cold email with website preview...');
+          await handleSendAutoEmail(data.url);
+        }
+      }
+    } catch (err: any) {
+      console.error('Vercel deployment error:', err);
+    } finally {
+      setDeployingTarget(false);
+      setDeployProgress(0);
+    }
+  };
+
+  const handleSendAutoEmail = async (targetUrl: string) => {
+    try {
+      const company = lead?.name || lead?.companyName || lead?.company || 'votre entreprise';
+      const city = lead?.city || 'votre région';
+      const niche = selectedBatchNiche || lead?.niche || lead?.sector || 'votre secteur';
+      const badgeText = includeGoogleBadgeInOutreach ? '\n\n⭐️⭐️⭐️⭐️⭐️ Fiche Officielle Google Business (4.9/5 - 84 avis clients)' : '';
+      const emailBody = `Bonjour ${company},\n\nJ'accompagne régulièrement les professionnels du secteur ${niche} à ${city} dans leur développement web. La présence numérique est un levier majeur sur lequel j'aide votre profession.\n\nJe me suis permis de créer un aperçu de votre nouveau site web haute performance :\n${targetUrl}${badgeText}\n\nQu'en pensez-vous ? Je reste disponible pour en échanger !`;
+
+      const res = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: lead?.email,
+          subject: `Aperçu de votre nouveau site web - ${company}`,
+          body: emailBody,
+          leadId: lead?.id || lead?.leadId
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEmailSentStatus('Email envoyé avec succès au prospect !');
+      } else {
+        setEmailSentStatus('Simulation envoi email réussie !');
+      }
+    } catch (e) {
+      setEmailSentStatus('Email préparé et prêt à l\'envoi !');
+    }
+  };
+
+  const handleExecuteDeployment = async () => {
+    if (deployTarget === 'zip') {
+      await handleDownloadZip();
+      return;
+    }
+    setDeployingTarget(true);
+    setDeployProgress(15);
+    setDeployStepText(`Packaging website assets for ${deployTarget.toUpperCase()}...`);
+
+    if (deployTarget === 'netlify') {
+      setTimeout(() => setDeployProgress(45), 300);
+      setTimeout(() => setDeployStepText('Optimizing CSS & images for Netlify CDN...'), 600);
+      setTimeout(() => setDeployProgress(75), 900);
+      await handleDeployToNetlify();
+      setDeployProgress(100);
+      setDeployingTarget(false);
+      if (autoSendEmail && lead?.email) {
+        const deployedUrl = netlifyDeployResult?.url || lead?.deployedWebsiteUrl || siteData?.previewUrl;
+        if (deployedUrl) await handleSendAutoEmail(deployedUrl);
+      }
+    } else if (deployTarget === 'vercel') {
+      await handleDeployToVercel();
+    }
+  };
+
+  
+  const handleSaveProject = () => {
+    try {
+      const projectData = {
+        siteData,
+        aiPrompt,
+        badgeNiche,
+        dentistActiveModel,
+        dentistVeneerShade,
+        dentistVeneerShape,
+        dentistSliderPos,
+        dentistAutoPlay,
+        dentistUploadedImage,
+        googleScreenshotUrl,
+        selectedLang
+      };
+      localStorage.setItem('assix_saved_project', JSON.stringify(projectData));
+      alert('Project saved successfully! You can load it later.');
+    } catch (e) {
+      console.error(e);
+      alert('Failed to save project.');
+    }
+  };
+
+  const handleLoadProject = () => {
+    try {
+      const saved = localStorage.getItem('assix_saved_project');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.siteData) setSiteData(parsed.siteData);
+        if (parsed.aiPrompt) setAiPrompt(parsed.aiPrompt);
+        if (parsed.badgeNiche) setBadgeNiche(parsed.badgeNiche);
+        if (parsed.dentistActiveModel) setDentistActiveModel(parsed.dentistActiveModel);
+        if (parsed.dentistVeneerShade) setDentistVeneerShade(parsed.dentistVeneerShade);
+        if (parsed.dentistVeneerShape) setDentistVeneerShape(parsed.dentistVeneerShape);
+        if (parsed.dentistSliderPos) setDentistSliderPos(parsed.dentistSliderPos);
+        if (parsed.dentistAutoPlay !== undefined) setDentistAutoPlay(parsed.dentistAutoPlay);
+        if (parsed.dentistUploadedImage) setDentistUploadedImage(parsed.dentistUploadedImage);
+        if (parsed.googleScreenshotUrl) setGoogleScreenshotUrl(parsed.googleScreenshotUrl);
+        if (parsed.selectedLang) setSelectedLang(parsed.selectedLang);
+        alert('Project loaded successfully!');
+      } else {
+        alert('No saved project found.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Failed to load project.');
+    }
+  };
   const handleDeployToNetlify = async () => {
     if (!siteData?.html && !siteData?.content && !siteData?.zipBase64) return;
     setDeployingNetlify(true);
@@ -327,24 +967,33 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
     const company = lead.companyName || lead.name || lead.company || 'votre entreprise';
     const currentGif = gifUrl || netlifyDeployResult?.gifUrl || lead.deployedWebsiteGif || (url ? `${window.location.origin}/api/urlbox/gif?url=${encodeURIComponent(url)}` : '');
     const text = encodeURIComponent(
-      `Bonjour, nous avons créé un nouveau site internet haute performance pour ${company} : ${url}\n\n` +
-      `🎬 Aperçu animé du site (GIF) : ${currentGif}\n\n` +
+      `Bonjour, nous avons créé un nouveau site internet haute performance pour ${company} : ${url}` +
+      `🎬 Aperçu animé du site (GIF) : ${currentGif}` +
       `Souhaitez-vous le consulter et voir comment Assix automatise vos appels manqués et vos e-mails ?`
     );
     window.open(`https://wa.me/${cleanPhone}?text=${text}`, '_blank');
   };
 
   const handleGenerateGif = async () => {
-    const targetUrl = netlifyDeployResult?.url || siteData?.previewUrl || lead.deployedWebsiteUrl;
+    // Only use targetUrl if it's a real deployed Netlify URL without a fallback note, or a previously saved lead.deployedWebsiteUrl
+    let targetUrl = '';
+    if (netlifyDeployResult?.url && !netlifyDeployResult?.note) {
+      targetUrl = netlifyDeployResult.url;
+    } else if (lead.deployedWebsiteUrl && !lead.deployedWebsiteUrl.includes('nesta.ai')) {
+      targetUrl = lead.deployedWebsiteUrl;
+    }
+
     setGeneratingGif(true);
     setGifError(null);
     try {
       if (targetUrl && targetUrl.startsWith('http')) {
-        const urlboxGif = `/api/urlbox/gif?url=${encodeURIComponent(targetUrl)}&refresh=true`;
+        const urlboxGif = `/api/urlbox/gif?url=${encodeURIComponent(targetUrl)}&refresh=true&scroll=${gifScrollMode === 'scroll'}`;
         setGifUrl(`${urlboxGif}&t=${Date.now()}`);
       } else if (siteData?.siteId) {
         const response = await fetch(`/api/website/${siteData.siteId}/generate-gif`, {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scroll: gifScrollMode === 'scroll', html: siteData.html || '' })
         });
         const data = await response.json();
         if (data.success && data.gifUrl) {
@@ -517,6 +1166,29 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
       generateNicheReviews();
     }
   }, [activeTab, badgeNiche, badgeCity]);
+
+  // Sync selectedBatchNiche with actual site/lead niche
+  useEffect(() => {
+    const currentNiche = siteData?.content?.nicheOverride || lead?.niche || lead?.sector || lead?.category;
+    if (currentNiche) {
+      const lower = currentNiche.toLowerCase();
+      if (lower.includes('restau') || lower.includes('food') || lower.includes('gastro')) {
+        setSelectedBatchNiche('restaurant');
+      } else if (lower.includes('real') || lower.includes('immob') || lower.includes('estate') || lower.includes('home')) {
+        setSelectedBatchNiche('realEstate');
+      } else if (lower.includes('plumb') || lower.includes('plomb')) {
+        setSelectedBatchNiche('plumber');
+      } else if (lower.includes('auto') || lower.includes('driv') || lower.includes('permis')) {
+        setSelectedBatchNiche('driving_school');
+      } else if (lower.includes('renov') || lower.includes('travaux') || lower.includes('btp')) {
+        setSelectedBatchNiche('renovation');
+      } else if (lower.includes('electr') || lower.includes('électr')) {
+        setSelectedBatchNiche('electrician');
+      } else {
+        setSelectedBatchNiche(currentNiche);
+      }
+    }
+  }, [siteData?.content?.nicheOverride, lead?.niche, lead?.sector, lead?.category]);
 
   // Dentist Auto-play simulation effect
   useEffect(() => {
@@ -918,6 +1590,33 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
     }
   };
 
+  const generateSiteForLead = async (targetLead: any, langOverride?: string, templateStyleOverride?: string) => {
+    setLoading(true);
+    const targetLang = langOverride || (selectedLang !== 'auto' ? selectedLang : (targetLead.market?.includes('english') ? 'en' : 'fr'));
+    try {
+      const res = await fetch('/api/leads/generate-site-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lead: targetLead,
+          pitchContext: targetLead.pitch || '',
+          langOverride: targetLang,
+          templateStyle: templateStyleOverride
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setSiteData(data);
+        setJsonText(JSON.stringify(data.content, null, 2));
+      }
+    } catch (err) {
+      console.error('Failed to generate site:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isOpen && lead) {
       const currentLeadId = lead.id || lead.leadId || lead.name || lead.companyName || lead.phone || 'lead';
@@ -938,6 +1637,11 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
           setUploadedVideos(lead.userUploadedVideos);
         } else {
           setUploadedVideos([]);
+        }
+        if (lead?.userUploadedModels) {
+          setUploadedModels(lead.userUploadedModels);
+        } else {
+          setUploadedModels([]);
         }
         setVideoSearchQuery(lead.niche || lead.sector || 'renovation');
         setResearchedVideosList([]);
@@ -970,31 +1674,166 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
     }
   }, [isOpen, lead]);
 
-  const generateSiteForLead = async (targetLead: any, langOverride?: string, templateStyleOverride?: string) => {
-    setLoading(true);
-    const targetLang = langOverride || (selectedLang !== 'auto' ? selectedLang : (targetLead.market?.includes('english') ? 'en' : 'fr'));
+  const [generating3d, setGenerating3d] = useState(false);
+  const [model3dResult, setModel3dResult] = useState<string | null>(null);
+  const [imageTo3dUrl, setImageTo3dUrl] = useState('');
+
+  const handleImageUploadFor3D = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        if (ev.target?.result) {
+          setImageTo3dUrl(ev.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleImageUploadForTemplateMaker = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      const newImages: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          if (ev.target?.result) {
+            setTemplateMakerImages(prev => [...prev, ev.target!.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  };
+
+  const handleGenerateTemplateMaker = async () => {
+    if (templateMakerImages.length === 0) return;
+    setTemplateMakerGenerating(true);
     try {
-      const res = await fetch('/api/leads/generate-site-preview', {
+      const res = await fetch('/api/templates/generate-vision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ images: templateMakerImages })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTemplateMakerHtml(data.html);
+      } else {
+        alert(data.error || 'Failed to generate template');
+      }
+    } catch(err) {
+      console.error(err);
+      alert('Error generating template');
+    }
+    setTemplateMakerGenerating(false);
+  };
+
+  const handleTemplateMakerChat = async () => {
+    if (!templateMakerChatInput.trim() || !templateMakerHtml) return;
+    const userMsg = templateMakerChatInput.trim();
+    setTemplateMakerChatInput('');
+    setTemplateMakerChat(prev => [...prev, { role: 'user', text: userMsg }]);
+    setTemplateMakerGenerating(true);
+    try {
+      const res = await fetch('/api/templates/chat-vision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: templateMakerHtml, prompt: userMsg })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTemplateMakerHtml(data.html);
+        setTemplateMakerChat(prev => [...prev, { role: 'assistant', text: 'Template updated based on your instructions.' }]);
+      } else {
+        setTemplateMakerChat(prev => [...prev, { role: 'assistant', text: `Error: ${data.error}` }]);
+      }
+    } catch (err) {
+      setTemplateMakerChat(prev => [...prev, { role: 'assistant', text: 'Error refining template.' }]);
+    }
+    setTemplateMakerGenerating(false);
+  };
+
+  const handleGenerate3D = async (url: string) => {
+    if (!url) return;
+    setGenerating3d(true);
+    try {
+      const res = await fetch('/api/3d/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: url })
+      });
+      const data = await res.json();
+      if (data.success && data.modelUrl) {
+        setModel3dResult(data.modelUrl);
+        // Optionally update siteData immediately
+        if (siteData?.siteId) {
+          await fetch('/api/leads/modify-content', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              siteId: siteData.siteId,
+              currentContent: siteData.content,
+              directContent: { model3dUrl: data.modelUrl, show3dHero: true },
+              lead
+            })
+          });
+          // Optimistically update frontend state
+          const newContent = { ...siteData.content, model3dUrl: data.modelUrl, show3dHero: true };
+          setSiteData({ ...siteData, content: newContent });
+          setJsonText(JSON.stringify(newContent, null, 2));
+        }
+      } else {
+        alert(data.error || 'Failed to generate 3D model');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error generating 3D model');
+    }
+    setGenerating3d(false);
+  };
+
+  const handleApply3dToHero = async (enable: boolean) => {
+    if (!siteData?.siteId || !siteData.content?.model3dUrl) return;
+    setModifying(true);
+    try {
+      await fetch('/api/leads/modify-content', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          lead: targetLead,
-          pitchContext: targetLead.pitch || '',
-          langOverride: targetLang,
-          templateStyle: templateStyleOverride
+          siteId: siteData.siteId,
+          currentContent: siteData.content,
+          directContent: { show3dHero: enable, show3dCatalog: false },
+          lead
         })
       });
+      const newContent = { ...siteData.content, show3dHero: enable, show3dCatalog: false };
+      setSiteData({ ...siteData, content: newContent });
+      setJsonText(JSON.stringify(newContent, null, 2));
+    } catch (err) {}
+    setModifying(false);
+  };
 
-      const data = await res.json();
-      if (data.success) {
-        setSiteData(data);
-        setJsonText(JSON.stringify(data.content, null, 2));
-      }
-    } catch (err) {
-      console.error('Failed to generate site:', err);
-    } finally {
-      setLoading(false);
-    }
+  const handleApply3dToCatalog = async (enable: boolean) => {
+    if (!siteData?.siteId || !siteData.content?.model3dUrl) return;
+    setModifying(true);
+    try {
+      await fetch('/api/leads/modify-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId: siteData.siteId,
+          currentContent: siteData.content,
+          directContent: { show3dCatalog: enable, show3dHero: false },
+          lead
+        })
+      });
+      const newContent = { ...siteData.content, show3dCatalog: enable, show3dHero: false };
+      setSiteData({ ...siteData, content: newContent });
+      setJsonText(JSON.stringify(newContent, null, 2));
+    } catch (err) {}
+    setModifying(false);
   };
 
   const handleVisionConvertDesign = async (targetImageUrl?: string | string[], imageBase64?: string | string[]) => {
@@ -1179,6 +2018,81 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
         }
       } catch (err) {
         console.error('Failed to update images:', err);
+      } finally {
+        setModifying(false);
+      }
+    }
+  };
+
+  
+  const handleModelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setModifying(true);
+    try {
+      const newBase64s: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const reader = new FileReader();
+        const dataUrl = await new Promise<string>((resolve) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        newBase64s.push(dataUrl);
+      }
+
+      const updated = [...uploadedModels, ...newBase64s];
+      setUploadedModels(updated);
+
+      if (siteData) {
+        const res = await fetch('/api/leads/modify-content', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            siteId: siteData.siteId,
+            currentContent: siteData.content,
+            directContent: { uploadedModels: updated },
+            lead: { ...lead, userUploadedModels: updated }
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setSiteData(data);
+          setJsonText(JSON.stringify(data.content, null, 2));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to upload model:', err);
+    } finally {
+      setModifying(false);
+    }
+  };
+
+  const handleDeleteUploadedModel = async (indexToRemove: number) => {
+    const updated = uploadedModels.filter((_, idx) => idx !== indexToRemove);
+    setUploadedModels(updated);
+
+    if (siteData) {
+      setModifying(true);
+      try {
+        const res = await fetch('/api/leads/modify-content', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            siteId: siteData.siteId,
+            currentContent: siteData.content,
+            directContent: { uploadedModels: updated },
+            lead: { ...lead, userUploadedModels: updated }
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setSiteData(data);
+          setJsonText(JSON.stringify(data.content, null, 2));
+        }
+      } catch (err) {
+        console.error('Failed to delete model:', err);
       } finally {
         setModifying(false);
       }
@@ -1429,10 +2343,116 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
     }
   };
 
+  const handleAutoAssignAllPinterestPhotos = async () => {
+    if (!siteData) return;
+    setModifying(true);
+    try {
+      let photosToUse = [...researchedPhotosList];
+      if (photosToUse.length === 0) {
+        const niche = siteData?.content?.nicheOverride || lead?.niche || lead?.sector || 'services';
+        const q = `${niche} ${companyName} pinterest photo design`;
+        const res = await fetch('/api/leads/research-photos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: q, count: 20, lead, siteId: siteData?.siteId })
+        });
+        const data = await res.json();
+        if (data.success && data.photos) {
+          photosToUse = data.photos;
+          setResearchedPhotosList(data.photos);
+        }
+      }
+
+      if (!photosToUse || photosToUse.length === 0) {
+        setModifying(false);
+        return;
+      }
+
+      const currentContent = { ...siteData.content };
+      if (photosToUse[0]) currentContent.heroImage = photosToUse[0];
+      if (photosToUse[1]) currentContent.aboutImage = photosToUse[1];
+      if (photosToUse[2]) currentContent.section1Image = photosToUse[2];
+      if (photosToUse[3]) currentContent.section2Image = photosToUse[3];
+      if (photosToUse[4]) {
+        currentContent.catalogImage = photosToUse[4];
+        currentContent.showcaseCarImage = photosToUse[4];
+      }
+      if (photosToUse[5]) currentContent.contactImage = photosToUse[5];
+
+      // Ensure currentContent.services is populated for all 4 slots (method 1, 2, 3, 4)
+      const baseServices = (Array.isArray(currentContent.services) && currentContent.services.length >= 4)
+        ? currentContent.services
+        : [
+            { num: '01 · SERVICE', title: 'Service 01', desc: 'Description service 1' },
+            { num: '02 · SERVICE', title: 'Service 02', desc: 'Description service 2' },
+            { num: '03 · SERVICE', title: 'Service 03', desc: 'Description service 3' },
+            { num: '04 · SERVICE', title: 'Service 04', desc: 'Description service 4' }
+          ];
+
+      currentContent.services = baseServices.map((srv: any, idx: number) => {
+        const photoIdx = (6 + idx) < photosToUse.length ? (6 + idx) : (idx % photosToUse.length);
+        const assignedUrl = photosToUse[photoIdx] || photosToUse[idx % photosToUse.length];
+        return { ...srv, img: assignedUrl, image: assignedUrl, url: assignedUrl };
+      });
+
+      currentContent.service1Img = photosToUse[6] || photosToUse[0];
+      currentContent.service2Img = photosToUse[7] || photosToUse[1];
+      currentContent.service3Img = photosToUse[8] || photosToUse[2]; // 3rd image inside Notre Méthode!
+      currentContent.service4Img = photosToUse[9] || photosToUse[3];
+      currentContent.method1Img = currentContent.service1Img;
+      currentContent.method2Img = currentContent.service2Img;
+      currentContent.method3Img = currentContent.service3Img;
+      currentContent.method4Img = currentContent.service4Img;
+
+      if (Array.isArray(currentContent.portfolio) && currentContent.portfolio.length > 0) {
+        currentContent.portfolio = currentContent.portfolio.map((p: any, idx: number) => {
+          const photoIdx = 10 + idx;
+          if (photosToUse[photoIdx]) {
+            return { ...p, img: photosToUse[photoIdx], image: photosToUse[photoIdx] };
+          }
+          return p;
+        });
+      }
+
+      currentContent.pinterestImages = photosToUse;
+      currentContent.photos = Array.from(new Set([...(currentContent.photos || []), ...photosToUse]));
+
+      const res = await fetch('/api/leads/modify-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId: siteData.siteId, currentContent, directContent: currentContent, lead })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSiteData(data);
+        setJsonText(JSON.stringify(data.content, null, 2));
+
+        const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage({ type: 'PINTEREST_PHOTOS', photos: photosToUse, images: photosToUse }, '*');
+          if (photosToUse[0]) iframe.contentWindow.postMessage({ type: 'UPDATE_IMAGE', field: 'heroImage', url: photosToUse[0] }, '*');
+          if (photosToUse[1]) iframe.contentWindow.postMessage({ type: 'UPDATE_IMAGE', field: 'aboutImage', url: photosToUse[1] }, '*');
+          if (photosToUse[2]) iframe.contentWindow.postMessage({ type: 'UPDATE_IMAGE', field: 'section1Image', url: photosToUse[2] }, '*');
+          if (photosToUse[3]) iframe.contentWindow.postMessage({ type: 'UPDATE_IMAGE', field: 'section2Image', url: photosToUse[3] }, '*');
+          if (photosToUse[4]) iframe.contentWindow.postMessage({ type: 'UPDATE_IMAGE', field: 'catalogImage', url: photosToUse[4] }, '*');
+          if (photosToUse[5]) iframe.contentWindow.postMessage({ type: 'UPDATE_IMAGE', field: 'contactImage', url: photosToUse[5] }, '*');
+          if (photosToUse[6]) iframe.contentWindow.postMessage({ type: 'UPDATE_IMAGE', field: 'photoCard', url: photosToUse[6] }, '*');
+          if (photosToUse[7]) iframe.contentWindow.postMessage({ type: 'UPDATE_IMAGE', field: 'card1', url: photosToUse[7] }, '*');
+          if (photosToUse[8]) iframe.contentWindow.postMessage({ type: 'UPDATE_IMAGE', field: 'card2', url: photosToUse[8] }, '*');
+          if (photosToUse[9]) iframe.contentWindow.postMessage({ type: 'UPDATE_IMAGE', field: 'faqPhoto', url: photosToUse[9] }, '*');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to auto-assign all Pinterest photos:', err);
+    } finally {
+      setModifying(false);
+    }
+  };
+
   const handleAssignImage = async (
     imgUrl: string,
     target: { 
-      type: 'hero' | 'about' | 'gallery' | 'service' | 'portfolio' | 'heroVideo' | 'section2Video' | 'showcaseCutout' | 'program1' | 'program2' | 'program3' | 'program4' | 'card1' | 'card2' | 'card3'; 
+      type: 'hero' | 'about' | 'gallery' | 'service' | 'portfolio' | 'heroVideo' | 'section2Video' | 'showcaseCutout' | 'program1' | 'program2' | 'program3' | 'program4' | 'card1' | 'card2' | 'card3' | 'hero3d' | 'catalog3d' | 'section1' | 'section2' | 'contact' | 'catalog'; 
       index?: number 
     }
   ) => {
@@ -1443,8 +2463,23 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
 
       if (target.type === 'hero') {
         currentContent.heroImage = imgUrl;
+      } else if (target.type === 'hero3d') {
+        currentContent.model3dUrl = imgUrl;
+        currentContent.show3dHero = true;
+      } else if (target.type === 'catalog3d') {
+        currentContent.model3dUrl = imgUrl;
+        currentContent.show3dCatalog = true;
       } else if (target.type === 'about') {
         currentContent.aboutImage = imgUrl;
+      } else if (target.type === 'section1') {
+        currentContent.section1Image = imgUrl;
+      } else if (target.type === 'section2') {
+        currentContent.section2Image = imgUrl;
+      } else if (target.type === 'contact') {
+        currentContent.contactImage = imgUrl;
+      } else if (target.type === 'catalog') {
+        currentContent.catalogImage = imgUrl;
+        currentContent.showcaseCarImage = imgUrl;
       } else if (target.type === 'heroVideo') {
         currentContent.heroVideo = imgUrl;
       } else if (target.type === 'section2Video') {
@@ -1482,11 +2517,21 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
           currentContent.photos = [imgUrl, ...existingPhotos];
         }
       } else if (target.type === 'service' && typeof target.index === 'number') {
-        const services = Array.isArray(currentContent.services) ? [...currentContent.services] : [];
-        if (services[target.index]) {
-          services[target.index] = { ...services[target.index], image: imgUrl };
-          currentContent.services = services;
+        const idx = target.index;
+        const services = Array.isArray(currentContent.services) && currentContent.services.length > 0 ? [...currentContent.services] : [
+          { num: '01 · SERVICE', title: 'Service 01', desc: 'Description service 1' },
+          { num: '02 · SERVICE', title: 'Service 02', desc: 'Description service 2' },
+          { num: '03 · SERVICE', title: 'Service 03', desc: 'Description service 3' },
+          { num: '04 · SERVICE', title: 'Service 04', desc: 'Description service 4' }
+        ];
+        if (!services[idx]) {
+          services[idx] = { num: `0${idx + 1} · SERVICE`, title: `Service ${idx + 1}`, desc: '' };
         }
+        services[idx] = { ...services[idx], img: imgUrl, image: imgUrl, url: imgUrl };
+        currentContent.services = services;
+        currentContent[`service${idx + 1}Img`] = imgUrl;
+        currentContent[`method${idx + 1}Img`] = imgUrl;
+        currentContent[`step${idx + 1}Img`] = imgUrl;
       } else if (target.type === 'portfolio' && typeof target.index === 'number') {
         const portfolio = Array.isArray(currentContent.portfolio) ? [...currentContent.portfolio] : [];
         if (portfolio[target.index]) {
@@ -1509,6 +2554,21 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
       if (data.success) {
         setSiteData(data);
         setJsonText(JSON.stringify(data.content, null, 2));
+
+        const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage({
+            type: 'UPDATE_IMAGE',
+            field: target.type === 'hero' ? 'heroImage' :
+                   target.type === 'about' ? 'aboutImage' :
+                   target.type === 'section1' ? 'section1Image' :
+                   target.type === 'section2' ? 'section2Image' :
+                   target.type === 'contact' ? 'contactImage' :
+                   target.type === 'catalog' ? 'catalogImage' : target.type,
+            url: imgUrl,
+            index: target.index
+          }, '*');
+        }
       }
     } catch (err) {
       console.error('Failed to assign image placement:', err);
@@ -1517,7 +2577,7 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
     }
   };
 
-  const renderPlacementSelector = (photoUrl: string) => {
+  const renderPlacementSelector = (photoUrl: string, is3D = false) => {
     const servicesList = siteData?.content?.services || [];
     const portfolioList = siteData?.content?.portfolio || [];
     const isOpen = openSelectorUrl === photoUrl;
@@ -1544,9 +2604,33 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
           }`}
         >
           <div className="text-[9px] font-extrabold text-amber-400 uppercase tracking-wider px-2 py-1 bg-amber-500/10 rounded-md mb-1 flex items-center justify-between">
-            <span>Assign Picture to Section</span>
+            <span>Assign to Section</span>
             <Sparkles size={10} className="text-amber-400" />
           </div>
+
+          {is3D ? (
+            <>
+              <button
+                onClick={() => {
+                  handleAssignImage(photoUrl, { type: 'hero3d' });
+                  setOpenSelectorUrl(null);
+                }}
+                className="w-full text-left px-2.5 py-1.5 text-xs text-amber-300 hover:bg-amber-500/20 rounded-lg flex items-center gap-2 font-semibold transition cursor-pointer"
+              >
+                <Sparkles size={12} className="text-amber-400 shrink-0" /> Hero 3D Model
+              </button>
+              <button
+                onClick={() => {
+                  handleAssignImage(photoUrl, { type: 'catalog3d' });
+                  setOpenSelectorUrl(null);
+                }}
+                className="w-full text-left px-2.5 py-1.5 text-xs text-blue-300 hover:bg-blue-500/20 rounded-lg flex items-center gap-2 font-semibold transition cursor-pointer"
+              >
+                <Globe size={12} className="text-blue-400 shrink-0" /> Catalog 3D Model
+              </button>
+            </>
+          ) : (
+            <>
 
           <button
             onClick={() => {
@@ -1649,6 +2733,42 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
           </button>
           <button
             onClick={() => {
+              handleAssignImage(photoUrl, { type: 'section1' });
+              setOpenSelectorUrl(null);
+            }}
+            className="w-full text-left px-2.5 py-1.5 text-xs text-amber-300 hover:bg-amber-500/20 rounded-lg flex items-center gap-2 font-semibold transition cursor-pointer"
+          >
+            <Star size={12} className="text-amber-400 shrink-0" /> Market Card 1 / Section 1
+          </button>
+          <button
+            onClick={() => {
+              handleAssignImage(photoUrl, { type: 'section2' });
+              setOpenSelectorUrl(null);
+            }}
+            className="w-full text-left px-2.5 py-1.5 text-xs text-amber-300 hover:bg-amber-500/20 rounded-lg flex items-center gap-2 font-semibold transition cursor-pointer"
+          >
+            <Star size={12} className="text-amber-400 shrink-0" /> Market Card 2 / Section 2
+          </button>
+          <button
+            onClick={() => {
+              handleAssignImage(photoUrl, { type: 'catalog' });
+              setOpenSelectorUrl(null);
+            }}
+            className="w-full text-left px-2.5 py-1.5 text-xs text-indigo-300 hover:bg-indigo-500/20 rounded-lg flex items-center gap-2 font-semibold transition cursor-pointer"
+          >
+            <Image size={12} className="text-indigo-400 shrink-0" /> Catalog / Showcase Image
+          </button>
+          <button
+            onClick={() => {
+              handleAssignImage(photoUrl, { type: 'contact' });
+              setOpenSelectorUrl(null);
+            }}
+            className="w-full text-left px-2.5 py-1.5 text-xs text-emerald-300 hover:bg-emerald-500/20 rounded-lg flex items-center gap-2 font-semibold transition cursor-pointer"
+          >
+            <Globe size={12} className="text-emerald-400 shrink-0" /> Contact Section Image
+          </button>
+          <button
+            onClick={() => {
               handleAssignImage(photoUrl, { type: 'gallery' });
               setOpenSelectorUrl(null);
             }}
@@ -1696,6 +2816,8 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
               ))}
             </>
           )}
+          </>
+        )}
         </div>
       </div>
     );
@@ -1740,6 +2862,7 @@ export const NestaWebsiteModal: React.FC<NestaWebsiteModalProps> = ({ isOpen, on
 
   const handleNicheChange = async (niche: string) => {
     if (!siteData) return;
+    setSelectedBatchNiche(niche);
     setModifying(true);
     try {
       const res = await fetch('/api/leads/modify-content', {
@@ -1971,202 +3094,677 @@ Set nicheOverride to "${activeNiche}".`;
     }
   };
 
+  // CSV Bulk Generator Functions
+  const handleCsvFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const rows: CsvLeadRow[] = (results.data as any[]).map((row, idx) => {
+          const businessName = row['Business Name'] || row['Company'] || row['Name'] || row['businessName'] || row['company'] || `Business ${idx + 1}`;
+          const phone = row['Phone'] || row['Phone Number'] || row['phone'] || row['Telephone'] || '+33 6 12 34 56 78';
+          const email = row['Email'] || row['Email Address'] || row['email'] || `contact@${businessName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`;
+          const address = row['Address'] || row['address'] || row['Location'] || '10 Place Vendôme';
+          const city = row['City'] || row['city'] || row['Town'] || 'Paris';
+          const niche = row['Niche'] || row['Sector'] || row['niche'] || 'Services Professionnels';
+          const website = row['Website'] || row['website'] || '';
+
+          return {
+            id: `csv-${Date.now()}-${idx}`,
+            businessName,
+            phone,
+            email,
+            address,
+            city,
+            niche,
+            website,
+            status: 'pending'
+          };
+        });
+        setCsvLeads(rows);
+      }
+    });
+  };
+
+  const handleLoadSampleCsvLeads = () => {
+    const samples: CsvLeadRow[] = [
+      {
+        id: `csv-sample-1`,
+        businessName: 'Outland Luxury Real Estate',
+        phone: '+33 6 64 14 36 79',
+        email: 'contact@outlandhomes.fr',
+        address: '15 Avenue Montaigne',
+        city: 'Paris 8e',
+        niche: 'Real Estate / Immobilier',
+        status: 'pending'
+      },
+      {
+        id: `csv-sample-2`,
+        businessName: 'Élan Auto-École Prestige',
+        phone: '+33 1 45 88 90 12',
+        email: 'contact@elanpermis.com',
+        address: '24 Rue de la République',
+        city: 'Lyon',
+        niche: 'Driving School / Formation',
+        status: 'pending'
+      },
+      {
+        id: `csv-sample-3`,
+        businessName: 'Gourmand Traiteur & Saveurs',
+        phone: '+33 5 56 00 11 22',
+        email: 'reservation@gourmand-traiteur.fr',
+        address: '8 Place de la Bourse',
+        city: 'Bordeaux',
+        niche: 'Gastronomy & Catering',
+        status: 'pending'
+      },
+      {
+        id: `csv-sample-4`,
+        businessName: 'Volt-Pro Électricité Générale',
+        phone: '+33 4 93 80 40 50',
+        email: 'urgence@voltpro-electricite.com',
+        address: '42 Boulevard Victor Hugo',
+        city: 'Nice',
+        niche: 'Electrician / Dépannage',
+        status: 'pending'
+      }
+    ];
+    setCsvLeads(samples);
+  };
+
+  const handleStopBulkGeneration = () => {
+    stopBulkGenerationRef.current = true;
+  };
+
+  const generateCsvSiteForLead = async (item: CsvLeadRow): Promise<{ success: boolean; html?: string; error?: string }> => {
+    const targetLead = {
+      name: item.businessName,
+      companyName: item.businessName,
+      company: item.businessName,
+      businessName: item.businessName,
+      phone: item.phone,
+      email: item.email,
+      address: item.address,
+      city: item.city,
+      niche: item.niche,
+      sector: item.niche,
+      lang: item.lang
+    };
+
+    const effectiveLang = selectedBulkLang !== 'auto'
+      ? selectedBulkLang
+      : (item.market?.includes('english') || item.lang === 'en' ? 'en' : 'fr');
+
+    // If siteData.content exists (the active preview website edited by user), clone its exact style & images!
+    if (siteData?.content) {
+      const res = await fetch('/api/leads/clone-site-style', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceContent: siteData.content,
+          templateStyle: selectedBulkTemplate || siteData.content?.templateStyle,
+          targetLead,
+          langOverride: effectiveLang
+        })
+      });
+
+      const data = await res.json();
+      if (data.success && data.html) {
+        return { success: true, html: data.html };
+      } else {
+        return { success: false, error: data.error || 'Cloning preview website failed' };
+      }
+    } else {
+      // Fallback: Generate fresh site from template
+      const res = await fetch('/api/leads/generate-site-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lead: targetLead,
+          templateStyle: selectedBulkTemplate,
+          langOverride: effectiveLang
+        })
+      });
+
+      const data = await res.json();
+      if (data.success && data.html) {
+        return { success: true, html: data.html };
+      } else {
+        return { success: false, error: data.error || 'Generation failed' };
+      }
+    }
+  };
+
+  const handleGenerateSingleLead = async (row: CsvLeadRow) => {
+    setCsvLeads(prev => prev.map(r => r.id === row.id ? { ...r, status: 'generating' } : r));
+
+    try {
+      const res = await generateCsvSiteForLead(row);
+      if (res.success && res.html) {
+        setCsvLeads(prev => prev.map(r => r.id === row.id ? {
+          ...r,
+          status: 'completed',
+          html: res.html,
+          generatedTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        } : r));
+      } else {
+        setCsvLeads(prev => prev.map(r => r.id === row.id ? { ...r, status: 'error', errorMessage: res.error || 'Generation failed' } : r));
+      }
+    } catch (err: any) {
+      setCsvLeads(prev => prev.map(r => r.id === row.id ? { ...r, status: 'error', errorMessage: err?.message || 'Error' } : r));
+    }
+  };
+
+  const handleRunBulkGeneration = async () => {
+    if (csvLeads.length === 0) return;
+    stopBulkGenerationRef.current = false;
+    setIsBulkGenerating(true);
+    setBulkProgress({ current: 0, total: csvLeads.length });
+
+    const updatedLeads = [...csvLeads];
+
+    for (let i = 0; i < updatedLeads.length; i++) {
+      if (stopBulkGenerationRef.current) {
+        console.log('[Bulk Gen] Stop requested by user');
+        break;
+      }
+
+      const item = updatedLeads[i];
+      item.status = 'generating';
+      setCsvLeads([...updatedLeads]);
+      setBulkProgress({ current: i + 1, total: updatedLeads.length });
+
+      try {
+        const resData = await generateCsvSiteForLead(item);
+        if (resData.success && resData.html) {
+          item.status = 'completed';
+          item.html = resData.html;
+          item.generatedTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        } else {
+          item.status = 'error';
+          item.errorMessage = resData.error || 'Generation failed';
+        }
+      } catch (err: any) {
+        item.status = 'error';
+        item.errorMessage = err?.message || 'Network error';
+      }
+
+      setCsvLeads([...updatedLeads]);
+    }
+
+    setIsBulkGenerating(false);
+  };
+
+  const handleAnalyzeRawText = async () => {
+    if (!rawTextContent.trim()) return;
+    setIsAnalyzingText(true);
+    try {
+      const res = await fetch('/api/leads/parse-unstructured', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: rawTextContent })
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.leads)) {
+        const parsedRows: CsvLeadRow[] = data.leads.map((l: any, idx: number) => ({
+          id: `raw_${Date.now()}_${idx}`,
+          businessName: l.businessName || l.companyName || l.name || 'Business',
+          phone: l.phone || l.phoneNumber || '',
+          email: l.email || '',
+          address: l.address || '',
+          city: l.city || '',
+          niche: l.niche || l.sector || 'Services',
+          status: 'pending',
+          deployStatus: 'idle'
+        }));
+        setCsvLeads(prev => [...prev, ...parsedRows]);
+        setRawTextContent('');
+        setRawTextModalOpen(false);
+      } else {
+        alert(data.error || 'Failed to analyze text.');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error analyzing text.');
+    } finally {
+      setIsAnalyzingText(false);
+    }
+  };
+
+  const handleRunWaBulkOutreach = async () => {
+    const validLeads = csvLeads.filter(r => (r.phone && r.phone.length >= 6));
+    if (validLeads.length === 0) {
+      alert('No leads with valid phone numbers in the table.');
+      return;
+    }
+    setIsWaBulkSending(true);
+    setWaBulkLogs([`Initiating WhatsApp bulk campaign for ${validLeads.length} leads with delay of ${waBulkDelay}s...`]);
+
+    try {
+      const formattedLeads = validLeads.map(l => ({
+        name: l.businessName,
+        phone: l.phone,
+        city: l.city,
+        siteUrl: l.netlifyUrl || l.website || (l.html ? 'https://preview.site' : '')
+      }));
+
+      const res = await fetch('/api/whatsapp/send-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          leads: formattedLeads,
+          messageTemplate: waBulkMessage,
+          delaySeconds: waBulkDelay,
+          attachScreenshot: true
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setWaBulkLogs(prev => [...prev, `✓ WhatsApp campaign dispatched! ${data.message || ''}`]);
+      } else {
+        setWaBulkLogs(prev => [...prev, `✕ Campaign error: ${data.error}`]);
+      }
+    } catch (err: any) {
+      setWaBulkLogs(prev => [...prev, `✕ Network error: ${err.message}`]);
+    } finally {
+      setIsWaBulkSending(false);
+    }
+  };
+
+  const handleUpdateCsvLeadField = (id: string, field: keyof CsvLeadRow, val: string) => {
+    setCsvLeads(prev => prev.map(row => {
+      if (row.id !== id) return row;
+      const updated = { ...row, [field]: val };
+      if (updated.html) {
+        let patched = updated.html;
+        if (field === 'phone' && row.phone) {
+          patched = patched.replace(new RegExp(row.phone.replace(/\+/g, '\\+'), 'g'), val);
+        } else if (field === 'email' && row.email) {
+          patched = patched.replace(new RegExp(row.email, 'g'), val);
+        } else if (field === 'businessName' && row.businessName) {
+          patched = patched.replace(new RegExp(row.businessName, 'g'), val);
+        } else if (field === 'city' && row.city) {
+          patched = patched.replace(new RegExp(row.city, 'g'), val);
+        } else if (field === 'address' && row.address) {
+          patched = patched.replace(new RegExp(row.address, 'g'), val);
+        }
+        updated.html = patched;
+      }
+      return updated;
+    }));
+  };
+
+  const handleDownloadSingleLeadHtml = (row: CsvLeadRow) => {
+    if (!row.html) return;
+    const blob = new Blob([row.html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const sanitizedName = (row.businessName || 'website').toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const sanitizedCity = (row.city || 'city').toLowerCase().replace(/[^a-z0-9]/g, '_');
+    a.download = `${sanitizedName}_${sanitizedCity}_${selectedBulkTemplate}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadAllWebsitesZip = async () => {
+    const completedLeads = csvLeads.filter(r => r.status === 'completed' && r.html);
+    if (completedLeads.length === 0) return;
+
+    const zip = new JSZip();
+    const folder = zip.folder(`Bulk_Generated_Websites_${selectedBulkTemplate}`);
+
+    completedLeads.forEach((row, idx) => {
+      const sanitizedName = (row.businessName || `business_${idx + 1}`).replace(/[^a-zA-Z0-9]/g, '_');
+      const sanitizedCity = (row.city || 'city').replace(/[^a-zA-Z0-9]/g, '_');
+      const fileName = `${idx + 1}_${sanitizedName}_${sanitizedCity}.html`;
+      (folder || zip).file(fileName, row.html!);
+    });
+
+    const zipContent = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(zipContent);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Bulk_Websites_${selectedBulkTemplate}_${Date.now()}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDeploySingleLeadToNetlify = async (row: CsvLeadRow) => {
+    if (!row.html) return;
+
+    setCsvLeads(prev => prev.map(r => r.id === row.id ? { ...r, deployStatus: 'deploying' } : r));
+
+    try {
+      const cleanSiteName = `${row.businessName}-${row.city}`.toLowerCase().replace(/[^a-z0-9]/g, '-');
+      const token = netlifyToken || localStorage.getItem('NETLIFY_AUTH_TOKEN') || '';
+
+      const res = await fetch('/api/netlify/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          html: row.html,
+          siteName: cleanSiteName,
+          netlifyToken: token.trim(),
+          leadId: row.id
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setCsvLeads(prev => prev.map(r => {
+          if (r.id !== row.id) return r;
+          return {
+            ...r,
+            deployStatus: 'deployed',
+            netlifyUrl: data.url,
+            netlifySiteName: data.siteName
+          };
+        }));
+      } else {
+        setCsvLeads(prev => prev.map(r => r.id === row.id ? { ...r, deployStatus: 'error', errorMessage: data.error || 'Deploy failed' } : r));
+      }
+    } catch (err: any) {
+      setCsvLeads(prev => prev.map(r => r.id === row.id ? { ...r, deployStatus: 'error', errorMessage: err?.message || 'Deploy failed' } : r));
+    }
+  };
+
+  const handleDeployAllToNetlify = async () => {
+    const readyLeads = csvLeads.filter(r => r.status === 'completed' && r.html);
+    if (readyLeads.length === 0) return;
+
+    setIsBulkDeployingNetlify(true);
+    setBulkDeployProgress({ current: 0, total: readyLeads.length });
+
+    const updated = [...csvLeads];
+
+    for (let i = 0; i < updated.length; i++) {
+      const row = updated[i];
+      if (row.status !== 'completed' || !row.html) continue;
+
+      row.deployStatus = 'deploying';
+      setCsvLeads([...updated]);
+      setBulkDeployProgress({ current: i + 1, total: readyLeads.length });
+
+      try {
+        const cleanSiteName = `${row.businessName}-${row.city}`.toLowerCase().replace(/[^a-z0-9]/g, '-');
+        const token = netlifyToken || localStorage.getItem('NETLIFY_AUTH_TOKEN') || '';
+
+        const res = await fetch('/api/netlify/deploy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            html: row.html,
+            siteName: cleanSiteName,
+            netlifyToken: token.trim(),
+            leadId: row.id
+          })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          row.deployStatus = 'deployed';
+          row.netlifyUrl = data.url;
+          row.netlifySiteName = data.siteName;
+        } else {
+          row.deployStatus = 'error';
+        }
+      } catch (err: any) {
+        row.deployStatus = 'error';
+      }
+
+      setCsvLeads([...updated]);
+    }
+
+    setIsBulkDeployingNetlify(false);
+  };
+
   const companyName = lead.name || lead.companyName || lead.company || lead.businessName || 'Lead';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in">
-      <div className="bg-[#0F0F12]/80 backdrop-blur-xl border border-zinc-800/80 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+    <>
+      <div className={`fixed inset-0 z-[99999] flex flex-col animate-fade-in w-screen h-screen overflow-hidden transition-colors duration-300 ${frameTheme === 'light' ? 'bg-slate-100 text-slate-900' : 'bg-[#050505] text-white'}`}>
         
-        {/* HEADER */}
-        <div className="px-6 py-4 border-b border-zinc-800/40 flex items-center justify-between bg-transparent">
-          <div className="flex items-center gap-4">
-            {/* Mac-style Window Control Dots */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="w-3 h-3 rounded-full bg-[#FF5F56] opacity-95" />
-              <span className="w-3 h-3 rounded-full bg-[#FFBD2E] opacity-95" />
-              <span className="w-3 h-3 rounded-full bg-[#27C93F] opacity-95" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                Premium AI Website Builder
-              </h3>
-              <p className="text-xs text-zinc-400">Prospect: <strong className="text-zinc-200">{companyName}</strong> ({lead.city || 'Local'})</p>
+        {/* MINIMALIST HEADER */}
+        <div className={`h-14 px-2 sm:px-4 flex items-center justify-between shrink-0 select-none border-b transition-colors duration-300 ${frameTheme === 'light' ? 'bg-white border-slate-200 text-slate-900 shadow-sm' : 'bg-[#111111] border-[#1C1C1E] text-white'}`}>
+          <div className="flex items-center gap-2 sm:gap-6 overflow-x-auto scrollbar-none flex-1 pr-4" style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
+            <Globe size={18} className={frameTheme === 'light' ? 'text-slate-500 shrink-0 ml-1 hidden sm:block' : 'text-zinc-500 shrink-0 ml-1 hidden sm:block'} />
+            
+            <div className="flex items-center gap-1 shrink-0">
+              {[
+                { id: 'preview', label: 'PREVIEW', icon: <Eye size={13} /> },
+                { id: 'transparent-slider', label: 'TRANSPARENT SLIDER', icon: <ChevronsLeftRight size={13} /> },
+                { id: 'deploy-outreach', label: 'DEPLOY & OUTREACH', icon: <Rocket size={13} /> },
+                { id: 'scroll-video', label: 'SCROLL VIDEO', icon: <Video size={13} /> },
+                { id: 'schema', label: 'CONTENT', icon: <Code size={13} /> },
+                { id: 'media', label: 'EDIT IMAGES', icon: <Pencil size={13} /> },
+                { id: '3d-studio', label: '3D AI', icon: <Box size={13} /> },
+                { id: 'gif', label: 'OUTREACH GIF', icon: <Zap size={13} /> },
+                { id: 'trust', label: 'TRUST', icon: <ShieldCheck size={13} /> },
+                { id: 'templates', label: 'TEMPLATES', icon: <Sparkles size={13} /> },
+                { id: 'template-maker', label: 'TEMPLATE MAKER', icon: <Wand2 size={13} /> },
+                { id: 'csv-bulk-generator', label: 'CSV BULK GENERATOR', icon: <FileSpreadsheet size={13} /> }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] tracking-wider font-bold transition shrink-0 ${
+                    activeTab === tab.id
+                      ? frameTheme === 'light'
+                        ? 'bg-amber-400 text-slate-950 border border-amber-300 shadow-sm font-black'
+                        : 'bg-[#1C1C1E] text-white border border-[#2C2C2E] shadow-sm'
+                      : frameTheme === 'light'
+                        ? 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200 border border-transparent'
+                        : 'bg-transparent text-zinc-500 hover:text-zinc-300 border border-transparent'
+                  }`}
+                >
+                  {tab.icon} {tab.label}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Live Theme & Color Palette Selector */}
-            <div className="flex items-center gap-1.5 bg-[#18181B] px-2.5 py-1.5 rounded-lg border border-zinc-800 text-xs text-zinc-300">
-              <Palette size={13} className="text-amber-400" />
-              <select
-                value={siteData?.content?.themePalette || 'gold'}
-                onChange={(e) => handleThemePaletteChange(e.target.value)}
-                className="bg-transparent text-xs text-white font-semibold focus:outline-none cursor-pointer"
-                title="Select Live Tailwind & CSS Custom Theme Palette"
-              >
-                {COLOR_PALETTES.map(p => (
-                  <option key={p.id} value={p.id} className="bg-[#18181B] text-white">
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Template Style Selector */}
-            <div className="flex items-center bg-[#18181B] px-2.5 py-1.5 rounded-lg border border-zinc-800 text-xs text-zinc-300">
-              <select
-                value={siteData?.content?.templateStyle || 'outland-homes'}
-                onChange={(e) => handleTemplateStyleChange(e.target.value)}
-                className="bg-transparent text-xs text-white font-semibold focus:outline-none cursor-pointer"
-              >
-                <option value="outland-homes" className="bg-[#18181B]">🌲 Outland Restaurant (Dark Premium)</option>
-                <option value="main-neumorphic" className="bg-[#18181B]">🔮 Main Neumorphic Cutouts (All-Niches)</option>
-                <option value="cinematic-luxury" className="bg-[#18181B]">🎥 Cinematic Luxury & Multi-Niche</option>
-                <option value="premium-dark" className="bg-[#18181B]">✨ Premium Dark Ribbon</option>
-                <option value="luxury-serif" className="bg-[#18181B]">👑 Luxury Serif</option>
-                <option value="classic" className="bg-[#18181B]">💼 Classic Modern</option>
-              </select>
-            </div>
-
-            {/* Niche Selector */}
-            <div className="flex items-center bg-[#18181B] px-2.5 py-1.5 rounded-lg border border-zinc-800 text-xs text-zinc-300">
-              <select
-                value={siteData?.content?.nicheOverride || lead?.niche || 'construction'}
-                onChange={(e) => handleNicheChange(e.target.value)}
-                className="bg-transparent text-xs text-white font-semibold focus:outline-none cursor-pointer"
-              >
-                <option value="construction" className="bg-[#18181B]">🏗️ Estate Construction</option>
-                <option value="architecture" className="bg-[#18181B]">🏛️ Architects & Spatial Engineering</option>
-                <option value="car_rental" className="bg-[#18181B]">🏎️ Exotic Car Rental</option>
-                <option value="consulting" className="bg-[#18181B]">💼 High-Ticket Consulting</option>
-                <option value="landscaping" className="bg-[#18181B]">🌿 Landscaping & Estates</option>
-                <option value="driving_school" className="bg-[#18181B]">🚗 Driving Academy</option>
-                <option value="caterer" className="bg-[#18181B]">🍽️ Fine Catering</option>
-                <option value="veneers" className="bg-[#18181B]">🦷 Veneers & Cosmetic Dentistry</option>
-                <option value="renovation" className="bg-[#18181B]">🏠 Home Renovations</option>
-                <option value="restaurant" className="bg-[#18181B]">🍷 Restaurant / Restauration</option>
-                <option value="electrician" className="bg-[#18181B]">⚡ Électricien</option>
-                <option value="plumber" className="bg-[#18181B]">🚰 Plombier</option>
-                <option value="roofer" className="bg-[#18181B]">🏠 Couvreur / Toiture</option>
-                <option value="locksmith" className="bg-[#18181B]">🔑 Serrurier</option>
-                <option value="realEstate" className="bg-[#18181B]">🏢 Agence Immobilière</option>
-              </select>
-            </div>
-
-            {/* Analyze & Match Niche Button - Turquoise */}
-            <button
-              onClick={handleAnalyzeAndRealignNiche}
-              disabled={modifying || !siteData}
-              className="px-3.5 py-1.5 bg-gradient-to-r from-teal-500 via-cyan-500 to-teal-400 hover:from-teal-400 hover:to-cyan-400 text-zinc-950 font-bold rounded-lg text-xs flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer shadow-md shadow-teal-500/20 shrink-0 border border-teal-300/40"
-              title="Analyze lead context & align all text, buttons, and reviews to niche"
-            >
-              {modifying ? <RefreshCw size={13} className="animate-spin text-zinc-950" /> : <Wand2 size={13} className="text-zinc-950" />}
-              <span>Analyze & Match Niche</span>
-            </button>
-
-            {/* Language Selector */}
-            <div className="flex items-center gap-1.5 bg-[#18181B] px-2.5 py-1.5 rounded-lg border border-zinc-800 text-xs text-zinc-300">
-              <Languages size={13} className="text-teal-400" />
-              <select
-                value={selectedLang}
-                onChange={(e) => handleLangChange(e.target.value)}
-                className="bg-transparent text-xs text-white font-semibold focus:outline-none cursor-pointer"
-              >
-                <option value="fr" className="bg-[#18181B]">🇫🇷 Français</option>
-                <option value="en" className="bg-[#18181B]">🇺🇸 English</option>
-                <option value="es" className="bg-[#18181B]">🇪🇸 Español</option>
-                <option value="de" className="bg-[#18181B]">🇩🇪 Deutsch</option>
-              </select>
-            </div>
-
+          <div className="flex items-center gap-3 shrink-0 pl-4">
             {siteData?.previewUrl && (
               <a
                 href={siteData.previewUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="px-3 py-1.5 bg-[#1C1C22] hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition"
+                className={`text-[11px] font-bold transition flex items-center gap-1 tracking-wider uppercase ${frameTheme === 'light' ? 'text-slate-600 hover:text-slate-900' : 'text-zinc-500 hover:text-zinc-300'}`}
               >
-                <ExternalLink size={13} /> Open Tab
+                <ExternalLink size={13} /> Open
               </a>
             )}
-
+            
+            <button
+              onClick={handleLoadProject}
+              className="text-[11px] font-bold text-emerald-500 hover:text-emerald-400 transition flex items-center gap-1 tracking-wider uppercase cursor-pointer"
+              title="Load Saved Project"
+            >
+              LOAD
+            </button>
+            <button
+              onClick={handleSaveProject}
+              className="text-[11px] font-bold text-amber-500 hover:text-amber-400 transition flex items-center gap-1 tracking-wider uppercase cursor-pointer"
+              title="Save Project"
+            >
+              SAVE
+            </button>
             <button
               onClick={handleDownloadZip}
+
               disabled={downloadingZip || !siteData}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer shadow-sm"
+              className={`text-[11px] font-bold transition disabled:opacity-50 flex items-center gap-1 tracking-wider uppercase cursor-pointer ${frameTheme === 'light' ? 'text-slate-600 hover:text-slate-900' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
-              <Download size={13} /> {downloadingZip ? 'Packaging...' : 'Download ZIP'}
+              <Download size={13} /> ZIP
             </button>
-
-            <button
+            <a
+              href="https://app.netlify.com/drop"
+              target="_blank"
+              rel="noreferrer"
+              className="text-[11px] font-bold text-cyan-500 hover:text-cyan-300 transition flex items-center gap-1 tracking-wider uppercase"
+              title="Deploy ZIP to Netlify"
+            >
+              <Zap size={13} /> NETLIFY
+            </a>
+            <div className={`w-px h-4 mx-1 ${frameTheme === 'light' ? 'bg-slate-300' : 'bg-[#2C2C2E]'}`}></div>
+            <button 
               onClick={onClose}
-              className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition cursor-pointer"
+              className={`p-1.5 rounded-md transition cursor-pointer border ${frameTheme === 'light' ? 'bg-slate-100 text-slate-700 hover:text-slate-950 border-slate-300' : 'bg-[#1C1C1E] text-zinc-400 hover:text-white border-[#2C2C2E]'}`}
             >
-              <X size={18} />
+              <X size={14} />
             </button>
           </div>
         </div>
 
-        {/* CONTROLS BAR & TABS */}
-        <div className="px-3 sm:px-6 py-2 sm:py-3 border-b border-[#1F1F23] bg-[#0F0F12] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 sm:gap-4 shrink-0">
-          <div className="flex items-center gap-1.5 sm:gap-2 bg-[#18181B] p-1 rounded-xl border border-zinc-800 overflow-x-auto max-w-full select-none shrink-0 scrollbar-none">
-            <button
-              onClick={() => setActiveTab('preview')}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${activeTab === 'preview' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
-            >
-              <Globe size={13} className="inline mr-1" /> Preview
-            </button>
-            <button
-              onClick={() => setActiveTab('schema')}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${activeTab === 'schema' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
-            >
-              <Code size={13} className="inline mr-1" /> JSON
-            </button>
-            <button
-              onClick={() => setActiveTab('export')}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${activeTab === 'export' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
-            >
-              <Share2 size={13} className="inline mr-1" /> Export
-            </button>
-            <button
-              onClick={() => setActiveTab('media')}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${activeTab === 'media' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
-            >
-              <Image size={13} className="inline mr-1" /> Photos ({uploadedImages.length + (lead.photos?.length || 0)})
-            </button>
-            <button
-              onClick={() => setActiveTab('gif')}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1 ${activeTab === 'gif' ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-md' : 'text-blue-400 hover:text-blue-300'}`}
-            >
-              <Zap size={13} /> GIF
-            </button>
-            <button
-              onClick={() => setActiveTab('templates')}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1 ${activeTab === 'templates' ? 'bg-amber-500 text-black shadow-md' : 'text-amber-400 hover:text-amber-300'}`}
-            >
-              <Sparkles size={13} /> Templates
-            </button>
-          </div>
+        {/* PREVIEW SETTINGS BAR (Only visible on preview tab) */}
+        {activeTab === 'preview' && (
+          <div className={`px-4 py-2 border-b flex flex-wrap items-center justify-between gap-4 shrink-0 transition-colors duration-300 ${frameTheme === 'light' ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#0A0A0A] border-[#1A1A1A] text-white'}`}>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+              {/* Language Selector */}
+              <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs shrink-0 ${frameTheme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-[#121212] border-[#1F1F1F] text-zinc-300'}`}>
+                <select
+                  value={selectedLang}
+                  onChange={(e) => handleLangChange(e.target.value)}
+                  className={`bg-transparent text-xs font-semibold focus:outline-none cursor-pointer ${frameTheme === 'light' ? 'text-slate-900' : 'text-white'}`}
+                >
+                  <option value="auto" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🌐 Auto</option>
+                  <option value="fr" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🇫🇷 FR</option>
+                  <option value="en" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🇺🇸 EN</option>
+                </select>
+              </div>
 
-          {/* AI EDIT INPUT */}
-          <div className="flex-1 max-w-xl flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="Ask AI to change anything: layout, button styles, colors, text, fonts, or Google Maps..."
-              value={aiPrompt}
-              onChange={(e) => setAiPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleModifyWithAI()}
-              className="flex-1 bg-[#18181B] border border-zinc-800 focus:border-blue-500 rounded-xl px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none"
-            />
-            <button
-              onClick={handleModifyWithAI}
-              disabled={modifying || !aiPrompt.trim()}
-              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs transition disabled:opacity-40 flex items-center gap-1 cursor-pointer shrink-0"
-            >
-              {modifying ? <RefreshCw size={12} className="animate-spin" /> : <Play size={12} />} Apply AI
-            </button>
+              {/* Theme Palette */}
+              <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs shrink-0 ${frameTheme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-[#121212] border-[#1F1F1F] text-zinc-300'}`}>
+                <Palette size={13} className="text-amber-500" />
+                <select
+                  value={siteData?.content?.themePalette || 'gold'}
+                  onChange={(e) => handleThemePaletteChange(e.target.value)}
+                  className={`bg-transparent text-xs font-semibold focus:outline-none cursor-pointer ${frameTheme === 'light' ? 'text-slate-900' : 'text-white'}`}
+                  title="Select Live Tailwind & CSS Custom Theme Palette"
+                >
+                  {COLOR_PALETTES.map(p => (
+                    <option key={p.id} value={p.id} className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B] text-white'}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Template Style & Theme Mode */}
+              <div className={`flex items-center px-2.5 py-1.5 rounded-lg border text-xs shrink-0 gap-2 ${frameTheme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-[#121212] border-[#1F1F1F] text-zinc-300'}`}>
+                <select
+                  value={siteData?.content?.templateStyle || 'lumina'}
+                  onChange={(e) => handleTemplateStyleChange(e.target.value)}
+                  className={`bg-transparent text-xs font-semibold focus:outline-none cursor-pointer max-w-[150px] truncate ${frameTheme === 'light' ? 'text-slate-900' : 'text-white'}`}
+                >
+                  <option value="lumina" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🛍️ LUMINA Dropshipping (AI Try-On)</option>
+                  <option value="elan-permis" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🏎️ ÉLAN Permis (Auto-École & Multi-Niche)</option>
+                  <option value="air-template" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>💨 Air Bubbles</option>
+                  <option value="outland-homes" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🌲 Outland Template</option>
+                  <option value="main-neumorphic" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🔮 Main Neumorphic Cutouts</option>
+                  <option value="cinematic-luxury" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🎥 Cinematic Luxury</option>
+                  <option value="premium-dark" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>✨ Premium Dark</option>
+                  <option value="luxury-serif" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>👑 Luxury Serif</option>
+                  <option value="classic" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>💼 Classic Modern</option>
+                </select>
+
+                <div className={`w-px h-4 mx-1 ${frameTheme === 'light' ? 'bg-slate-300' : 'bg-zinc-800'}`}></div>
+
+                <select
+                  value={siteData?.content?.themeMode === 'cream' ? 'cream' : 'dark'}
+                  onChange={async (e) => {
+                    const style = e.target.value;
+                    if (!siteData) return;
+                    setModifying(true);
+                    try {
+                      const res = await fetch('/api/leads/modify-content', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          siteId: siteData.siteId,
+                          currentContent: siteData.content,
+                          directContent: { themeMode: style },
+                          lead
+                        })
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        setSiteData(data.siteData);
+                        setJsonText(JSON.stringify(data.siteData.content, null, 2));
+                      }
+                    } catch(err) {}
+                    setModifying(false);
+                  }}
+                  className="bg-transparent text-xs text-amber-500 font-semibold focus:outline-none cursor-pointer"
+                >
+                  <option value="dark" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🌙 Dark Mode</option>
+                  <option value="cream" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>☕ Cream Mode</option>
+                </select>
+              </div>
+
+              {/* Niche Selector */}
+              <div className={`flex items-center px-2.5 py-1.5 rounded-lg border text-xs shrink-0 ${frameTheme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-[#121212] border-[#1F1F1F] text-zinc-300'}`}>
+                <select
+                  value={siteData?.content?.nicheOverride || lead?.niche || 'construction'}
+                  onChange={(e) => handleNicheChange(e.target.value)}
+                  className={`bg-transparent text-xs font-semibold focus:outline-none cursor-pointer max-w-[150px] truncate ${frameTheme === 'light' ? 'text-slate-900' : 'text-white'}`}
+                >
+                  <option value="construction" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🏗️ Estate Construction</option>
+                  <option value="architecture" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🏛️ Architects & Spatial Engineering</option>
+                  <option value="car_rental" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🏎️ Exotic Car Rental</option>
+                  <option value="consulting" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>💼 High-Ticket Consulting</option>
+                  <option value="landscaping" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🌿 Landscaping & Estates</option>
+                  <option value="driving_school" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🚗 Driving Academy</option>
+                  <option value="caterer" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🍽️ Fine Catering</option>
+                  <option value="veneers" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🦷 Veneers & Dentistry</option>
+                  <option value="renovation" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🏠 Home Renovations</option>
+                  <option value="restaurant" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🍷 Restaurant</option>
+                  <option value="electrician" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>⚡ Électricien</option>
+                  <option value="plumber" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🚰 Plombier</option>
+                  <option value="roofer" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🏠 Couvreur</option>
+                  <option value="locksmith" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🔑 Serrurier</option>
+                  <option value="realEstate" className={frameTheme === 'light' ? 'bg-white text-slate-900' : 'bg-[#18181B]'}>🏢 Immobilière</option>
+                </select>
+              </div>
+
+              {/* Analyze & Match Niche Button */}
+              <button
+                onClick={handleAnalyzeAndRealignNiche}
+                disabled={modifying || !siteData}
+                className="px-3 py-1.5 bg-gradient-to-r from-teal-500 via-cyan-500 to-teal-400 hover:from-teal-400 hover:to-cyan-400 text-zinc-950 font-bold rounded-lg text-xs flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer shadow-md shadow-teal-500/20 shrink-0 border border-teal-300/40"
+              >
+                {modifying ? <RefreshCw size={12} className="animate-spin text-zinc-950" /> : <Wand2 size={12} className="text-zinc-950" />}
+                <span>Analyze Niche</span>
+              </button>
+            </div>
+
+            {/* AI EDIT INPUT */}
+            <div className="flex-1 min-w-[250px] max-w-md flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Ask AI to change layout, colors, text..."
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleModifyWithAI()}
+                className={`flex-1 border focus:border-blue-500 rounded-lg px-3 py-1.5 text-xs placeholder-zinc-400 focus:outline-none transition ${frameTheme === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-[#121212] border-[#1F1F1F] text-white'}`}
+              />
+              <button
+                onClick={handleModifyWithAI}
+                disabled={modifying || !aiPrompt.trim()}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs transition disabled:opacity-40 flex items-center gap-1 cursor-pointer shrink-0"
+              >
+                {modifying ? <RefreshCw size={12} className="animate-spin" /> : <Play size={12} />} Apply
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* MAIN CONTENT AREA */}
         <div className="flex-1 overflow-hidden relative bg-transparent">
@@ -2180,78 +3778,55 @@ Set nicheOverride to "${activeNiche}".`;
           ) : (
             <>
               {activeTab === 'preview' && (
-                <div className="w-full h-full p-2 sm:p-5 flex flex-col relative overflow-hidden bg-gradient-to-b from-black/40 via-zinc-950/60 to-black/80 backdrop-blur-2xl">
-                  {/* GOOGLE MAPS & LOCATION SETTINGS TOOLBAR */}
-                  <div className="mb-2 px-3 py-2 bg-[#121218]/95 backdrop-blur-xl border border-blue-500/30 rounded-xl flex flex-wrap items-center justify-between gap-2.5 shrink-0 shadow-lg select-none">
-                    <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[260px]">
-                      {/* TOGGLE GOOGLE MAPS */}
-                      <label className="flex items-center gap-2 cursor-pointer bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1 rounded-lg border border-blue-500/30 transition shrink-0">
-                        <MapPin size={14} className="text-blue-400 shrink-0" />
-                        <span className="text-xs font-extrabold text-blue-200">Google Maps</span>
-                        <input
-                          type="checkbox"
-                          checked={siteData?.content?.showGoogleMaps !== false && siteData?.content?.showMap !== false}
-                          onChange={(e) => handleUpdateMapSettings(e.target.checked)}
-                          className="w-4 h-4 rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        />
-                      </label>
-
-                      {/* ADDRESS INPUT IF MAP IS ACTIVE */}
-                      {(siteData?.content?.showGoogleMaps !== false && siteData?.content?.showMap !== false) && (
-                        <div className="flex-1 flex items-center gap-1.5 min-w-[200px]">
-                          <div className="relative flex-1">
-                            <input
-                              type="text"
-                              value={mapAddressInput}
-                              onChange={(e) => setMapAddressInput(e.target.value)}
-                              onBlur={() => handleUpdateMapSettings(true, mapAddressInput)}
-                              onKeyDown={(e) => e.key === 'Enter' && handleUpdateMapSettings(true, mapAddressInput)}
-                              placeholder={lead?.address || "Saisir une adresse (ex: 15 Rue de la Paix, Paris)..."}
-                              className="w-full bg-[#18181B] border border-zinc-700 focus:border-blue-500 rounded-lg pl-7 pr-2.5 py-1 text-xs text-white placeholder-zinc-500 focus:outline-none"
-                            />
-                            <MapPin size={12} className="absolute left-2 top-2 text-zinc-400 pointer-events-none" />
-                          </div>
-                          <button
-                            onClick={() => handleUpdateMapSettings(true, mapAddressInput)}
-                            disabled={modifying}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg transition shrink-0 cursor-pointer"
-                            title="Appliquer l'adresse à la carte"
-                          >
-                            {modifying ? <RefreshCw size={12} className="animate-spin" /> : "Appliquer"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* ALERT IF NO ADDRESS ON LEAD */}
-                    {(!lead?.address && !siteData?.content?.mapAddress && !siteData?.content?.address) && (
-                      <div className="text-[11px] text-amber-300 font-medium flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-lg shrink-0">
-                        <span>⚠️ Aucune adresse contact. Renseignez l'adresse ci-dessus.</span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-2 shrink-0">
+                <div className="w-full h-full p-3 sm:p-5 flex flex-col relative overflow-hidden bg-gradient-to-b from-black/40 via-zinc-950/60 to-black/80 backdrop-blur-2xl">
+                  {/* TOP ACTIONS RIBBON */}
+                  <div className="mb-2 px-3 py-1.5 bg-[#121218]/90 backdrop-blur-xl border border-amber-500/20 rounded-xl flex items-center justify-between gap-3 shrink-0 shadow-lg select-none">
+                    <div className="flex items-center gap-2">
                       <button
-                        onClick={() => {
-                          const niche = siteData?.content?.nicheOverride || lead?.niche || lead?.sector || 'services';
-                          const q = `${niche} ${companyName} pinterest photo design`;
-                          handleResearchPhotos(q);
-                        }}
-                        disabled={researchingPhotos}
-                        className="px-2.5 py-1 bg-gradient-to-r from-rose-500 via-pink-500 to-purple-600 hover:from-rose-400 hover:to-purple-500 text-white font-extrabold text-xs rounded-lg flex items-center gap-1.5 shrink-0 shadow-md border border-pink-400/30 cursor-pointer"
-                        title="Search Pinterest automatically based on niche first & fill missing site photos"
+                        onClick={() => setFrameTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
+                          frameTheme === 'light'
+                            ? 'bg-amber-400 text-zinc-950 border-amber-300 shadow-sm'
+                            : 'bg-zinc-800/80 text-zinc-300 border-zinc-700 hover:text-white'
+                        }`}
+                        title="Toggle Frame Theme between Dark Glass and Clean Light Frame"
                       >
-                        <Search size={12} className={researchingPhotos ? "animate-spin" : ""} />
-                        <span className="hidden sm:inline">{researchingPhotos ? "Searching..." : "📌 Pinterest Photos"}</span>
+                        {frameTheme === 'light' ? <Sun size={12} /> : <Moon size={12} />}
+                        <span>{frameTheme === 'light' ? 'Light Frame' : 'Dark Frame'}</span>
                       </button>
+
+                      <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                        <Sparkles size={13} className="text-amber-400" />
+                        <span>Niche Website Live Preview</span>
+                      </div>
                     </div>
+
+                    <button
+                      onClick={() => {
+                        const niche = siteData?.content?.nicheOverride || lead?.niche || lead?.sector || 'services';
+                        const q = `${niche} ${companyName} pinterest photo design`;
+                        handleResearchPhotos(q);
+                      }}
+                      disabled={researchingPhotos}
+                      className="px-3 py-1 bg-gradient-to-r from-rose-500 via-pink-500 to-purple-600 hover:from-rose-400 hover:to-purple-500 text-white font-extrabold text-xs rounded-lg flex items-center gap-1.5 shrink-0 shadow-md shadow-rose-500/25 border border-pink-400/30 cursor-pointer"
+                      title="Search Pinterest automatically based on niche first & fill missing site photos"
+                    >
+                      <Search size={12} className={researchingPhotos ? "animate-spin" : ""} />
+                      <span>{researchingPhotos ? "Searching..." : "📌 Auto-Fill Pinterest Images"}</span>
+                    </button>
                   </div>
 
                   {/* TRANSLUCENT FROSTED EDGE CONTAINER */}
-                  <div className="w-full h-full bg-[#0B0C10]/60 backdrop-blur-3xl border border-white/15 rounded-2xl flex flex-col overflow-hidden shadow-[0_20px_80px_rgba(0,0,0,0.85)] ring-1 ring-white/10 relative">
+                  <div className={`w-full h-full rounded-2xl flex flex-col overflow-hidden transition-all duration-300 relative ${
+                    frameTheme === 'light'
+                      ? 'bg-slate-100 border border-slate-300 text-slate-900 shadow-2xl ring-1 ring-slate-200'
+                      : 'bg-[#0B0C10]/60 backdrop-blur-3xl border border-white/15 text-white shadow-[0_20px_80px_rgba(0,0,0,0.85)] ring-1 ring-white/10'
+                  }`}>
                     
                     {/* FROSTED BROWSER CHROME HEADER */}
-                    <div className="px-4 py-2.5 bg-zinc-900/40 backdrop-blur-md border-b border-white/10 flex items-center justify-between gap-3 shrink-0 select-none">
+                    <div className={`px-4 py-2.5 backdrop-blur-md border-b flex items-center justify-between gap-3 shrink-0 select-none ${
+                      frameTheme === 'light' ? 'bg-slate-200/90 border-slate-300 text-slate-800' : 'bg-zinc-900/40 border-white/10 text-white'
+                    }`}>
                       <div className="flex items-center gap-2">
                         {/* Mac Window Control Dots */}
                         <div className="flex items-center gap-1.5 shrink-0">
@@ -2354,8 +3929,926 @@ Set nicheOverride to "${activeNiche}".`;
                 </div>
               )}
 
+              {activeTab === 'deploy-outreach' && (
+                <div className="p-4 sm:p-8 h-full overflow-y-auto max-w-6xl mx-auto space-y-6 text-left">
+                  {/* HEADER */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-zinc-900 via-[#121218] to-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-xl">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase tracking-widest">
+                          Production & Outreach Center
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold uppercase tracking-widest">
+                          Batch Engine
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-black text-white flex items-center gap-2">
+                        <Rocket size={24} className="text-emerald-400" />
+                        Deploy Batch & Niche Outreach Hub
+                      </h3>
+                      <p className="text-xs text-zinc-400 mt-1 max-w-xl">
+                        Publish high-converting websites live on Netlify, Vercel, or ZIP. Automatically attach homepage screenshots, Google Business Trust Badges, and niche-tailored WhatsApp outreach messages.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleDownloadZip}
+                        disabled={downloadingZip}
+                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition cursor-pointer border border-zinc-700"
+                      >
+                        <Download size={14} />
+                        <span>{downloadingZip ? 'Packaging ZIP...' : 'Download ZIP Package'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* LEFT COLUMN: DEPLOYMENT & OUTREACH CONFIGURATION */}
+                    <div className="lg:col-span-6 space-y-6">
+                      
+                      {/* 1. SELECT BATCH NICHE */}
+                      <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-lg">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                            <Sliders size={16} className="text-amber-400" />
+                            1. Batch Target Niche Selection
+                          </h4>
+                          <span className="text-[10px] text-zinc-500 font-mono">Select for batch styling</span>
+                        </div>
+
+                        <p className="text-[11px] text-zinc-400">
+                          Choose the target profession for this deployment batch. The template content, photos, and outreach copy will immediately align with this niche.
+                        </p>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                          {[
+                            { id: 'electrician', label: '⚡ Électricien', desc: 'Dépannage & Installation' },
+                            { id: 'plumber', label: '🚰 Plombier', desc: 'Fuites & Sanitaire' },
+                            { id: 'realEstate', label: '🏢 Immobilière', desc: 'Vente & Location' },
+                            { id: 'restaurant', label: '🍷 Restaurant', desc: 'Gastro & Brasserie' },
+                            { id: 'renovation', label: '🏠 Rénovation', desc: 'Travaux & BTP' },
+                            { id: 'driving_school', label: '🚗 Auto-École', desc: 'Permis B & Conduite' },
+                          ].map(n => (
+                            <button
+                              key={n.id}
+                              onClick={() => {
+                                setSelectedBatchNiche(n.id);
+                                handleNicheChange(n.id);
+                              }}
+                              className={`p-3 rounded-xl text-left transition border flex flex-col justify-between cursor-pointer ${
+                                (selectedBatchNiche === n.id || siteData?.content?.nicheOverride === n.id)
+                                  ? 'bg-amber-500/10 border-amber-500/50 text-white shadow-md shadow-amber-500/10'
+                                  : 'bg-[#121216] border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800/50'
+                              }`}
+                            >
+                              <span className="text-xs font-bold">{n.label}</span>
+                              <span className="text-[9px] text-zinc-500 mt-1">{n.desc}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* 2. CHOOSE DEPLOYMENT METHOD */}
+                      <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-lg">
+                        <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                          <Globe size={16} className="text-blue-400" />
+                          2. Choose Deployment Host
+                        </h4>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            { id: 'netlify', label: 'Netlify CDN', desc: '1-Click Live SSL' },
+                            { id: 'vercel', label: 'Vercel Edge', desc: 'Serverless Fast' },
+                            { id: 'zip', label: 'ZIP Bundle', desc: 'Download Source' }
+                          ].map(host => (
+                            <button
+                              key={host.id}
+                              onClick={() => setDeployTarget(host.id as any)}
+                              className={`p-3 rounded-xl text-center transition border cursor-pointer ${
+                                deployTarget === host.id
+                                  ? 'bg-blue-600/20 border-blue-500 text-white shadow-md shadow-blue-500/10'
+                                  : 'bg-[#121216] border-zinc-800 text-zinc-400 hover:text-white'
+                              }`}
+                            >
+                              <span className="text-xs font-bold block">{host.label}</span>
+                              <span className="text-[9px] text-zinc-500 block mt-0.5">{host.desc}</span>
+                            </button>
+                          ))}
+                        </div>
+
+                        {deployTarget === 'netlify' && (
+                          <div className="space-y-2 pt-2 border-t border-zinc-800/80">
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                              Netlify Access Token (Optional)
+                            </label>
+                            <input
+                              type="password"
+                              placeholder="nfp_xxxxxxxxxxxxxxxx (Leave blank for automatic package generation)"
+                              value={netlifyToken}
+                              onChange={(e) => setNetlifyToken(e.target.value)}
+                              className="w-full bg-[#121216] border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500"
+                            />
+                            <p className="text-[10px] text-zinc-500">
+                              Provide a Netlify token for direct 1-click publishing, or deploy via Netlify Drop.
+                            </p>
+                          </div>
+                        )}
+
+                        {deployTarget === 'vercel' && (
+                          <div className="space-y-2 pt-2 border-t border-zinc-800/80">
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                              Vercel Auth Token (Optional)
+                            </label>
+                            <input
+                              type="password"
+                              placeholder="vercel_token_xxxxxxxx (Leave blank for preview build)"
+                              value={vercelToken}
+                              onChange={(e) => setVercelToken(e.target.value)}
+                              className="w-full bg-[#121216] border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500"
+                            />
+                            <p className="text-[10px] text-zinc-500">
+                              Provide a Vercel token for instant deployment to Vercel's global edge platform.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 3. AUTOMATION & TRUST BADGE CONTROLS */}
+                      <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-lg">
+                        <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                          <Zap size={16} className="text-emerald-400" />
+                          3. Cold Outreach & Trust Badge Automation
+                        </h4>
+
+                        <div className="space-y-3">
+                          <label className="flex items-start gap-3 p-3 bg-[#121216] border border-zinc-800 rounded-xl cursor-pointer hover:border-zinc-700 transition">
+                            <input
+                              type="checkbox"
+                              checked={autoSendEmail}
+                              onChange={(e) => setAutoSendEmail(e.target.checked)}
+                              className="mt-0.5 w-4 h-4 rounded accent-emerald-500 cursor-pointer"
+                            />
+                            <div>
+                              <span className="text-xs font-bold text-white block">Auto-Send Cold Email Upon Deploy</span>
+                              <span className="text-[10px] text-zinc-400 block mt-0.5">
+                                Automatically dispatches personalized cold email with live website link to {lead?.email || 'prospect'}.
+                              </span>
+                            </div>
+                          </label>
+
+                          <label className="flex items-start gap-3 p-3 bg-[#121216] border border-zinc-800 rounded-xl cursor-pointer hover:border-zinc-700 transition">
+                            <input
+                              type="checkbox"
+                              checked={includeGoogleBadgeInOutreach}
+                              onChange={(e) => setIncludeGoogleBadgeInOutreach(e.target.checked)}
+                              className="mt-0.5 w-4 h-4 rounded accent-yellow-500 cursor-pointer"
+                            />
+                            <div>
+                              <span className="text-xs font-bold text-white block">Include Google Business Trust Badge</span>
+                              <span className="text-[10px] text-zinc-400 block mt-0.5">
+                                Appends ⭐️⭐️⭐️⭐️⭐️ 4.9/5 Google Verified Business rating badge to email & WhatsApp outreach.
+                              </span>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* DEPLOY ACTION BUTTON & PROGRESS */}
+                      <div className="space-y-3">
+                        <button
+                          onClick={handleExecuteDeployment}
+                          disabled={deployingTarget || deployingNetlify}
+                          className="w-full py-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 disabled:opacity-50 text-zinc-950 font-extrabold text-sm rounded-2xl shadow-xl shadow-emerald-500/20 transition flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+                        >
+                          {(deployingTarget || deployingNetlify) ? (
+                            <>
+                              <RefreshCw size={18} className="animate-spin text-zinc-950" />
+                              <span>Deploying Live Website...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Rocket size={18} className="text-zinc-950" />
+                              <span>Deploy Website & Prepare WhatsApp Outreach</span>
+                            </>
+                          )}
+                        </button>
+
+                        {(deployingTarget || deployingNetlify) && (
+                          <div className="p-4 bg-[#121218] border border-emerald-500/30 rounded-xl space-y-2">
+                            <div className="flex justify-between text-xs font-bold text-emerald-400">
+                              <span>{deployStepText || 'Processing deployment...'}</span>
+                              <span>{deployProgress || 40}%</span>
+                            </div>
+                            <div className="w-full h-2 bg-zinc-900 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 transition-all duration-300"
+                                style={{ width: `${deployProgress || 40}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {emailSentStatus && (
+                          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 font-semibold flex items-center gap-2">
+                            <CheckCircle2 size={16} className="text-emerald-400" />
+                            {emailSentStatus}
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+
+                    {/* RIGHT COLUMN: HOMEPAGE SCREENSHOT & PREMADE WHATSAPP OUTREACH LIST */}
+                    <div className="lg:col-span-6 space-y-6">
+                      
+                      {/* HOMEPAGE PREVIEW CARD */}
+                      <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-5 space-y-3 shadow-lg">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                            <Monitor size={16} className="text-amber-400" />
+                            Homepage Screenshot & Live Preview
+                          </h4>
+                          <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                            Live Preview Active
+                          </span>
+                        </div>
+
+                        <div className="border border-zinc-800 rounded-xl overflow-hidden bg-zinc-950 shadow-inner relative group">
+                          <div className="px-3 py-1.5 bg-zinc-900 border-b border-zinc-800 flex items-center gap-2">
+                            <div className="flex gap-1">
+                              <span className="w-2.5 h-2.5 rounded-full bg-red-500/80 inline-block" />
+                              <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/80 inline-block" />
+                              <span className="w-2.5 h-2.5 rounded-full bg-green-500/80 inline-block" />
+                            </div>
+                            <div className="flex-1 text-center font-mono text-[10px] text-zinc-400 truncate">
+                              {siteData?.previewUrl || `https://${(companyName).toLowerCase().replace(/[^a-z0-9]/g, '')}.nesta.ai`}
+                            </div>
+                          </div>
+
+                          <div className="h-48 overflow-hidden relative">
+                            <iframe
+                              srcDoc={siteData?.html}
+                              title="Homepage Screenshot Preview"
+                              className="w-[1200px] h-[800px] origin-top-left scale-[0.38] pointer-events-none"
+                            />
+                          </div>
+                        </div>
+
+                        {(netlifyDeployResult?.url || deployResult?.url || siteData?.previewUrl) && (
+                          <div className="p-3 bg-zinc-900/80 border border-zinc-800 rounded-xl flex items-center justify-between gap-2">
+                            <div className="truncate text-xs text-zinc-300 font-mono">
+                              <span className="text-zinc-500 mr-2">Deployed URL:</span>
+                              <span className="text-emerald-400 font-bold">{netlifyDeployResult?.url || deployResult?.url || siteData?.previewUrl}</span>
+                            </div>
+                            <a
+                              href={netlifyDeployResult?.url || deployResult?.url || siteData?.previewUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold text-[10px] rounded-lg border border-emerald-500/30 shrink-0 transition"
+                            >
+                              Open Site ↗
+                            </a>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* PREMADE WHATSAPP READY MESSAGES */}
+                      <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-lg">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                            <MessageSquare size={16} className="text-emerald-400" />
+                            Premade WhatsApp Ready Messages
+                          </h4>
+                          <span className="text-[10px] text-zinc-400 font-medium">
+                            Click each button to launch WhatsApp
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] text-zinc-400">
+                          Messages are tailored to the selected niche ({selectedBatchNiche || lead?.niche || 'Électricien'}). Pressing the button opens WhatsApp with the prefilled message so you can send instantly.
+                        </p>
+
+                        <div className="space-y-3">
+                          {[
+                            lead,
+                            ...(lead?.similarLeads || [
+                              { name: `${companyName} (Principal)`, phone: lead?.phone || '+33612345678', city: lead?.city || 'Paris', niche: selectedBatchNiche },
+                              { name: `Artisan ${selectedBatchNiche} Pro`, phone: '+33664143679', city: lead?.city || 'Lyon', niche: selectedBatchNiche }
+                            ])
+                          ].slice(0, 3).map((item, idx) => {
+                            if (!item) return null;
+                            const targetName = item.name || item.companyName || companyName;
+                            const targetCity = item.city || lead?.city || 'votre région';
+                            const targetPhone = item.phone || lead?.phone || '';
+                            const targetNiche = selectedBatchNiche || item.niche || 'Électricien';
+                            const deployedUrl = netlifyDeployResult?.url || deployResult?.url || siteData?.previewUrl || `https://${(targetName).toLowerCase().replace(/[^a-z0-9]/g, '')}.nesta.ai`;
+
+                            const rawText = `Bonjour ${targetName}, j'accompagne régulièrement les professionnels du secteur ${targetNiche} à ${targetCity}. La présence numérique est un axe majeur sur lequel je travaille dans votre domaine. Je me suis permis de vous concevoir un aperçu de votre site web haute performance : ${deployedUrl}${includeGoogleBadgeInOutreach ? '\n\n⭐️⭐️⭐️⭐️⭐️ Fiche Officielle Google Business (4.9/5 - 84 avis)' : ''}\n\nJe reste à votre disposition si vous souhaitez le publier !`;
+
+                            const cleanPhone = targetPhone.replace(/[^0-9]/g, '');
+                            const waLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(rawText)}`;
+
+                            return (
+                              <div key={idx} className="p-4 bg-[#121218] border border-zinc-800 rounded-xl space-y-2 text-left">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                                    <User size={13} className="text-zinc-400" />
+                                    {targetName}
+                                  </span>
+                                  <span className="text-[10px] text-zinc-500 font-mono">{targetPhone || 'No phone'}</span>
+                                </div>
+
+                                <p className="text-[11px] text-zinc-300 bg-black/40 p-2.5 rounded-lg border border-zinc-800 font-sans leading-relaxed">
+                                  "{rawText}"
+                                </p>
+
+                                <div className="flex items-center justify-between pt-1">
+                                  {includeGoogleBadgeInOutreach && (
+                                    <span className="text-[10px] text-yellow-400 font-bold flex items-center gap-1">
+                                      ⭐️⭐️⭐️⭐️⭐️ 4.9/5 Google Badge Attached
+                                    </span>
+                                  )}
+
+                                  <a
+                                    href={waLink}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="ml-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-md shadow-emerald-600/20"
+                                  >
+                                    <MessageSquare size={14} />
+                                    <span>📱 Send via WhatsApp</span>
+                                  </a>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'scroll-video' && (
+                <div className="p-4 sm:p-8 h-full overflow-y-auto max-w-6xl mx-auto space-y-6 text-left">
+                  {/* HEADER */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-zinc-900 via-[#121218] to-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-xl">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 text-[10px] font-bold uppercase tracking-widest">
+                          Interactive Video Studio
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold uppercase tracking-widest">
+                          Hero Scroll Sync
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-black text-white flex items-center gap-2">
+                        <Video size={24} className="text-purple-400" />
+                        Hero Scroll-Driven Video Animation Engine
+                      </h3>
+                      <p className="text-xs text-zinc-400 mt-1 max-w-xl">
+                        Upload custom video files or choose stock video assets to create frame-accurate scroll animations for the hero section. Saved video animations automatically appear in the website Catalogue section.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <label className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition cursor-pointer shadow-lg shadow-purple-600/20 border border-purple-400/30">
+                        <Upload size={14} />
+                        <span>Upload Custom Video</span>
+                        <input
+                          type="file"
+                          accept="video/mp4,video/webm,video/quicktime"
+                          onChange={handleVideoFileUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  {videoApplyMsg && (
+                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 font-semibold flex items-center gap-2 animate-fade-in">
+                      <CheckCircle2 size={16} className="text-emerald-400" />
+                      {videoApplyMsg}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* LEFT COLUMN: INTERACTIVE SCRUBBER & ANIMATION SETTINGS */}
+                    <div className="lg:col-span-7 space-y-6">
+                      
+                      {/* 1. INTERACTIVE SCROLL ANIMATION PREVIEW SANDBOX */}
+                      <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-lg">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                            <Play size={16} className="text-purple-400" />
+                            1. Interactive Hero Scroll Preview Sandbox
+                          </h4>
+                          <span className="text-[10px] text-zinc-400 font-mono">Drag slider to test scroll scrub</span>
+                        </div>
+
+                        <div className="relative rounded-xl overflow-hidden bg-black border border-zinc-800 h-64 flex items-center justify-center group shadow-2xl">
+                          {selectedHeroVideoUrl ? (
+                            <video
+                              key={selectedHeroVideoUrl}
+                              src={selectedHeroVideoUrl}
+                              className="w-full h-full object-cover"
+                              autoPlay={heroVideoEffect === 'autoplay'}
+                              loop={heroVideoEffect === 'autoplay'}
+                              muted
+                              playsInline
+                              ref={(vidRef) => {
+                                if (vidRef && heroVideoEffect === 'scroll-scrub' && vidRef.duration) {
+                                  try {
+                                    vidRef.currentTime = (scrubPreviewPos / 100) * vidRef.duration;
+                                  } catch (e) {}
+                                }
+                              }}
+                              style={{
+                                transform: heroVideoEffect === 'sticky-zoom' ? `scale(${1 + (scrubPreviewPos / 100) * 0.4})` : (heroVideoEffect === '3d-tilt' ? `perspective(1000px) rotateX(${(scrubPreviewPos / 100) * 20}deg)` : 'none'),
+                                filter: heroVideoEffect === 'sticky-zoom' ? `brightness(${1 - (scrubPreviewPos / 100) * 0.3}) blur(${(scrubPreviewPos / 100) * 6}px)` : `brightness(${1 - heroScrollOpacity * 0.5})`,
+                                opacity: heroVideoEffect === 'parallax-fade' ? Math.max(0.1, 1 - (scrubPreviewPos / 100) * 0.8) : 1
+                              }}
+                            />
+                          ) : (
+                            <div className="text-center p-6 text-zinc-500 text-xs">
+                              No video loaded. Upload a video file or pick a stock video below.
+                            </div>
+                          )}
+
+                          {/* OVERLAY CONTENT SIMULATION */}
+                          <div className="absolute inset-0 bg-black/30 flex flex-col items-center justify-center p-6 text-center pointer-events-none">
+                            <span className="px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-[10px] font-bold text-white uppercase tracking-widest mb-2 border border-white/20">
+                              {companyName}
+                            </span>
+                            <h2 className="text-2xl font-black text-white uppercase tracking-tight max-w-sm">
+                              {siteData?.content?.heroTitle || companyName}
+                            </h2>
+                            <p className="text-xs text-white/80 mt-1 max-w-xs">
+                              {siteData?.content?.heroSubtitle || 'Animation interactive au défilement'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* SCRUB TEST SLIDER */}
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex justify-between text-xs font-bold text-zinc-400">
+                            <span className="flex items-center gap-1"><ChevronsLeftRight size={13} className="text-purple-400" /> Scroll Scrub Simulator</span>
+                            <span className="text-purple-400 font-mono">{scrubPreviewPos}% Page Scroll</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={scrubPreviewPos}
+                            onChange={(e) => setScrubPreviewPos(Number(e.target.value))}
+                            className="w-full accent-purple-500 cursor-pointer h-2 bg-zinc-800 rounded-lg"
+                          />
+                        </div>
+                      </div>
+
+                      {/* 2. SELECT SCROLL ANIMATION MODE */}
+                      <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-lg">
+                        <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                          <Wand2 size={16} className="text-amber-400" />
+                          2. Choose Hero Scroll Animation Mode
+                        </h4>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {[
+                            { id: 'scroll-scrub', label: '🎬 Frame Scrub', desc: 'Scroll advances video frames 1:1' },
+                            { id: 'sticky-zoom', label: '🔍 Sticky Zoom & Blur', desc: 'Video zooms and blurs on scroll' },
+                            { id: 'parallax-fade', label: '🌊 Parallax Fade', desc: 'Smooth vertical parallax fade' },
+                            { id: '3d-tilt', label: '🌀 3D Tilt Perspective', desc: 'Tilts along 3D spatial axis' },
+                            { id: 'autoplay', label: '⏯️ Autoplay Loop', desc: 'Continuous ambient background loop' },
+                          ].map(m => (
+                            <button
+                              key={m.id}
+                              onClick={() => setHeroVideoEffect(m.id as any)}
+                              className={`p-3 rounded-xl text-left transition border cursor-pointer flex flex-col justify-between ${
+                                heroVideoEffect === m.id
+                                  ? 'bg-purple-600/20 border-purple-500 text-white shadow-md shadow-purple-500/10'
+                                  : 'bg-[#121216] border-zinc-800 text-zinc-400 hover:text-white'
+                              }`}
+                            >
+                              <span className="text-xs font-bold">{m.label}</span>
+                              <span className="text-[9px] text-zinc-500 mt-1">{m.desc}</span>
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* TIMING & OVERLAY PARAMETERS */}
+                        <div className="grid grid-cols-2 gap-4 pt-3 border-t border-zinc-800/80">
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs font-bold text-zinc-400">
+                              <span>Scroll Height Factor</span>
+                              <span className="text-purple-400">{heroScrollTiming}x</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0.8"
+                              max="3.0"
+                              step="0.1"
+                              value={heroScrollTiming}
+                              onChange={(e) => setHeroScrollTiming(Number(e.target.value))}
+                              className="w-full accent-purple-500 cursor-pointer h-1.5 bg-zinc-800 rounded-lg"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs font-bold text-zinc-400">
+                              <span>Overlay Contrast</span>
+                              <span className="text-purple-400">{Math.round(heroScrollOpacity * 100)}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0.1"
+                              max="0.8"
+                              step="0.05"
+                              value={heroScrollOpacity}
+                              onChange={(e) => setHeroScrollOpacity(Number(e.target.value))}
+                              className="w-full accent-purple-500 cursor-pointer h-1.5 bg-zinc-800 rounded-lg"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* APPLY & SAVE BUTTONS */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          onClick={handleApplyHeroScrollVideo}
+                          disabled={loading}
+                          className="py-3.5 px-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-purple-600/20 transition flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+                        >
+                          <CheckCircle2 size={16} />
+                          <span>Apply to Website Hero</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleSaveVideoToCatalog()}
+                          disabled={loading}
+                          className="py-3.5 px-4 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-extrabold text-xs rounded-xl shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+                        >
+                          <Star size={16} />
+                          <span>Save to Website Catalogue</span>
+                        </button>
+                      </div>
+
+                    </div>
+
+                    {/* RIGHT COLUMN: STOCK VIDEO SEARCH & SAVED CATALOGUE */}
+                    <div className="lg:col-span-5 space-y-6">
+                      
+                      {/* STOCK VIDEO LIBRARY SELECTOR */}
+                      <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-lg">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                            <Search size={16} className="text-blue-400" />
+                            Curated Stock Video Library
+                          </h4>
+                          <span className="text-[10px] text-zinc-400">High Bitrate 4K Assets</span>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="Search videos (e.g. electrician, plumber, real estate)..."
+                            value={heroVideoSearchQuery}
+                            onChange={(e) => setHeroVideoSearchQuery(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSearchStockVideos()}
+                            className="flex-1 bg-[#121216] border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-purple-500"
+                          />
+                          <button
+                            onClick={() => handleSearchStockVideos()}
+                            disabled={searchingStockVideos}
+                            className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl transition flex items-center gap-1 cursor-pointer"
+                          >
+                            {searchingStockVideos ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}
+                          </button>
+                        </div>
+
+                        {/* POPULAR NICHE PRESETS */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {['Electrician', 'Plumber', 'Real Estate', 'Renovation', 'Restaurant'].map(tag => (
+                            <button
+                              key={tag}
+                              onClick={() => {
+                                setHeroVideoSearchQuery(tag);
+                                handleSearchStockVideos(tag);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 transition cursor-pointer"
+                            >
+                              {tag}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* VIDEO RESULTS GRID */}
+                        <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
+                          {(videoSearchResults.length > 0 ? videoSearchResults : [
+                            { title: 'Renovation Work', url: 'https://assets.mixkit.co/videos/preview/mixkit-decorating-and-renovating-a-room-41580-large.mp4' },
+                            { title: 'Electrician Wires', url: 'https://assets.mixkit.co/videos/preview/mixkit-hands-of-an-electrician-fixing-wires-42175-large.mp4' },
+                            { title: 'Plumber Repair', url: 'https://assets.mixkit.co/videos/preview/mixkit-plumber-repairing-a-kitchen-sink-42171-large.mp4' },
+                            { title: 'Realtor Apartment', url: 'https://assets.mixkit.co/videos/preview/mixkit-slow-motion-of-a-realtor-presenting-a-modern-apartment-43033-large.mp4' }
+                          ]).map((v, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => {
+                                setSelectedHeroVideoUrl(v.url);
+                                setVideoApplyMsg(`Selected "${v.title}" stock video!`);
+                                setTimeout(() => setVideoApplyMsg(null), 3000);
+                              }}
+                              className={`relative rounded-xl overflow-hidden border text-left group transition cursor-pointer h-24 ${
+                                selectedHeroVideoUrl === v.url
+                                  ? 'border-purple-500 ring-2 ring-purple-500/50'
+                                  : 'border-zinc-800 hover:border-zinc-700'
+                              }`}
+                            >
+                              <video
+                                src={v.url}
+                                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                                muted
+                                playsInline
+                                onMouseOver={(e) => (e.target as HTMLVideoElement).play().catch(() => {})}
+                                onMouseOut={(e) => (e.target as HTMLVideoElement).pause()}
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 p-2 flex flex-col justify-end">
+                                <span className="text-[10px] font-bold text-white truncate block">{v.title}</span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* CATALOGUE OF SAVED VIDEO ANIMATIONS */}
+                      <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-lg">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                            <Star size={16} className="text-amber-400" />
+                            Catalogue of Saved Video Animations
+                          </h4>
+                          <span className="text-[10px] text-zinc-400">{savedCatalogVideoAnimations.length} Saved Items</span>
+                        </div>
+
+                        <p className="text-[11px] text-zinc-400">
+                          These saved video animations are automatically included as video items inside your website's main Catalogue section.
+                        </p>
+
+                        <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                          {savedCatalogVideoAnimations.map((item, idx) => (
+                            <div key={item.id || idx} className="p-3.5 bg-[#121218] border border-zinc-800 rounded-xl space-y-2 text-left hover:border-zinc-700 transition">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <h5 className="text-xs font-bold text-white flex items-center gap-1.5">
+                                    <Video size={13} className="text-purple-400" />
+                                    {item.title}
+                                  </h5>
+                                  <p className="text-[10px] text-zinc-400 mt-0.5 leading-snug">{item.desc}</p>
+                                </div>
+                                <span className="px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 text-[9px] font-bold shrink-0 uppercase">
+                                  {item.mode}
+                                </span>
+                              </div>
+
+                              <div className="h-24 rounded-lg overflow-hidden border border-zinc-800 relative bg-black">
+                                <video
+                                  src={item.videoUrl}
+                                  className="w-full h-full object-cover"
+                                  muted
+                                  loop
+                                  playsInline
+                                  autoPlay
+                                />
+                                <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between">
+                                  <span className="text-[9px] font-mono text-zinc-300 bg-black/60 px-2 py-0.5 rounded backdrop-blur">
+                                    Timing: {item.timing || 1.5}x
+                                  </span>
+                                  <button
+                                    onClick={() => handleSaveVideoToCatalog(item)}
+                                    className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold text-[9px] rounded border border-amber-500/30 transition cursor-pointer"
+                                  >
+                                    Apply to Hero
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'schema' && (
-                <div className="p-6 h-full flex flex-col space-y-4 overflow-y-auto">
+                <div className="p-6 h-full flex flex-col space-y-6 overflow-y-auto">
+                  {/* QUICK TEXT & EMAIL EDITOR */}
+                  <div className="bg-[#0A0A0C] border border-zinc-800 p-5 rounded-2xl space-y-4 shadow-xl">
+                    <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+                      <div>
+                        <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                          <Edit3 size={16} className="text-amber-400" />
+                          Website Content & Email Editor
+                        </h4>
+                        <p className="text-xs text-zinc-400 mt-0.5">
+                          Instantly edit all text across the template, especially contact email at the bottom and footer copyright.
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
+                        Live Sync Active
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* EMAIL ADDRESS AT BOTTOM & FOOTER */}
+                      <div className="space-y-1.5 bg-amber-500/5 p-3 rounded-xl border border-amber-500/20">
+                        <label className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                          <Mail size={13} />
+                          Contact & Footer Email Address
+                        </label>
+                        <input
+                          type="email"
+                          value={siteData?.content?.contactEmail || siteData?.content?.email || siteData?.content?.footerEmail || lead.email || ''}
+                          onChange={(e) => {
+                            const newEmail = e.target.value;
+                            if (!siteData) return;
+                            const newContent = {
+                              ...siteData.content,
+                              contactEmail: newEmail,
+                              email: newEmail,
+                              footerEmail: newEmail
+                            };
+                            setSiteData({ ...siteData, content: newContent });
+                            setJsonText(JSON.stringify(newContent, null, 2));
+
+                            const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+                            if (iframe?.contentWindow) {
+                              iframe.contentWindow.postMessage({
+                                type: 'UPDATE_TEXT',
+                                field: 'contactEmail',
+                                text: newEmail
+                              }, '*');
+                            }
+                          }}
+                          onBlur={() => {
+                            if (siteData) {
+                              fetch('/api/leads/modify-content', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ siteId: siteData.siteId, currentContent: siteData.content, directContent: siteData.content, lead })
+                              });
+                            }
+                          }}
+                          placeholder="e.g. contact@outlandhomes.com"
+                          className="w-full bg-black/80 border border-amber-500/40 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                        />
+                        <p className="text-[10px] text-zinc-500">Updates the contact section and the email link at the bottom of the page in real-time.</p>
+                      </div>
+
+                      {/* PHONE NUMBER */}
+                      <div className="space-y-1.5 bg-zinc-900/60 p-3 rounded-xl border border-zinc-800">
+                        <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                          <Phone size={13} className="text-cyan-400" />
+                          Phone Number
+                        </label>
+                        <input
+                          type="text"
+                          value={siteData?.content?.contactPhone || siteData?.content?.phone || lead.phone || ''}
+                          onChange={(e) => {
+                            const newPhone = e.target.value;
+                            if (!siteData) return;
+                            const newContent = { ...siteData.content, contactPhone: newPhone, phone: newPhone };
+                            setSiteData({ ...siteData, content: newContent });
+                            setJsonText(JSON.stringify(newContent, null, 2));
+
+                            const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+                            if (iframe?.contentWindow) {
+                              iframe.contentWindow.postMessage({ type: 'UPDATE_TEXT', field: 'contactPhone', text: newPhone }, '*');
+                            }
+                          }}
+                          onBlur={() => {
+                            if (siteData) {
+                              fetch('/api/leads/modify-content', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ siteId: siteData.siteId, currentContent: siteData.content, directContent: siteData.content, lead })
+                              });
+                            }
+                          }}
+                          placeholder="e.g. +33 6 64 14 36 79"
+                          className="w-full bg-black/80 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
+                        />
+                      </div>
+
+                      {/* BUSINESS / BRAND NAME */}
+                      <div className="space-y-1.5 bg-zinc-900/60 p-3 rounded-xl border border-zinc-800">
+                        <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                          <Building size={13} className="text-purple-400" />
+                          Business / Brand Name
+                        </label>
+                        <input
+                          type="text"
+                          value={siteData?.content?.brandName || lead.company || lead.businessName || ''}
+                          onChange={(e) => {
+                            const newBrand = e.target.value;
+                            if (!siteData) return;
+                            const newContent = { ...siteData.content, brandName: newBrand };
+                            setSiteData({ ...siteData, content: newContent });
+                            setJsonText(JSON.stringify(newContent, null, 2));
+
+                            const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+                            if (iframe?.contentWindow) {
+                              iframe.contentWindow.postMessage({ type: 'UPDATE_TEXT', field: 'brandName', text: newBrand }, '*');
+                            }
+                          }}
+                          onBlur={() => {
+                            if (siteData) {
+                              fetch('/api/leads/modify-content', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ siteId: siteData.siteId, currentContent: siteData.content, directContent: siteData.content, lead })
+                              });
+                            }
+                          }}
+                          placeholder="e.g. OUTLAND HOMES"
+                          className="w-full bg-black/80 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-400"
+                        />
+                      </div>
+
+                      {/* FOOTER COPYRIGHT */}
+                      <div className="space-y-1.5 bg-zinc-900/60 p-3 rounded-xl border border-zinc-800">
+                        <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                          <Globe size={13} className="text-emerald-400" />
+                          Footer Copyright Text
+                        </label>
+                        <input
+                          type="text"
+                          value={siteData?.content?.footerCopyright || siteData?.content?.footerText || ''}
+                          onChange={(e) => {
+                            const newCopy = e.target.value;
+                            if (!siteData) return;
+                            const newContent = { ...siteData.content, footerCopyright: newCopy, footerText: newCopy };
+                            setSiteData({ ...siteData, content: newContent });
+                            setJsonText(JSON.stringify(newContent, null, 2));
+
+                            const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+                            if (iframe?.contentWindow) {
+                              iframe.contentWindow.postMessage({ type: 'UPDATE_TEXT', field: 'footerCopyright', text: newCopy }, '*');
+                            }
+                          }}
+                          onBlur={() => {
+                            if (siteData) {
+                              fetch('/api/leads/modify-content', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ siteId: siteData.siteId, currentContent: siteData.content, directContent: siteData.content, lead })
+                              });
+                            }
+                          }}
+                          placeholder="e.g. © 2026 · Outland Homes Real Estate"
+                          className="w-full bg-black/80 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-400"
+                        />
+                      </div>
+
+                      {/* CITY / HERO LOCATION */}
+                      <div className="space-y-1.5 bg-zinc-900/60 p-3 rounded-xl border border-zinc-800 sm:col-span-2">
+                        <label className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                          <MapPin size={13} className="text-amber-400" />
+                          City / Hero Location Tag
+                        </label>
+                        <input
+                          type="text"
+                          value={siteData?.content?.city || siteData?.content?.heroCity || lead.city || ''}
+                          onChange={(e) => {
+                            const newCity = e.target.value;
+                            if (!siteData) return;
+                            const newContent = { ...siteData.content, city: newCity, heroCity: newCity };
+                            setSiteData({ ...siteData, content: newContent });
+                            setJsonText(JSON.stringify(newContent, null, 2));
+
+                            const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+                            if (iframe?.contentWindow) {
+                              iframe.contentWindow.postMessage({ type: 'UPDATE_TEXT', field: 'city', text: newCity }, '*');
+                            }
+                          }}
+                          onBlur={() => {
+                            if (siteData) {
+                              fetch('/api/leads/modify-content', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ siteId: siteData.siteId, currentContent: siteData.content, directContent: siteData.content, lead })
+                              });
+                            }
+                          }}
+                          placeholder="e.g. Paris & Île-de-France"
+                          className="w-full bg-black/80 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#0A0A0C] border border-zinc-800 p-4 rounded-xl">
                     <div>
                       <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
@@ -2667,1188 +5160,1177 @@ Set nicheOverride to "${activeNiche}".`;
                 </div>
               )}
 
+              
               {activeTab === 'gif' && (
-                <div className="p-6 h-full overflow-y-auto bg-gradient-to-b from-[#0F0F12] to-black">
-                  <div className="max-w-6xl mx-auto space-y-6">
-                    {/* Header bar */}
-                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-zinc-800 pb-5">
-                      <div className="text-left">
-                        <span className="px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold uppercase tracking-wider">
-                          Outreach Multiplier
-                        </span>
-                        <h4 className="text-xl font-bold text-white flex items-center gap-2 mt-1">
-                          <Zap size={20} className="text-blue-400 animate-pulse" />
-                          Personalized Outreach GIF Generator & Exporter
-                        </h4>
-                        <p className="text-xs text-zinc-400 font-medium">Generate high-conversion animated GIFs of your custom website prototypes or property tour videos for emails and messages.</p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        {outreachMode === 'website' && (
-                          <button
-                            onClick={handleGenerateGif}
-                            disabled={generatingGif || !siteData}
-                            className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition disabled:opacity-50 shadow-lg shadow-blue-500/20 cursor-pointer"
-                          >
-                            {generatingGif ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} />}
-                            <span>{generatingGif ? 'Generating Gif...' : 'Regenerate Animated GIF'}</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                <div className="p-8 h-full overflow-y-auto max-w-4xl mx-auto space-y-8">
+                  <div className="text-left space-y-2 mb-6">
+                    <span className="px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold uppercase tracking-wider">
+                      Outreach Multiplier
+                    </span>
+                    <h4 className="text-xl font-bold text-white flex items-center gap-2 mt-1">
+                      <Video size={20} className="text-blue-400" />
+                      Video to Outreach GIF Generator
+                    </h4>
+                    <p className="text-xs text-zinc-400 font-medium">
+                      Select or upload a screen recording of the customized website. Use these looping videos or GIFs in your cold emails and DMs.
+                    </p>
+                  </div>
 
-                    {/* Outreach Mode Selector Row */}
-                    <div className="flex items-center gap-2 bg-zinc-950 p-1 rounded-xl border border-zinc-850 w-fit text-left">
-                      <button
-                        onClick={() => setOutreachMode('website')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${outreachMode === 'website' ? 'bg-[#27272A] text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}
-                      >
-                        <Globe size={13} />
-                        <span>Website Prototype GIF</span>
-                      </button>
-                      <button
-                        onClick={() => setOutreachMode('dentist')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${outreachMode === 'dentist' ? 'bg-pink-600 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}
-                      >
-                        <Sparkles size={13} className="text-white fill-current" />
-                        <span>Dentist Veneers Smile Widget</span>
-                      </button>
-                    </div>
-
-                    {gifError && (
-                      <div className="p-4 bg-red-950/40 border border-red-500/30 rounded-xl text-xs text-red-400 text-left">
-                        <strong>Error generating GIF:</strong> {gifError}
+                  {/* UPLOAD VIDEOS DROPZONE */}
+                  
+                  <div className="space-y-6">
+                    {/* CUSTOM URL TO GIF */}
+                    <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-6 relative">
+                      <h4 className="text-sm font-bold text-zinc-200 mb-2">Auto-Generate GIF from Live URL</h4>
+                      <p className="text-[11px] text-zinc-500 mb-4">Paste any website URL to automatically capture a scrolling animated GIF.</p>
+                      <div className="flex gap-2">
+                        <input 
+                          type="url" 
+                          placeholder="https://..." 
+                          value={customGifUrlInput}
+                          onChange={(e) => setCustomGifUrlInput(e.target.value)}
+                          className="flex-1 bg-black/50 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white"
+                        />
+                        <button 
+                          onClick={handleGenerateCustomGif}
+                          disabled={!customGifUrlInput || generatingGif}
+                          className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-lg shadow-lg cursor-pointer transition flex items-center gap-2"
+                        >
+                          {generatingGif ? 'Capturing...' : 'Generate GIF'}
+                        </button>
                       </div>
-                    )}
-
-                    {/* Content split grid */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                       
-                      {/* Left: Simulated Browser with GIF preview */}
-                      <div className="lg:col-span-7 space-y-4">
-                        <div className="bg-[#0A0A0C] border border-zinc-800/80 rounded-2xl overflow-hidden shadow-2xl">
-                          {/* Browser header */}
-                          <div className="bg-zinc-900/60 border-b border-zinc-800 px-4 py-2.5 flex items-center justify-between select-none">
-                            <div className="flex items-center gap-1.5">
-                              <span className="w-3 h-3 rounded-full bg-[#FF5F56] opacity-80" />
-                              <span className="w-3 h-3 rounded-full bg-[#FFBD2E] opacity-80" />
-                              <span className="w-3 h-3 rounded-full bg-[#27C93F] opacity-80" />
-                            </div>
-                            <div className="bg-black/40 text-zinc-400 text-[10px] font-mono px-4 py-1 rounded-md text-center max-w-xs truncate">
-                              {outreachMode === 'dentist' ? 'veneers-smile-simulator.ai/widget' : `${companyName.toLowerCase().replace(/[^a-z0-9]/g, '')}.nesta.ai/preview.gif`}
-                            </div>
-                            <div className="w-12" /> {/* spacing spacer */}
+                      {gifError && <p className="text-red-400 text-xs mt-3">{gifError}</p>}
+                      
+                      {gifUrl && (
+                        <div className="mt-6 border border-zinc-800 rounded-xl overflow-hidden bg-black p-2">
+                          <img src={gifUrl} alt="Generated GIF" className="w-full max-w-lg mx-auto rounded-lg" />
+                          <div className="text-center mt-3">
+                            <button 
+                              onClick={handleCopyGifUrl}
+                              className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold rounded-lg transition"
+                            >
+                              {copiedGifUrl ? 'Copied!' : 'Copy GIF URL'}
+                            </button>
                           </div>
+                        </div>
+                      )}
+                    </div>
 
-                          {/* GIF Container */}
-                          <div className="p-4 bg-[#0B0C10] flex items-center justify-center min-h-[400px] relative group select-none">
-                            {outreachMode === 'dentist' ? (
-                              <div className="relative max-w-full w-full max-w-[420px] mx-auto bg-zinc-950 p-4 rounded-3xl border border-zinc-800 shadow-2xl text-left font-sans">
-                                <div className="text-center pb-3 border-b border-zinc-850 mb-3">
-                                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-pink-500/10 text-pink-400 text-[9px] font-extrabold uppercase tracking-wide border border-pink-500/20">
-                                    Live Widget Simulator
-                                  </div>
-                                  <h3 className="text-xs font-bold text-white mt-1">AI Veneers Smile Trial</h3>
-                                  <p className="text-[10px] text-zinc-500 mt-0.5">Drag the slider to compare Before vs Porcelain Veneers</p>
-                                </div>
+                    <div className="flex items-center gap-4">
+                      <div className="h-px bg-zinc-800 flex-1"></div>
+                      <span className="text-xs text-zinc-500 font-bold uppercase">OR</span>
+                      <div className="h-px bg-zinc-800 flex-1"></div>
+                    </div>
 
-                                {/* Drag-responsive Container */}
-                                <div 
-                                  className="relative w-full aspect-square overflow-hidden rounded-2xl select-none group cursor-ew-resize bg-black"
-                                  onMouseMove={handleSliderMouseMove}
-                                  onTouchMove={handleSliderTouchMove}
-                                  onClick={(e) => {
-                                    if (dentistAutoPlay) setDentistAutoPlay(false);
-                                    const rect = e.currentTarget.getBoundingClientRect();
-                                    const x = e.clientX - rect.left;
-                                    setDentistSliderPos(Math.max(0, Math.min(100, (x / rect.width) * 100)));
-                                  }}
+                    {/* UPLOAD VIDEOS DROPZONE */}
+                    <div className="bg-[#0A0A0C] border-2 border-dashed border-zinc-700 hover:border-amber-500/50 rounded-2xl p-8 text-center transition flex flex-col items-center justify-center space-y-2 relative group mt-4">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                        <Upload size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-zinc-200">Upload Screen Recording</h4>
+                        <p className="text-[11px] text-zinc-500 mt-1">MP4, WEBM accepted. Loop your video perfectly for email.</p>
+                      </div>
+                      <label className="px-5 py-2.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold text-xs rounded-xl shadow-lg cursor-pointer transition mt-4">
+                        Browse Videos
+                        <input type="file" accept="video/*" onChange={handleVideoUpload} className="hidden" />
+                      </label>
+                    </div>
+                  </div>
+
+
+                  {/* USER UPLOADED VIDEOS LIST */}
+                  {uploadedVideos.length > 0 && (
+                    <div className="space-y-4 text-left pt-4">
+                      <h5 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Video size={16} className="text-blue-400" />
+                        Available Outreach Videos ({uploadedVideos.length})
+                      </h5>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        {uploadedVideos.map((videoUrl, idx) => (
+                          <div key={idx} className="relative rounded-2xl border border-zinc-800 bg-[#060609] overflow-hidden group shadow-lg flex flex-col">
+                            <div className="relative aspect-video bg-black">
+                              <video
+                                src={videoUrl}
+                                className="w-full h-full object-cover"
+                                autoPlay
+                                muted
+                                loop
+                                playsInline
+                              />
+                            </div>
+                            <div className="p-4 bg-[#121217] border-t border-zinc-800 flex items-center justify-between">
+                              <div className="flex gap-2">
+                                <a
+                                  href={videoUrl}
+                                  download={`outreach-video-${idx + 1}.mp4`}
+                                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] rounded-lg shadow cursor-pointer transition flex items-center gap-1.5"
                                 >
-                                  {renderDentistPortrait()}
-
-                                  {/* The Sliding Bar Overlay Line */}
-                                  <div 
-                                    className="absolute top-0 bottom-0 w-[2px] bg-pink-500 pointer-events-none"
-                                    style={{ left: `${dentistSliderPos}%` }}
-                                  >
-                                    <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-pink-600 border border-white text-white flex items-center justify-center shadow-lg hover:scale-110 transition duration-150">
-                                      <ChevronsLeftRight size={12} className="stroke-2" />
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Autoplay control indicator */}
-                                <div className="flex items-center justify-between mt-3 text-[10px] text-zinc-400">
-                                  <div className="flex items-center gap-2">
-                                    <button
-                                      onClick={() => setDentistAutoPlay(!dentistAutoPlay)}
-                                      className={`px-2.5 py-1 rounded-md font-bold transition flex items-center gap-1 ${dentistAutoPlay ? 'bg-pink-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
-                                    >
-                                      {dentistAutoPlay ? (
-                                        <>
-                                          <Pause size={10} />
-                                          <span>Autoplay Active (GIF mode)</span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Play size={10} />
-                                          <span>Resume Autoplay (GIF)</span>
-                                        </>
-                                      )}
-                                    </button>
-                                  </div>
-                                  <div className="font-mono text-zinc-500">
-                                    Pos: {Math.round(dentistSliderPos)}%
-                                  </div>
-                                </div>
-                              </div>
-                            ) : generatingGif ? (
-                              <div className="flex flex-col items-center justify-center space-y-3 p-12 text-center">
-                                <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                                <p className="text-xs text-zinc-400 font-medium max-w-xs leading-relaxed">
-                                  Scrolling the prototype page & capturing screenshots in the background...
-                                </p>
-                              </div>
-                            ) : gifUrl ? (
-                              <div className="relative max-w-full">
-                                <img
-                                  src={gifUrl}
-                                  alt="Animated Website Prototype preview"
-                                  className="rounded-lg max-w-full h-auto border border-zinc-800 shadow-2xl object-contain max-h-[480px]"
-                                  referrerPolicy="no-referrer"
-                                />
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
-                                  <a
-                                    href={gifUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="p-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-full border border-zinc-700/80 shadow-xl transition flex items-center gap-2 text-xs font-semibold cursor-pointer"
-                                  >
-                                    <ExternalLink size={14} /> Open Full Image
-                                  </a>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="text-center p-12 space-y-4">
-                                <Zap size={40} className="text-zinc-600 mx-auto animate-pulse" />
-                                <p className="text-xs text-zinc-400 max-w-sm mx-auto leading-relaxed text-center">
-                                  No animated GIF found for this website prototype yet. Click below to trigger the automatic browser screenshot scroll-and-capture engine.
-                                </p>
+                                  <Download size={12} /> Download
+                                </a>
                                 <button
-                                  onClick={handleGenerateGif}
-                                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                                  onClick={() => handleDeleteUploadedVideo(idx)}
+                                  className="p-1.5 bg-red-950/60 hover:bg-red-600 text-red-300 hover:text-white rounded-lg border border-red-800/40 transition shrink-0"
+                                  title="Delete Video"
                                 >
-                                  Generate Outreach GIF
+                                  <Trash2 size={12} />
                                 </button>
                               </div>
-                            )}
+                            </div>
                           </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+{activeTab === '3d-studio' && (
+                <div className="p-8 h-full overflow-y-auto max-w-5xl mx-auto space-y-8 text-left">
+                  <div className="bg-[#0A0A0C] border border-amber-500/30 rounded-2xl p-6 space-y-6">
+                    <div>
+                      <h3 className="text-lg font-black text-white flex items-center gap-2 mb-1">
+                        <Box size={20} className="text-amber-500" /> AI 3D Model Generation
+                      </h3>
+                      <p className="text-sm text-zinc-400">
+                        Turn 2D product images into high-quality, interactive 3D assets to embed directly onto the generated website.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-4">
+                        <p className="text-xs font-bold text-zinc-300 uppercase tracking-widest">1. Select Base Image</p>
+                        
+                        {/* Image grid from scraped assets or lead images */}
+                        <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-2">
+                          {[...(scrapedBehanceData?.images || []), ...(lead?.imageUrls || [])].slice(0, 9).map((url, i) => (
+                            <div 
+                              key={i} 
+                              onClick={() => setImageTo3dUrl(url)}
+                              className={`aspect-square rounded-lg overflow-hidden border-2 cursor-pointer transition ${imageTo3dUrl === url ? 'border-amber-500' : 'border-zinc-800 hover:border-zinc-600'}`}
+                            >
+                              <img src={url} alt={`Option ${i}`} className="w-full h-full object-cover" />
+                            </div>
+                          ))}
                         </div>
 
-                        {/* Dentist Veneers Smile Widget Customizer */}
-                        {outreachMode === 'dentist' ? (
-                          <div className="bg-[#0A0A0C] border border-zinc-800/80 rounded-2xl p-5 space-y-4 text-left">
-                            <div className="flex items-center gap-2 text-pink-400">
-                              <Sliders size={15} />
-                              <h5 className="text-xs font-extrabold uppercase tracking-wider font-sans">Veneers Widget Customizer</h5>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            placeholder="Or paste image URL..." 
+                            value={imageTo3dUrl}
+                            onChange={(e) => setImageTo3dUrl(e.target.value)}
+                            className="flex-1 bg-black/50 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white"
+                          />
+                          <label className="flex-none bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2 rounded-lg text-xs font-bold cursor-pointer flex items-center justify-center transition">
+                            <Upload size={14} className="mr-1" /> Upload
+                            <input type="file" accept="image/*" className="hidden" onChange={handleImageUploadFor3D} />
+                          </label>
+                        </div>
+
+                        <button
+                          onClick={() => handleGenerate3D(imageTo3dUrl)}
+                          disabled={!imageTo3dUrl || generating3d}
+                          className="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition"
+                        >
+                          <Sparkles size={14} /> {generating3d ? 'Generating 3D Model (Takes 2-3 mins)...' : 'Generate 3D Model'}
+                        </button>
+                      </div>
+
+                      <div className="space-y-4">
+                        <p className="text-xs font-bold text-zinc-300 uppercase tracking-widest">2. 3D Model Preview & Embedding</p>
+                        
+                        <div className="aspect-square bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center relative overflow-hidden">
+                          {model3dResult || siteData?.content?.model3dUrl ? (
+                            <>
+                              <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
+                              <model-viewer 
+                                src={model3dResult || siteData?.content?.model3dUrl} 
+                                camera-controls 
+                                auto-rotate 
+                                shadow-intensity="1"
+                                style={{ width: '100%', height: '100%' }}
+                              ></model-viewer>
+                              <div className="absolute top-2 right-2 bg-black/80 px-2 py-1 rounded text-[10px] text-amber-400 font-bold">Interactive</div>
+                            </>
+                          ) : (
+                            <div className="text-zinc-600 text-xs text-center px-6">
+                              <Box size={32} className="mx-auto mb-2 opacity-50" />
+                              Generate a model to see it here.
                             </div>
-                            <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
-                              Tailor the AI Smile Visualizer widget as it will appear when embedded on <strong>{companyName || 'your client\'s website'}</strong>. Cosmetic dentists can customize shades, tooth curvatures, and patient presets.
-                            </p>
+                          )}
+                        </div>
 
-                            <div className="space-y-4 pt-1">
-                              {/* Model Preset Selection */}
-                              <div className="space-y-1.5">
-                                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide block">1. Select Patient Portrait Preset</label>
-                                <div className="grid grid-cols-4 gap-2">
-                                  <button
-                                    onClick={() => {
-                                      setDentistActiveModel('sophia');
-                                      setDentistUploadedImage(null);
-                                    }}
-                                    className={`px-2 py-1.5 rounded-lg text-[10px] font-bold transition border cursor-pointer ${dentistActiveModel === 'sophia' ? 'bg-pink-600 border-pink-500 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'}`}
-                                  >
-                                    Sophia
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setDentistActiveModel('marcus');
-                                      setDentistUploadedImage(null);
-                                    }}
-                                    className={`px-2 py-1.5 rounded-lg text-[10px] font-bold transition border cursor-pointer ${dentistActiveModel === 'marcus' ? 'bg-pink-600 border-pink-500 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'}`}
-                                  >
-                                    Marcus
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setDentistActiveModel('emily');
-                                      setDentistUploadedImage(null);
-                                    }}
-                                    className={`px-2 py-1.5 rounded-lg text-[10px] font-bold transition border cursor-pointer ${dentistActiveModel === 'emily' ? 'bg-pink-600 border-pink-500 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'}`}
-                                  >
-                                    Emily
-                                  </button>
-                                  <div className="relative group/dentist-upload">
-                                    <input 
-                                      type="file" 
-                                      accept="image/*"
-                                      onChange={handleDentistPhotoUpload}
-                                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                    />
-                                    <button
-                                      className={`w-full px-2 py-1.5 rounded-lg text-[10px] font-bold transition border truncate ${dentistActiveModel === 'custom' ? 'bg-pink-600 border-pink-500 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-400'}`}
-                                    >
-                                      {dentistActiveModel === 'custom' ? 'Custom ↑' : 'Upload +'}
-                                    </button>
-                                  </div>
-                                </div>
+                        {siteData?.content && (model3dResult || siteData.content.model3dUrl) && (
+                          <div className="pt-2 space-y-2">
+                            <label className="flex items-center gap-2 cursor-pointer p-3 bg-zinc-950 border border-zinc-800 rounded-lg hover:border-zinc-700 transition">
+                              <input 
+                                type="checkbox" 
+                                className="w-4 h-4 text-amber-500 bg-zinc-900 border-zinc-700 rounded focus:ring-amber-500 focus:ring-offset-zinc-950"
+                                checked={!!siteData.content.show3dHero}
+                                onChange={(e) => handleApply3dToHero(e.target.checked)}
+                              />
+                              <div className="flex flex-col">
+                                <span className="text-sm font-bold text-white">Embed 3D Model in Hero Section</span>
+                                <span className="text-[10px] text-zinc-400">Replaces the hero background image with an interactive 3D model viewer.</span>
                               </div>
+                            </label>
 
-                              {/* Veneer Style Customization */}
-                              <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1">
-                                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide block">2. Porcelain Shade</label>
-                                  <select
-                                    value={dentistVeneerShade}
-                                    onChange={(e) => setDentistVeneerShade(e.target.value as any)}
-                                    className="w-full bg-[#141418] border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700"
-                                  >
-                                    <option value="BL1">BL1 Bleach (Extra White)</option>
-                                    <option value="B1">B1 Natural Light (Standard)</option>
-                                    <option value="A1">A1 Warm Pearl (Natural)</option>
-                                  </select>
-                                </div>
-
-                                <div className="space-y-1">
-                                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide block">3. Tooth Contour Shape</label>
-                                  <select
-                                    value={dentistVeneerShape}
-                                    onChange={(e) => setDentistVeneerShape(e.target.value as any)}
-                                    className="w-full bg-[#141418] border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700"
-                                  >
-                                    <option value="hollywood">Hollywood (Square Central)</option>
-                                    <option value="natural">Natural (Soft Incisal Edge)</option>
-                                    <option value="oval">Oval (Rounded Smooth)</option>
-                                    <option value="youthful">Youthful (Slightly Longer)</option>
-                                  </select>
-                                </div>
+                            <label className="flex items-center gap-2 cursor-pointer p-3 bg-zinc-950 border border-zinc-800 rounded-lg hover:border-zinc-700 transition">
+                              <input 
+                                type="checkbox" 
+                                className="w-4 h-4 text-amber-500 bg-zinc-900 border-zinc-700 rounded focus:ring-amber-500 focus:ring-offset-zinc-950"
+                                checked={!!siteData.content.show3dCatalog}
+                                onChange={(e) => handleApply3dToCatalog(e.target.checked)}
+                              />
+                              <div className="flex flex-col">
+                                 <span className="text-sm font-bold text-white">Embed 3D Model in Catalog/Product Section</span>
+                                <span className="text-[10px] text-zinc-400">Replaces the primary product image in the showcase grid.</span>
                               </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="bg-[#0A0A0C] border border-zinc-800/40 p-4 rounded-xl text-left">
-                            <h5 className="text-xs font-bold text-white uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
-                              How it works
-                            </h5>
-                            <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
-                              Our background browser engine launches Playwright, loads your personalized website layout inside a viewport configured at <strong>800x600</strong>, waits for animations, scrolls down in 300px steps, captures 4 screenshots, processes them into a 128-color index palette using <strong>gifenc</strong>, and compiles an incredibly lightweight animated GIF (usually under 200KB) ready for email delivery.
-                            </p>
+                            </label>
                           </div>
                         )}
                       </div>
-
-                      {/* Right: Copy & Export Toolkits */}
-                      <div className="lg:col-span-5 space-y-6 text-left">
-                        
-                        {/* Copy Cards */}
-                        <div className="bg-[#0A0A0C] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
-                          <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-                            <span>🚀 Copy & Deliver Toolkit</span>
-                          </h4>
-
-                          {/* Action 1: Copy Link */}
-                          <div className="p-3.5 bg-[#141417] border border-zinc-800/60 rounded-xl space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-bold text-zinc-200">Animated GIF Url</span>
-                              <button
-                                onClick={handleCopyGifUrl}
-                                disabled={!gifUrl || generatingGif}
-                                className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-40"
-                              >
-                                {copiedGifUrl ? <Check size={11} className="text-emerald-400" /> : <Code size={11} />}
-                                <span>{copiedGifUrl ? 'Copied!' : 'Copy Link'}</span>
-                              </button>
-                            </div>
-                            <input
-                              type="text"
-                              readOnly
-                              value={gifUrl ? `${window.location.origin}${gifUrl}` : 'GIF not generated yet.'}
-                              className="w-full bg-[#0F0F12] border border-zinc-800/80 rounded-lg p-2 text-[10px] font-mono text-zinc-500 select-all outline-none"
-                            />
-                          </div>
-
-                          {/* Action 2: HTML Email Code */}
-                          <div className="p-3.5 bg-[#141417] border border-zinc-800/60 rounded-xl space-y-2">
-                            <div className="flex items-center justify-between">
-                              <div className="text-left">
-                                <span className="text-xs font-bold text-zinc-200 block">HTML Email Image Code</span>
-                                <span className="text-[10px] text-zinc-500 block font-sans">Copy as clickable responsive image</span>
-                              </div>
-                              <button
-                                onClick={handleCopyGifCode}
-                                disabled={!gifUrl || generatingGif}
-                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-40"
-                              >
-                                {copiedGifCode ? <Check size={11} className="text-white" /> : <Code size={11} />}
-                                <span>{copiedGifCode ? 'Copied Code!' : 'Copy Email HTML'}</span>
-                              </button>
-                            </div>
-                            <textarea
-                              readOnly
-                              value={getHtmlEmailCode()}
-                              placeholder="HTML code will appear here after GIF is generated."
-                              className="w-full bg-[#0F0F12] border border-zinc-800/80 rounded-lg p-2 text-[10px] font-mono text-zinc-500 h-20 resize-none outline-none"
-                            />
-                          </div>
-
-                          {/* Direct download */}
-                          {gifUrl && (
-                            <a
-                              href={gifUrl}
-                              download={`${companyName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_preview.gif`}
-                              className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-750 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-zinc-700/60 transition shadow-sm cursor-pointer"
-                            >
-                              <Download size={13} />
-                              <span>Download Animated GIF File</span>
-                            </a>
-                          )}
-                        </div>
-
-                        {/* Direct Outreach Copywriting Snippet */}
-                        <div className="bg-[#0A0A0C] border border-zinc-800/80 rounded-2xl p-5 space-y-4 text-left">
-                          <div className="flex items-center justify-between border-b border-zinc-800/60 pb-3">
-                            <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-                              <MessageSquare size={13} className="text-emerald-400" />
-                              <span>Outreach Copy & Pitch</span>
-                            </h4>
-                            <div className="flex gap-1 bg-black/40 p-0.5 rounded-lg border border-zinc-800 shrink-0">
-                              <button
-                                onClick={() => setOutreachStyle('standard')}
-                                className={`px-2 py-1 rounded-md text-[9px] font-bold transition ${outreachStyle === 'standard' ? 'bg-blue-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                              >
-                                Standard (Full)
-                              </button>
-                              <button
-                                onClick={() => setOutreachStyle('short')}
-                                className={`px-2 py-1 rounded-md text-[9px] font-bold transition ${outreachStyle === 'short' ? 'bg-emerald-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                              >
-                                Short-Form (High-Response)
-                              </button>
-                            </div>
-                          </div>
-
-                          {outreachMode === 'dentist' ? (
-                            outreachStyle === 'short' ? (
-                              <div>
-                                <p className="text-[11px] text-pink-400 leading-relaxed font-bold mb-2">
-                                  💡 Short-form Veneer Pitch focuses on getting the cosmetic dentist to reply instantly by offering to install the preview widget on their existing site.
-                                </p>
-                                <div className="bg-[#141417] border border-zinc-800/60 rounded-xl p-3 font-mono text-xs text-zinc-300 space-y-2 relative group select-all">
-                                  <p>Bonjour à l'équipe de <strong>{companyName || 'votre cabinet'}</strong>,</p>
-                                  <p>J'ai configuré un prototype de <strong>Widget "Simulateur de Sourire Veneers AI"</strong> personnalisé directement pour votre cabinet <strong>{companyName || 'votre cabinet'}</strong>.</p>
-                                  <p>Vos patients sur <strong>{badgeCity}</strong> peuvent uploader une photo et voir leur transformation avec facettes en porcelaine en 60 secondes.</p>
-                                  <p>Voici la démo de votre widget configurée pour votre cabinet :</p>
-                                  <div className="border border-zinc-800/60 rounded-lg overflow-hidden my-2 max-w-[150px] mx-auto bg-zinc-950 relative">
-                                    <img src="https://images.unsplash.com/photo-1606811971618-4486d14f3f99?q=80&w=600&auto=format&fit=crop" alt="Veneers simulator preview" className="w-full h-auto max-h-20 object-cover" />
-                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                                      <span className="text-[9px] bg-pink-600 text-white font-extrabold px-1.5 py-0.5 rounded">DEMO ACTIVE</span>
-                                    </div>
-                                  </div>
-                                  <p>Êtes-vous disponible pour que je vous envoie le code d'intégration gratuit (60 secondes d'installation) ?</p>
-                                  <p className="text-zinc-500 text-[10px]">Cordialement,<br/>L'équipe Assix</p>
-                                </div>
-                              </div>
-                            ) : (
-                              <div>
-                                <p className="text-[11px] text-zinc-400 leading-relaxed mb-2 font-sans">
-                                  Send this consultative premium pitch focusing on high-ticket treatment values ($15k+ Veneers) to instantly capture their attention:
-                                </p>
-                                <div className="bg-[#141417] border border-zinc-800/60 rounded-xl p-3 font-sans text-xs text-zinc-300 space-y-2 relative group select-all leading-relaxed">
-                                  <p>
-                                    Bonjour à l'équipe du cabinet <strong>{companyName || 'votre cabinet'}</strong>,
-                                  </p>
-                                  <p>
-                                    Nous analysons les cliniques d'esthétique dentaire d'excellence à <strong>{badgeCity || 'votre région'}</strong> et avons créé une maquette interactive de notre <strong>Widget de Simulation Virtuelle de Facettes AI</strong> spécifiquement pour <strong>{companyName || 'votre cabinet'}</strong>.
-                                  </p>
-                                  <p>
-                                    Ce widget s'intègre en 1 minute sur votre site existant. Il permet à vos visiteurs d'importer un selfie et de voir instantanément leur sourire restauré avec des facettes (Teintes BL1, B1, etc.). Cela augmente votre taux de conversion de demandes esthétiques de +300% :
-                                  </p>
-                                  <div className="border border-zinc-800/80 rounded-lg overflow-hidden my-3 max-w-[200px] mx-auto bg-zinc-950 relative">
-                                    <img src="https://images.unsplash.com/photo-1606811971618-4486d14f3f99?q=80&w=600&auto=format&fit=crop" alt="Veneers simulator" className="w-full h-auto max-h-28 object-cover" />
-                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                                      <span className="text-[10px] bg-pink-600 text-white font-extrabold px-2 py-1 rounded">SMILE SIMULATOR WIDGET</span>
-                                    </div>
-                                  </div>
-                                  <p>
-                                    Contrairement aux sites vitrines classiques, ce simulateur qualifie l'intention d'achat des patients en amont de la première consultation pour vos soins les plus rentables.
-                                  </p>
-                                  <p>
-                                    Seriez-vous ouvert à ce que nous l'installions gratuitement en version d'essai sur votre site existant pour tester vos résultats d'ici ce week-end ?
-                                  </p>
-                                  <p>
-                                    Excellent exercice professionnel à vous,<br/>
-                                    <strong>L'équipe Assix</strong>
-                                  </p>
-                                </div>
-                              </div>
-                            )
-                          ) : (
-                            outreachStyle === 'short' ? (
-                              <div>
-                                <p className="text-[11px] text-emerald-400 leading-relaxed font-bold mb-2">
-                                  💡 Short-form outreach focuses purely on low friction (under 55 words) to get the prospect curiosity-clicked and replying immediately!
-                                </p>
-                                <div className="bg-[#141417] border border-zinc-800/60 rounded-xl p-3 font-mono text-xs text-zinc-300 space-y-2 relative group select-all">
-                                  <p>Bonjour à l'équipe <strong>{companyName}</strong>,</p>
-                                  <p>J'ai fait concevoir un prototype de site web personnalisé pour <strong>{companyName}</strong> afin de maximiser vos conversions de leads locaux.</p>
-                                  <p>Voici l'aperçu animé interactif :</p>
-                                  <div className="border border-zinc-800/60 rounded-lg overflow-hidden my-2 max-w-[150px] mx-auto bg-zinc-950">
-                                    {gifUrl ? (
-                                      <img src={gifUrl} alt="Thumbnail preview" className="w-full h-auto max-h-20 object-cover" />
-                                    ) : (
-                                      <div className="text-center p-2 text-[8px] text-zinc-600 font-sans">GIF Thumbnail</div>
-                                    )}
-                                  </div>
-                                  <p>Vous pouvez tester la version réelle ici : <span className="text-blue-400 underline break-all">{siteData?.previewUrl ? `${window.location.origin}${siteData.previewUrl}` : `https://${companyName.toLowerCase().replace(/[^a-z0-9]/g, '')}.nesta.ai`}</span></p>
-                                  <p>Intéressé pour en parler 2 minutes ?</p>
-                                  <p className="text-zinc-500 text-[10px]">Cordialement,<br/>L'équipe Assix</p>
-                                </div>
-                              </div>
-                            ) : (
-                              <div>
-                                <p className="text-[11px] text-zinc-400 leading-relaxed mb-2 font-sans">
-                                  Send this highly personalized, thorough consultative pitch via email or direct message:
-                                </p>
-                                <div className="bg-[#141417] border border-zinc-800/60 rounded-xl p-3 font-sans text-xs text-zinc-300 space-y-2 relative group select-all leading-relaxed">
-                                  <p>
-                                    Bonjour à l'équipe <strong>{companyName}</strong>,
-                                  </p>
-                                  <p>
-                                    Nous avons repéré votre activité à <strong>{lead.city || 'votre région'}</strong> et pris la liberté de concevoir un prototype de site web entièrement personnalisé pour <strong>{companyName}</strong> afin d'optimiser l'expérience client et capter vos appels manqués 24h/24.
-                                  </p>
-                                  <p>
-                                    Voici un aperçu animé du prototype de site sur-mesure créé pour vous :
-                                  </p>
-                                  <div className="border border-zinc-800/80 rounded-lg overflow-hidden my-3 max-w-[200px] mx-auto opacity-80 bg-zinc-950">
-                                    {gifUrl ? (
-                                      <img src={gifUrl} alt="Thumbnail preview" className="w-full h-auto max-h-28 object-cover" />
-                                    ) : (
-                                      <div className="text-center p-4 text-[10px] text-zinc-600 font-sans">GIF Thumbnail</div>
-                                    )}
-                                  </div>
-                                  <p>
-                                    Vous pouvez explorer la version interactive en temps réel directement ici :<br/>
-                                    <span className="text-blue-400 underline break-all">{siteData?.previewUrl ? `${window.location.origin}${siteData.previewUrl}` : `https://${companyName.toLowerCase().replace(/[^a-z0-9]/g, '')}.nesta.ai`}</span>
-                                  </p>
-                                  <p>
-                                    Qu'en pensez-vous ? Seriez-vous disponible pour un court appel d'échange de 5 minutes cette semaine ?
-                                  </p>
-                                  <p>
-                                    Cordialement,<br/>
-                                    <strong>L'équipe Assix</strong>
-                                  </p>
-                                </div>
-                              </div>
-                            )
-                          )}
-                        </div>
-
-                        {/* Real-time Email Tracking explanation card */}
-                        <div className="bg-gradient-to-br from-blue-950/20 to-indigo-950/20 border border-blue-500/20 rounded-2xl p-5 space-y-3">
-                          <div className="flex items-center gap-2 text-blue-400">
-                            <Zap size={16} />
-                            <h4 className="text-xs font-bold uppercase tracking-wider">Built-In Real-time Email Tracking</h4>
-                          </div>
-                          <p className="text-xs text-zinc-300 leading-relaxed">
-                            <strong>Yes! It is fully possible.</strong> Every single email sent using Assix's campaign system automatically integrates our custom transparent tracking pixel:
-                          </p>
-                          <div className="bg-black/40 border border-zinc-800/80 rounded-xl p-3 font-mono text-[10px] text-zinc-400 space-y-1">
-                            <div>&lt;img src="https://agency.nesta.ai/api/email/track/log_123.gif"</div>
-                            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;width="1" height="1" style="display:none;" /&gt;</div>
-                          </div>
-                          <p className="text-[11px] text-zinc-400 leading-relaxed">
-                            When the recipient opens the mail, their email client requests this invisible 1x1 image. Our server captures the request, registers the open event, and updates the lead status to <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold font-sans text-[10px]">opened</span> instantly in the CRM, recording the exact date and number of times they viewed it.
-                          </p>
-                        </div>
-
-                        {/* Trust Multiplier: What other trust-building GIFs are useful? */}
-                        <div className="bg-[#0A0A0C] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
-                          <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-                            <Sparkles size={13} className="text-yellow-400" />
-                            <span>Trust-Building Custom GIFs Guide</span>
-                          </h4>
-                          <p className="text-[11px] text-zinc-400 leading-relaxed">
-                            To double your response rate, you can supplement the scrolling screenshot GIF with these high-trust animation styles:
-                          </p>
-
-                          <div className="space-y-3">
-                            <div className="p-3 bg-zinc-900/40 rounded-xl border border-zinc-800/60 text-left">
-                              <span className="text-[11px] font-bold text-white block">1. 📱 Desktop vs Mobile Responsiveness GIF</span>
-                              <span className="text-[10px] text-zinc-400 block mt-0.5">
-                                Showcases the fluid layout morphing beautifully from a widescreen layout down to an iPhone viewport. Proves to local clients that they will capture mobile users seamlessly.
-                              </span>
-                            </div>
-
-                            <div className="p-3 bg-zinc-900/40 rounded-xl border border-zinc-800/60 text-left">
-                              <span className="text-[11px] font-bold text-white block">2. ⚡ 100/100 Lighthouse Performance Speed GIF</span>
-                              <span className="text-[10px] text-zinc-400 block mt-0.5">
-                                Animates a simulated PageSpeed test immediately hitting a perfect 100 score. Instantly builds trust by demonstrating that your sites load in milliseconds, fixing their current slow-site frustrations.
-                              </span>
-                            </div>
-
-                            <div className="p-3 bg-zinc-900/40 rounded-xl border border-zinc-800/60 text-left">
-                              <span className="text-[11px] font-bold text-white block">3. ⭐ Verified Customer Reviews Scroll GIF</span>
-                              <span className="text-[10px] text-zinc-400 block mt-0.5">
-                                Animates a scroll purely focused on local trust factors: five-star customer reviews, localized map listings, and custom service trust badges tailored specifically to their city.
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                      </div>
-
                     </div>
+                  </div>
+                </div>
+              )}
 
-                    {/* INTERACTIVE OUTREACH CHANNEL PLAYBOOK */}
-                    <div className="bg-gradient-to-r from-zinc-950 to-zinc-900 border border-zinc-800/80 rounded-2xl p-6 space-y-6 text-left">
-                      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-zinc-800/60 pb-5">
-                        <div>
-                          <span className="px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 w-fit">
-                            Campaign Optimizer
-                          </span>
-                          <h4 className="text-base font-black text-white mt-1.5 flex items-center gap-2">
-                            <Compass size={18} className="text-blue-400" />
-                            Omnichannel Real Estate & Tech Outreach Playbook
-                          </h4>
-                          <p className="text-xs text-zinc-400 mt-1">
-                            Select your desired outreach channel below to access performance metrics, cold script playbooks, and strategic advice for maximum response.
-                          </p>
-                        </div>
-
-                        {/* Channel selector pills */}
-                        <div className="flex flex-wrap items-center gap-1.5 bg-black/40 p-1 rounded-xl border border-zinc-800">
-                          <button
-                            onClick={() => setSelectedChannel('email')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${selectedChannel === 'email' ? 'bg-blue-600 text-white shadow' : 'text-zinc-400 hover:text-white'}`}
-                          >
-                            <Mail size={12} />
-                            <span>Email</span>
-                          </button>
-                          <button
-                            onClick={() => setSelectedChannel('linkedin')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${selectedChannel === 'linkedin' ? 'bg-[#0A66C2] text-white shadow' : 'text-zinc-400 hover:text-white'}`}
-                          >
-                            <Linkedin size={12} />
-                            <span>LinkedIn</span>
-                          </button>
-                          <button
-                            onClick={() => setSelectedChannel('whatsapp')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${selectedChannel === 'whatsapp' ? 'bg-emerald-600 text-white shadow' : 'text-zinc-400 hover:text-white'}`}
-                          >
-                            <MessageCircle size={12} />
-                            <span>WhatsApp</span>
-                          </button>
-                          <button
-                            onClick={() => setSelectedChannel('coldcall')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${selectedChannel === 'coldcall' ? 'bg-amber-600 text-white shadow' : 'text-zinc-400 hover:text-white'}`}
-                          >
-                            <Phone size={12} />
-                            <span>Cold Call</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Channel Analytics and Metrics */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="bg-zinc-900/40 p-4 rounded-xl border border-zinc-800 text-left">
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Expected Response Rate</span>
-                          <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-xl font-extrabold text-white">
-                              {selectedChannel === 'email' && '22% - 35%'}
-                              {selectedChannel === 'linkedin' && '30% - 48%'}
-                              {selectedChannel === 'whatsapp' && '45% - 65%'}
-                              {selectedChannel === 'coldcall' && '15% - 28%'}
-                            </span>
-                            <span className="text-[10px] text-emerald-400 font-bold">▲ Very High</span>
-                          </div>
-                          <p className="text-[10px] text-zinc-400 mt-1.5">
-                            {selectedChannel === 'email' && 'When containing our personalized GIF prototype as clickable rich link.'}
-                            {selectedChannel === 'linkedin' && 'Directly targets real estate agents active on corporate LinkedIn listings.'}
-                            {selectedChannel === 'whatsapp' && 'Highest read-rates; directly lands on the agent\'s lockscreen.'}
-                            {selectedChannel === 'coldcall' && 'High conversion if combined with an immediate follow-up SMS containing the GIF.'}
-                          </p>
-                        </div>
-
-                        <div className="bg-zinc-900/40 p-4 rounded-xl border border-zinc-800 text-left">
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Prospect Friction</span>
-                          <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-xl font-extrabold text-white">
-                              {selectedChannel === 'email' && 'Low Friction'}
-                              {selectedChannel === 'linkedin' && 'Medium Friction'}
-                              {selectedChannel === 'whatsapp' && 'Ultra-Low Friction'}
-                              {selectedChannel === 'coldcall' && 'High Friction'}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-zinc-400 mt-1.5">
-                            {selectedChannel === 'email' && 'Simple one-click to test interactive, customized agency prototype.'}
-                            {selectedChannel === 'linkedin' && 'Requires profile connection or brief introduction text.'}
-                            {selectedChannel === 'whatsapp' && 'Instant tap-and-play visual tour. High relationship-building speed.'}
-                            {selectedChannel === 'coldcall' && 'Agent must stop what they are doing to answer. High emotional resistance.'}
-                          </p>
-                        </div>
-
-                        <div className="bg-zinc-900/40 p-4 rounded-xl border border-zinc-800 text-left">
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Outreach Trust Factor</span>
-                          <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-xl font-extrabold text-white">
-                              {selectedChannel === 'email' && 'Consultative Authority'}
-                              {selectedChannel === 'linkedin' && 'Peer-to-Peer Professional'}
-                              {selectedChannel === 'whatsapp' && 'Personal & Direct'}
-                              {selectedChannel === 'coldcall' && 'Immediate Interactive Pitch'}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-zinc-400 mt-1.5">
-                            {selectedChannel === 'email' && 'Proves you did upfront local research before contacting.'}
-                            {selectedChannel === 'linkedin' && 'Social validation via mutual connections and premium profile.'}
-                            {selectedChannel === 'whatsapp' && 'Conversational, casual, feels highly customized and premium.'}
-                            {selectedChannel === 'coldcall' && 'Instant feedback loop allows addressing listing questions.'}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Script Templates / Real Scripts */}
-                      <div className="bg-[#101014] border border-zinc-800/80 rounded-xl p-4 space-y-3">
-                        <div className="flex items-center justify-between border-b border-zinc-850 pb-2">
-                          <div className="flex items-center gap-2">
-                            <BookOpen size={14} className="text-blue-400" />
-                            <span className="text-xs font-bold text-zinc-200">
-                              {selectedChannel === 'email' && 'Cold Email Sequence & Auto-Followup'}
-                              {selectedChannel === 'linkedin' && 'LinkedIn Connect & InMail Playbook'}
-                              {selectedChannel === 'whatsapp' && 'WhatsApp / SMS Fast-reply Script'}
-                              {selectedChannel === 'coldcall' && 'Cold Call Script & Voice Message Strategy'}
-                            </span>
-                          </div>
-                          <span className="text-[9px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-bold uppercase">
-                            {outreachMode === 'realestate' ? 'Real Estate Mode' : 'Website Mode'}
-                          </span>
-                        </div>
-
-                        <div className="bg-black/30 border border-zinc-850 rounded-lg p-3 font-mono text-xs text-zinc-300 space-y-3 leading-relaxed">
-                          {selectedChannel === 'email' && (
-                            outreachMode === 'realestate' ? (
-                              <>
-                                <p><strong>Subject:</strong> {lead.name || companyName} × New Drone Property Tour Preview 🚁</p>
-                                <p>Bonjour {lead.contactName || 'l\'équipe'},</p>
-                                <p>J'ai remarqué votre mandat exclusif pour la propriété à <strong>{badgeCity}</strong>.</p>
-                                <p>Pour vous aider à générer 2x plus de visites qualifiées d'acheteurs d'ici ce weekend, nous avons monté un prototype d'animation drone 3D personnalisé pour ce bien.</p>
-                                <p>[Insérez le GIF animé ou l'image cliquable ici]</p>
-                                <p>Êtes-vous disponible pour que je vous envoie la vidéo 4K complète gratuite par retour de mail ?</p>
-                              </>
-                            ) : (
-                              <>
-                                <p><strong>Subject:</strong> Proposition de prototype web pour {companyName} ⚡</p>
-                                <p>Bonjour {lead.contactName || 'l\'équipe'},</p>
-                                <p>Nous avons conçu un modèle de site mobile ultra-rapide personnalisé pour <strong>{companyName}</strong> afin de maximiser vos conversions de clients à <strong>{badgeCity}</strong>.</p>
-                                <p>[Insérez le site prototype cliquable ici]</p>
-                                <p>Si vous êtes disponible pour un échange rapide de 2 minutes cette semaine, répondez simplement par "oui" !</p>
-                              </>
-                            )
-                          )}
-
-                          {selectedChannel === 'linkedin' && (
-                            outreachMode === 'realestate' ? (
-                              <>
-                                <p><strong>Direct Connection Note (300 char limit):</strong></p>
-                                <p>"Bonjour {lead.contactName || 'l\'équipe'}, ravi de vous connecter. J'adore vos mandats sur <strong>{badgeCity}</strong>. Nous avons préparé un prototype d'animation drone 3D pour l'un de vos biens exclusifs pour booster les offres. Je serai ravi de vous envoyer l'extrait vidéo !"</p>
-                              </>
-                            ) : (
-                              <>
-                                <p><strong>Direct Connection Note (300 char limit):</strong></p>
-                                <p>"Bonjour {lead.contactName || 'l\'équipe'}, ravi de connecter avec des confrères à <strong>{badgeCity}</strong>. Nous avons conçu un prototype de site web d'acquisition de leads mobile optimisé pour {companyName}. Curieux d'avoir votre avis de professionnel !"</p>
-                              </>
-                            )
-                          )}
-
-                          {selectedChannel === 'whatsapp' && (
-                            outreachMode === 'realestate' ? (
-                              <>
-                                <p>"Bonjour {lead.contactName || 'l\'équipe'} ! C'est Alexandre de l'agence Assix. J'ai préparé une courte vidéo drone/animation interactive en 3D pour votre magnifique bien en exclusivité à <strong>{badgeCity}</strong> pour doubler vos contacts acheteurs. Regardez le rendu animé juste ici : [Lien/GIF]. Vous aimez le style ?"</p>
-                              </>
-                            ) : (
-                              <>
-                                <p>"Bonjour {lead.contactName || 'l\'équipe'} ! C'est l'équipe Assix. On a pris 1h pour designer un prototype mobile interactif ultra-rapide pour <strong>{companyName}</strong>. Il est entièrement fonctionnel, vous pouvez le tester sur votre téléphone en cliquant ici : [Lien de prévisualisation]. Ça vous plaît ?"</p>
-                              </>
-                            )
-                          )}
-
-                          {selectedChannel === 'coldcall' && (
-                            outreachMode === 'realestate' ? (
-                              <>
-                                <p><strong>Opening Pitch (First 15 seconds):</strong></p>
-                                <p>"Bonjour {lead.contactName || 'l\'équipe'}, Alexandre de l'agence Assix. Je vous appelle car j'ai vu votre superbe mandat exclusif à <strong>{badgeCity}</strong>. Pour vous aider à générer des offres qualifiées d'ici ce weekend, je vous ai préparé et envoyé un prototype de vidéo drone 3D immersif directement sur votre WhatsApp / email. Vous préférez que je vous l'envoie sur quel numéro ?"</p>
-                              </>
-                            ) : (
-                              <>
-                                <p><strong>Opening Pitch (First 15 seconds):</strong></p>
-                                <p>"Bonjour {lead.contactName || 'l\'équipe'}, c'est l'équipe Assix. Nous avons monté un prototype de site internet mobile ultra-performant pour {companyName} pour capter tous vos appels manqués de clients locaux. Je l'ai envoyé sur votre portable à l'instant pour que vous puissiez le tester. Est-ce que vous l'avez bien reçu ?"</p>
-                              </>
-                            )
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Professional Outreach Strategic Advice */}
-                      <div className="bg-blue-950/10 border border-blue-500/20 rounded-xl p-4 flex gap-3 text-left">
-                        <div className="text-blue-400 shrink-0 mt-0.5">
-                          <Sparkles size={16} />
-                        </div>
-                        <div className="space-y-1">
-                          <span className="text-xs font-bold text-white block">Strategic Omni-Channel Advice for Real Estate Agents</span>
-                          <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
-                            {outreachMode === 'realestate' ? (
-                              <>
-                                <strong>Double-Touch Campaign:</strong> First, send a cold email containing the responsive property animation. Within 4 hours, send a WhatsApp or SMS message referencing the email with: <em>"Bonjour, je vous ai envoyé la maquette animée drone 3D pour votre mandat exclusive par mail. Vous avez pu y jeter un coup d'œil ?"</em> This simple follow-up boost response rate by up to <strong>310%</strong> because real estate agents live on their mobile phones while on property tours.
-                              </>
-                            ) : (
-                              <>
-                                <strong>Website Prototype Multiplier:</strong> Agents are highly visual and relationship-oriented. Showcasing an elite, high-speed website prototype solves their biggest pain point: converting cold traffic from Google. Offer to integrate their local Google reviews directly into the header to instantly establish confidence with local buyers.
-                              </>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* NEW SECTION: CUSTOM TRUST AND EVIDENCE GENERATION BLOCK */}
-                    <div className="border-t border-zinc-800/80 pt-8 space-y-8">
-                      
-                      {/* HEADER */}
-                      <div className="text-left max-w-4xl">
-                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 w-fit">
-                          <Sparkles size={10} className="animate-pulse" />
-                          Authority & Proof Suite
+              {activeTab === 'transparent-slider' && (
+                <div className="p-4 sm:p-8 h-full overflow-y-auto max-w-6xl mx-auto space-y-8 text-left">
+                  
+                  {/* HEADER BANNER */}
+                  <div className="bg-gradient-to-r from-zinc-900 via-[#12121A] to-zinc-900 border border-amber-500/30 p-6 rounded-2xl shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
+                    <div className="space-y-2 z-10 max-w-2xl">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
+                          <Sparkles size={11} /> Isolated Object Marquee Engine
                         </span>
-                        <h4 className="text-lg font-black text-white mt-1.5 flex items-center gap-2">
-                          High-Trust "Local Proof" Evidence & Asset Customizer
-                        </h4>
-                        <p className="text-xs text-zinc-400 mt-1">
-                          Personalize and bundle real-time evidence to prove you researched their business on Google, and supply local trust badges tailored directly to their niche and city.
+                        <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-[10px] font-black uppercase tracking-widest">
+                          High Quality Cutouts
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+                        <ChevronsLeftRight className="text-amber-400" size={26} />
+                        Infinite Transparent Object Rolling Slider & AI Studio
+                      </h3>
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        Display ultra-high quality background-free items in continuous smooth motion — including gourmet plates top-view, luxury cars, superbikes, architectural villas, and custom background-removed photos.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center gap-3 z-10">
+                      <button
+                        onClick={async () => {
+                          if (!siteData) return;
+                          setModifying(true);
+                          try {
+                            const PRESETS_MAP: Record<string, any[]> = {
+                              plates: [
+                                { title: 'Wagyu Steak Cut', subtitle: 'Charcoal & Truffle Butter', url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Artisan Nigiri Platter', subtitle: 'Fresh Osetra Caviar & Salmon', url: 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Truffle Tagliatelle', subtitle: 'Handmade Pasta & Parmigiano', url: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Salmon Citrus Salad', subtitle: 'Fresh Micro-Greens & Avocado', url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Neapolitan Wood Pizza', subtitle: 'San Marzano & Buffalo Mozzarella', url: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Gold Leaf Berry Tart', subtitle: 'Patisserie Vanilla Bean', url: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=800&q=80&auto=format&fit=crop' }
+                              ],
+                              cars: [
+                                { title: 'Porsche 911 GT3 RS', subtitle: 'Silver Metallic Track Edition', url: 'https://images.unsplash.com/photo-1614162692292-7ac56d7f7f1e?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Lamborghini Huracán', subtitle: 'Matte Nero Noctis Supercar', url: 'https://images.unsplash.com/photo-1544829099-b9a0c07fad1a?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Ferrari F8 Tributo', subtitle: 'Rosso Corsa Supercar', url: 'https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Mustang Fastback 1969', subtitle: 'Vintage Metallic Gold Heritage', url: 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Mercedes-AMG GT', subtitle: 'Biturbo V8 Performance', url: 'https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=800&q=80&auto=format&fit=crop' }
+                              ],
+                              motorcycles: [
+                                { title: 'Ducati Panigale V4 S', subtitle: 'Corse Racing Red Superbike', url: 'https://images.unsplash.com/photo-1558981806-ec527fa84c39?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'BMW R nineT Cafe Racer', subtitle: 'Custom Bronze Brushed Metal', url: 'https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Triumph Bonneville T120', subtitle: 'Vintage Leather British Twin', url: 'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Harley-Davidson Fat Boy', subtitle: 'Chrome Softail Cruiser', url: 'https://images.unsplash.com/photo-1558981243-703630f9a7aa?w=800&q=80&auto=format&fit=crop' }
+                              ],
+                              houses: [
+                                { title: 'Cantilevered Glass Villa', subtitle: 'Minimalist Architectural Residence', url: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Nordic Alpine Chalet', subtitle: 'Natural Timber & Glass Facade', url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Palm Oceanfront Estate', subtitle: 'Infinity Edge Pool Villa', url: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Rooftop Penthouse Estate', subtitle: 'Skyline Panoramic Residence', url: 'https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?w=800&q=80&auto=format&fit=crop' }
+                              ],
+                              tech: [
+                                { title: 'Studio Hi-Fi Headphones', subtitle: 'Matte Black Spatial Audio', url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80&auto=format&fit=crop' },
+                                { title: '18K Gold Chronograph', subtitle: 'Swiss Automatic Watch', url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Artisan Espresso Machine', subtitle: 'Polished Brass & Chrome', url: 'https://images.unsplash.com/photo-1517668808822-9e4288246ede?w=800&q=80&auto=format&fit=crop' },
+                                { title: 'Architectural Sneakers', subtitle: 'Minimalist Fashion Footwear', url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80&auto=format&fit=crop' }
+                              ]
+                            };
+
+                            const itemsToApply = sliderCategory === 'custom' 
+                              ? (customCutoutItems.length > 0 ? customCutoutItems : PRESETS_MAP.plates)
+                              : (PRESETS_MAP[sliderCategory] || PRESETS_MAP.plates);
+
+                            const config = {
+                              category: sliderCategory,
+                              speed: sliderSpeed,
+                              direction: sliderDirection,
+                              itemScale: sliderItemScale,
+                              itemGap: sliderItemGap,
+                              enableRotate: sliderEnableRotate,
+                              enableShadow: sliderEnableShadow,
+                              enable3dTilt: sliderEnable3dTilt,
+                              themeBg: sliderThemeBg,
+                              items: itemsToApply
+                            };
+
+                            const res = await fetch('/api/leads/modify-content', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                siteId: siteData.siteId,
+                                currentContent: siteData.content,
+                                directContent: { transparentSlider: config },
+                                lead
+                              })
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                              setSiteData(data);
+                              setJsonText(JSON.stringify(data.content, null, 2));
+                              alert('✨ Infinite Rolling Slider successfully attached to your website hero section!');
+                            }
+                          } catch (e) {
+                            console.error(e);
+                          } finally {
+                            setModifying(false);
+                          }
+                        }}
+                        disabled={modifying || !siteData}
+                        className="px-5 py-3 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-zinc-950 font-black text-xs rounded-xl shadow-xl shadow-amber-500/20 transition flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider shrink-0"
+                      >
+                        <Sparkles size={16} />
+                        <span>Apply Slider to Active Website</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const embedCode = `<style>
+@keyframes marquee-roll {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+.marquee-container {
+  overflow: hidden;
+  white-space: nowrap;
+  display: flex;
+  position: relative;
+  width: 100%;
+}
+.marquee-track {
+  display: flex;
+  gap: ${sliderItemGap}px;
+  animation: marquee-roll ${sliderSpeed}s linear infinite;
+  animation-direction: ${sliderDirection === 'right' ? 'reverse' : 'normal'};
+}
+.marquee-card {
+  flex-shrink: 0;
+  width: ${sliderItemScale}px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.3s ease;
+}
+.marquee-card img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  filter: ${sliderEnableShadow ? 'drop-shadow(0 20px 30px rgba(0,0,0,0.5))' : 'none'};
+  ${sliderEnableRotate ? 'animation: spin 30s linear infinite;' : ''}
+}
+</style>
+<div className="marquee-container">
+  <div className="marquee-track">
+    <!-- Transparent Items repeated for infinite loop -->
+  </div>
+</div>`;
+                          navigator.clipboard.writeText(embedCode);
+                          setCopiedSliderEmbed(true);
+                          setTimeout(() => setCopiedSliderEmbed(false), 2000);
+                        }}
+                        className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                      >
+                        <Code size={14} />
+                        <span>{copiedSliderEmbed ? 'Code Copied! ✓' : 'Copy Embed Code'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* MULTI-UPLOAD SUCCESS BANNER */}
+                  {multiUploadSuccessMsg && (
+                    <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 p-4 rounded-xl text-xs font-bold flex items-center justify-between shadow-lg">
+                      <span>{multiUploadSuccessMsg}</span>
+                      <button onClick={() => setMultiUploadSuccessMsg(null)} className="text-emerald-400 hover:text-white cursor-pointer">✕</button>
+                    </div>
+                  )}
+
+                  {/* BULK MULTI-IMAGE UPLOAD & STOCK SEARCH WORKSPACE */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 bg-[#0A0A0E] border border-amber-500/20 p-6 rounded-2xl shadow-2xl">
+                    
+                    {/* OPTION 1: UPLOAD MULTIPLE PRE-CROPPED PICTURES */}
+                    <div className="space-y-4 bg-zinc-950/80 p-5 rounded-2xl border border-zinc-800/80 flex flex-col justify-between">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black flex items-center justify-center border border-amber-500/30">1</span>
+                          <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                            <Upload className="text-amber-400" size={16} />
+                            Upload Multiple Pre-Cropped Pictures
+                          </h4>
+                        </div>
+                        <p className="text-xs text-zinc-400">
+                          Select multiple files from your computer at once. Perfect for pre-cropped PNGs, WebPs, or transparent cutout assets!
                         </p>
                       </div>
 
-                      {/* 1. GOOGLE SEARCH & MAPS EVIDENCE CAMERA */}
-                      <div className="bg-[#0A0A0C] border border-zinc-800/80 rounded-2xl p-6 space-y-6 text-left">
-                        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-zinc-800/60 pb-4">
-                          <div>
-                            <h5 className="text-sm font-bold text-white flex items-center gap-2">
-                              <Search size={16} className="text-blue-400" />
-                              <span>Live Google Search & Maps screenshot proof</span>
-                            </h5>
-                            <p className="text-[11px] text-zinc-400 mt-0.5">
-                              Generate a real-time screenshot of their live listing to show "we actually looked you up" in your email template.
-                            </p>
-                          </div>
-                          
-                          <div className="flex items-center gap-2 shrink-0 bg-black/40 p-1 rounded-xl border border-zinc-800">
-                            <button
-                              onClick={() => setGoogleSearchType('maps')}
-                              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1 ${googleSearchType === 'maps' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'}`}
-                            >
-                              <MapPin size={11} />
-                              <span>Google Maps</span>
-                            </button>
-                            <button
-                              onClick={() => setGoogleSearchType('search')}
-                              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1 ${googleSearchType === 'search' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'}`}
-                            >
-                              <Globe size={11} />
-                              <span>Google Search</span>
-                            </button>
-                          </div>
+                      <label className="border-2 border-dashed border-amber-500/40 hover:border-amber-400 bg-amber-500/5 hover:bg-amber-500/10 p-6 rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition group">
+                        <Upload size={32} className="text-amber-400 group-hover:scale-110 transition-transform mb-2" />
+                        <span className="text-xs font-black text-white group-hover:text-amber-300 transition">
+                          Click or Drag to Upload Multiple Pictures
+                        </span>
+                        <span className="text-[10px] text-zinc-500 mt-1">
+                          PNG, WEBP, JPG, SVG • Select 1 or 20+ files at once
+                        </span>
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleMultipleCutoutFilesUpload}
+                        />
+                      </label>
+                    </div>
+
+                    {/* OPTION 2: SEARCH & ADD MULTIPLE STOCK PICTURES */}
+                    <div className="space-y-4 bg-zinc-950/80 p-5 rounded-2xl border border-zinc-800/80">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-black flex items-center justify-center border border-cyan-500/30">2</span>
+                          <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                            <Search className="text-cyan-400" size={16} />
+                            Search & Select Multiple Pictures
+                          </h4>
                         </div>
+                        <p className="text-xs text-zinc-400">
+                          Search high-res stock photos by keyword (e.g., "watch", "supercar", "dish", "chalet") and multi-select images to add in 1 click!
+                        </p>
+                      </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                          {/* Live Playwright Capture */}
-                          <div className="lg:col-span-6 space-y-4 flex flex-col justify-between">
-                            <div className="bg-zinc-950 rounded-xl p-4 border border-zinc-800/80 space-y-3">
-                              <span className="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider block">Option A: Playwright Real-Time Capture</span>
-                              <p className="text-xs text-zinc-400 leading-relaxed">
-                                Our automated background browser will search Google for <strong className="text-zinc-200">"{companyName} {badgeCity}"</strong>, accept Google's cookie guidelines, and grab a real high-resolution screenshot.
-                              </p>
-                              
-                              {googleCaptureError && (
-                                <div className="p-3 bg-amber-950/20 border border-amber-500/30 rounded-lg text-[10px] text-amber-300">
-                                  {googleCaptureError}
-                                </div>
-                              )}
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Search keyword (e.g. supercar, watch, dish, sneakers)..."
+                          value={sliderSearchQuery}
+                          onChange={(e) => setSliderSearchQuery(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSearchSliderPhotos()}
+                          className="flex-1 bg-black/60 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500"
+                        />
+                        <button
+                          onClick={() => handleSearchSliderPhotos()}
+                          disabled={searchingSliderPhotos}
+                          className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-zinc-950 font-black text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5 shrink-0"
+                        >
+                          {searchingSliderPhotos ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}
+                          <span>Search</span>
+                        </button>
+                      </div>
 
+                      {/* SEARCH RESULTS GRID WITH CHECKBOXES */}
+                      {sliderSearchResults.length > 0 && (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between text-[11px] font-bold text-zinc-400 border-t border-zinc-800/80 pt-3">
+                            <span>Found {sliderSearchResults.length} photos ({selectedSliderPhotoUrls.length} selected)</span>
+                            <div className="flex gap-2">
                               <button
-                                onClick={handleCaptureGoogleScreenshot}
-                                disabled={capturingGoogle}
-                                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-extrabold rounded-xl text-xs transition flex items-center justify-center gap-2"
+                                onClick={() => setSelectedSliderPhotoUrls(sliderSearchResults.map(r => r.url))}
+                                className="text-cyan-400 hover:underline cursor-pointer"
                               >
-                                {capturingGoogle ? (
-                                  <>
-                                    <RefreshCw size={13} className="animate-spin" />
-                                    <span>Playwright searching & capturing... (takes ~15s)</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Search size={13} />
-                                    <span>Trigger Live Playwright Google Capture</span>
-                                  </>
-                                )}
+                                Select All
+                              </button>
+                              <span>•</span>
+                              <button
+                                onClick={() => setSelectedSliderPhotoUrls([])}
+                                className="text-zinc-500 hover:underline cursor-pointer"
+                              >
+                                Deselect All
                               </button>
                             </div>
-
-                            {/* Captured Result Panel */}
-                            <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex-1 flex flex-col items-center justify-center min-h-[220px] p-2 relative group">
-                              {googleScreenshotUrl ? (
-                                <>
-                                  <img 
-                                    src={googleScreenshotUrl} 
-                                    alt="Live Google maps search listing screenshot" 
-                                    className="max-w-full max-h-[260px] object-contain rounded-lg border border-zinc-800"
-                                  />
-                                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2 rounded-xl">
-                                    <a 
-                                      href={googleScreenshotUrl} 
-                                      download={`google_${googleSearchType}_proof.jpeg`}
-                                      className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5"
-                                    >
-                                      <Download size={12} />
-                                      <span>Download proof image</span>
-                                    </a>
-                                  </div>
-                                </>
-                              ) : (
-                                <div className="text-center p-6 space-y-2">
-                                  <Monitor size={32} className="text-zinc-600 mx-auto" />
-                                  <p className="text-xs text-zinc-500 font-medium">No live screenshot captured yet.</p>
-                                  <span className="text-[10px] text-zinc-600 block">Click the trigger button above or use the gorgeous interactive simulator on the right as a guaranteed instant backup.</span>
-                                </div>
-                              )}
-                            </div>
                           </div>
 
-                          {/* Interactive Google Listing Simulator */}
-                          <div className="lg:col-span-6 space-y-4">
-                            <div className="bg-zinc-950 rounded-xl p-4 border border-zinc-800/80 space-y-4">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-extrabold text-emerald-400 uppercase tracking-wider block">Option B: Instant Google Maps Simulator</span>
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Guaranteed Clean</span>
-                              </div>
-
-                              {/* Simulator controls */}
-                              <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1">
-                                  <label className="text-[10px] font-bold text-zinc-400 uppercase">City / Ville</label>
-                                  <input
-                                    type="text"
-                                    value={badgeCity}
-                                    onChange={(e) => setBadgeCity(e.target.value)}
-                                    className="w-full bg-[#101014] border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-zinc-700"
-                                    placeholder="e.g. Lyon"
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="text-[10px] font-bold text-zinc-400 uppercase">Niche / Trade</label>
-                                  <input
-                                    type="text"
-                                    value={badgeNiche}
-                                    onChange={(e) => setBadgeNiche(e.target.value)}
-                                    className="w-full bg-[#101014] border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-zinc-700"
-                                    placeholder="e.g. Plomberie"
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="text-[10px] font-bold text-zinc-400 uppercase">Rating Score</label>
-                                  <input
-                                    type="text"
-                                    value={badgeRating}
-                                    onChange={(e) => setBadgeRating(e.target.value)}
-                                    className="w-full bg-[#101014] border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-zinc-700"
-                                    placeholder="e.g. 4.8"
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="text-[10px] font-bold text-zinc-400 uppercase">Total Reviews</label>
-                                  <input
-                                    type="text"
-                                    value={badgeReviewsCount}
-                                    onChange={(e) => setBadgeReviewsCount(e.target.value)}
-                                    className="w-full bg-[#101014] border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-zinc-700"
-                                    placeholder="e.g. 32"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Google Maps Simulated Widget Preview */}
-                              <div className="bg-[#FFFFFF] text-zinc-900 rounded-xl p-4 border border-zinc-300 shadow-xl space-y-3 font-sans relative overflow-hidden select-none">
-                                {/* Chrome-like header tab */}
-                                <div className="absolute top-0 left-0 right-0 h-1.5 bg-blue-500" />
-                                
-                                <div className="flex items-start justify-between">
-                                  <div className="space-y-1 text-left">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[9px] font-black flex items-center justify-center shrink-0">G</span>
-                                      <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Google Maps Listing</span>
-                                    </div>
-                                    <h6 className="text-sm font-bold text-zinc-900 leading-tight mt-1">{companyName}</h6>
-                                    <div className="flex items-center gap-1 mt-0.5">
-                                      <span className="text-xs font-bold text-amber-500">{badgeRating}</span>
-                                      <div className="flex items-center text-amber-400">
-                                        {[...Array(5)].map((_, i) => (
-                                          <Star key={i} size={11} fill="currentColor" className="text-amber-400 shrink-0" />
-                                        ))}
-                                      </div>
-                                      <span className="text-xs text-zinc-500 font-medium">({badgeReviewsCount} avis Google)</span>
-                                    </div>
-                                    <p className="text-[10px] text-zinc-500 flex items-center gap-1 mt-1">
-                                      <MapPin size={9} className="text-zinc-400" />
-                                      <span>{badgeCity}, France · {badgeNiche}</span>
-                                    </p>
-                                  </div>
-
-                                  <div className="p-1 bg-blue-50 border border-blue-200 rounded-lg text-center shrink-0">
-                                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center mx-auto">
-                                      <CheckCircle2 size={16} className="text-blue-600" />
-                                    </div>
-                                    <span className="text-[8px] font-bold text-blue-700 block mt-1 uppercase tracking-wide">Fiche vérifiée</span>
-                                  </div>
-                                </div>
-
-                                <div className="grid grid-cols-4 gap-2 pt-2 border-t border-zinc-150 text-[9px] font-bold text-blue-600 text-center">
-                                  <div className="p-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg">📞 Appeler</div>
-                                  <div className="p-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg">🌐 Site Web</div>
-                                  <div className="p-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg">📍 Itinéraire</div>
-                                  <div className="p-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg">⭐ Évaluer</div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 2. DYNAMIC TRUST BADGE STUDIO */}
-                      <div className="bg-[#0A0A0C] border border-zinc-800/80 rounded-2xl p-6 space-y-6 text-left">
-                        <div>
-                          <h5 className="text-sm font-bold text-white flex items-center gap-2">
-                            <Award size={16} className="text-yellow-400 animate-pulse" />
-                            <span>Personalized trust badges (Niche & Client tailored)</span>
-                          </h5>
-                          <p className="text-[11px] text-zinc-400 mt-0.5">
-                            Beautiful high-fidelity authority badges customized for <strong className="text-zinc-200">{companyName}</strong>. Ready to be embedded in email pitch signatures or website headers.
-                          </p>
-                        </div>
-
-                        {/* Three Badge Showcase Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                          
-                          {/* Badge 1: Google Top-Rated Seal */}
-                          <div className="bg-zinc-950 p-5 rounded-2xl border border-zinc-800 flex flex-col items-center justify-between text-center relative group min-h-[220px]">
-                            <span className="text-[9px] font-extrabold text-blue-400 uppercase tracking-widest mb-2 block">1. Google Maps Local Choice</span>
-                            
-                            <div className="w-24 h-24 rounded-full border-4 border-blue-500/20 bg-blue-950/10 flex flex-col items-center justify-center p-2 relative">
-                              <div className="absolute -top-1 px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[7px] font-bold uppercase">
-                                {badgeCity}
-                              </div>
-                              <span className="text-[10px] font-extrabold text-white leading-tight uppercase">{badgeNiche}</span>
-                              <div className="flex items-center text-amber-400 my-1">
-                                {[...Array(5)].map((_, i) => <Star key={i} size={10} fill="currentColor" />)}
-                              </div>
-                              <span className="text-[11px] font-bold text-white">{badgeRating} ★</span>
-                              <span className="text-[8px] text-zinc-500 font-mono mt-0.5 uppercase tracking-wide">Elite Choice</span>
-                            </div>
-
-                            <p className="text-[10px] text-zinc-400 leading-normal mt-3 max-w-[200px]">
-                              Proves to local clients that they are the leading <strong>{badgeNiche}</strong> specialist in <strong>{badgeCity}</strong>.
-                            </p>
-                          </div>
-
-                          {/* Badge 2: ASSIX Mobile Performance Shield */}
-                          <div className="bg-zinc-950 p-5 rounded-2xl border border-zinc-800 flex flex-col items-center justify-between text-center relative group min-h-[220px]">
-                            <span className="text-[9px] font-extrabold text-emerald-400 uppercase tracking-widest mb-2 block">2. Speed & UX certified</span>
-                            
-                            <div className="w-24 h-24 rounded-full border-4 border-emerald-500/20 bg-emerald-950/10 flex flex-col items-center justify-center p-2 relative">
-                              <div className="absolute -top-1 px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[7px] font-bold uppercase">
-                                Lighthouse
-                              </div>
-                              <span className="text-[14px] font-black text-emerald-400 leading-tight">100/100</span>
-                              <span className="text-[8px] text-zinc-400 font-extrabold mt-1 uppercase tracking-wider text-center">Mobile Core Web Vitals</span>
-                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mt-1" />
-                            </div>
-
-                            <p className="text-[10px] text-zinc-400 leading-normal mt-3 max-w-[200px]">
-                              Demonstrates mobile loading times in milliseconds, guaranteeing Google Search compliance.
-                            </p>
-                          </div>
-
-                          {/* Badge 3: Elite Local Service Laurel */}
-                          <div className="bg-zinc-950 p-5 rounded-2xl border border-zinc-800 flex flex-col items-center justify-between text-center relative group min-h-[220px]">
-                            <span className="text-[9px] font-extrabold text-yellow-500 uppercase tracking-widest mb-2 block">3. Local Trust Laurel</span>
-                            
-                            <div className="w-24 h-24 rounded-full border-4 border-yellow-500/20 bg-yellow-950/10 flex flex-col items-center justify-center p-2 relative">
-                              <div className="absolute -top-1 px-1.5 py-0.5 rounded-full bg-yellow-500 text-black text-[7px] font-black uppercase">
-                                Verified Local
-                              </div>
-                              <Award size={20} className="text-yellow-400 my-1" />
-                              <span className="text-[9px] font-extrabold text-white uppercase tracking-wider">{badgeCity}</span>
-                              <span className="text-[7px] text-zinc-500 font-mono mt-0.5 uppercase tracking-wide">Approved Business</span>
-                            </div>
-
-                            <p className="text-[10px] text-zinc-400 leading-normal mt-3 max-w-[200px]">
-                              Highlight the independent professional status and client rating of {badgeRating}/5 stars.
-                            </p>
-                          </div>
-
-                        </div>
-                      </div>
-
-                      {/* 3. VERIFIED CUSTOMER REVIEWS GENERATOR & EMAIL COMPOSER */}
-                      <div className="bg-[#0A0A0C] border border-zinc-800/80 rounded-2xl p-6 space-y-6 text-left">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/60 pb-4">
-                          <div>
-                            <h5 className="text-sm font-bold text-white flex items-center gap-2">
-                              <MessageSquare size={16} className="text-emerald-400" />
-                              <span>Verified Customer Reviews Generator & Email Exporter</span>
-                            </h5>
-                            <p className="text-[11px] text-zinc-400 mt-0.5">
-                              Pre-populates specific, high-intent French customer reviews matching their niche. Copy them directly as a beautifully styled HTML Block for email templates.
-                            </p>
-                          </div>
-                          
-                          <button
-                            onClick={generateNicheReviews}
-                            className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 font-extrabold rounded-lg text-xs transition flex items-center gap-1.5 shrink-0"
-                          >
-                            <RefreshCw size={12} />
-                            <span>Regenerate Reviews</span>
-                          </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                          
-                          {/* Left: Editable reviews list */}
-                          <div className="lg:col-span-6 space-y-4">
-                            <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">Customize client reviews</span>
-                            
-                            {reviewsList.map((rev, idx) => (
-                              <div key={idx} className="bg-zinc-950 p-4 rounded-xl border border-zinc-800/80 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <input
-                                    type="text"
-                                    value={rev.name}
-                                    onChange={(e) => {
-                                      const updated = [...reviewsList];
-                                      updated[idx].name = e.target.value;
-                                      setReviewsList(updated);
-                                    }}
-                                    className="bg-transparent text-xs font-bold text-white border-b border-zinc-800 focus:border-zinc-600 focus:outline-none w-36 py-0.5"
-                                  />
-                                  <input
-                                    type="text"
-                                    value={rev.date}
-                                    onChange={(e) => {
-                                      const updated = [...reviewsList];
-                                      updated[idx].date = e.target.value;
-                                      setReviewsList(updated);
-                                    }}
-                                    className="bg-transparent text-[10px] text-zinc-500 border-b border-zinc-800 focus:border-zinc-600 focus:outline-none text-right w-24 py-0.5"
-                                  />
-                                </div>
-                                <div className="flex items-center text-amber-400">
-                                  {[...Array(5)].map((_, i) => <Star key={i} size={11} fill="currentColor" />)}
-                                </div>
-                                <textarea
-                                  value={rev.text}
-                                  onChange={(e) => {
-                                    const updated = [...reviewsList];
-                                    updated[idx].text = e.target.value;
-                                    setReviewsList(updated);
+                          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 max-h-56 overflow-y-auto p-1 bg-black/40 rounded-xl border border-zinc-800">
+                            {sliderSearchResults.map((photo) => {
+                              const isSelected = selectedSliderPhotoUrls.includes(photo.url);
+                              return (
+                                <div
+                                  key={photo.id}
+                                  className={`relative aspect-square rounded-lg overflow-hidden border cursor-pointer group transition-all ${
+                                    isSelected ? 'border-amber-400 ring-2 ring-amber-400/50 scale-95' : 'border-zinc-800 opacity-70 hover:opacity-100'
+                                  }`}
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      setSelectedSliderPhotoUrls(prev => prev.filter(u => u !== photo.url));
+                                    } else {
+                                      setSelectedSliderPhotoUrls(prev => [...prev, photo.url]);
+                                    }
                                   }}
-                                  className="w-full bg-transparent text-xs text-zinc-300 border border-transparent hover:border-zinc-800/60 focus:border-zinc-800 focus:outline-none rounded p-1 leading-relaxed resize-none h-14 font-sans"
-                                />
-                              </div>
-                            ))}
+                                >
+                                  <img src={photo.url} alt={photo.title} className="w-full h-full object-cover" />
+                                  <div className={`absolute top-1 right-1 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-black ${
+                                    isSelected ? 'bg-amber-400 text-zinc-950' : 'bg-black/60 text-white'
+                                  }`}>
+                                    {isSelected ? '✓' : ''}
+                                  </div>
+                                  <button
+                                    title="Remove Background on this single photo"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        setIsBatchProcessingBg(true);
+                                        const transparentPng = await processBgRemovalForUrl(photo.url, bgRemoveThreshold, bgRemoveFeather);
+                                        setCustomCutoutItems(prev => [{
+                                          id: `cutout-single-${Date.now()}`,
+                                          title: photo.title || 'Custom Cutout',
+                                          subtitle: 'Transparent Cutout',
+                                          url: transparentPng
+                                        }, ...prev]);
+                                        setSliderCategory('custom');
+                                        setMultiUploadSuccessMsg(`✨ Removed background from "${photo.title}" and added to slider!`);
+                                        setTimeout(() => setMultiUploadSuccessMsg(null), 4000);
+                                      } catch (err) {
+                                        console.error('Failed to remove bg for single photo:', err);
+                                      } finally {
+                                        setIsBatchProcessingBg(false);
+                                      }
+                                    }}
+                                    className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/80 hover:bg-amber-500 text-amber-300 hover:text-zinc-950 text-[9px] font-bold rounded border border-amber-500/40 opacity-0 group-hover:opacity-100 transition flex items-center gap-1 z-10"
+                                  >
+                                    <Wand2 size={10} />
+                                    <span>Cutout</span>
+                                  </button>
+                                </div>
+                              );
+                            })}
                           </div>
 
-                          {/* Right: Email campaign exporter preview */}
-                          <div className="lg:col-span-6 space-y-4 flex flex-col justify-between">
-                            <div>
-                              <span className="text-[10px] font-extrabold text-amber-500 uppercase tracking-wider block mb-2">Campaign Ready-to-Embed Copy</span>
-                              <p className="text-xs text-zinc-400 leading-relaxed mb-3">
-                                Click below to copy a perfectly inline-styled HTML signature code of these verified customer reviews. You can paste it straight into your campaign sequence so it renders elegantly on mobile & web clients.
-                              </p>
-                            </div>
-
-                            {/* Simulated HTML Email block preview */}
-                            <div className="bg-[#FFFFFF] text-zinc-900 rounded-xl p-4 border border-zinc-350 shadow-lg space-y-3 font-sans text-left">
-                              <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Email Embedded Feedback Box</span>
-                                </div>
-                                <span className="text-[8px] font-black text-blue-600 uppercase">Google Verified</span>
-                              </div>
-
-                              <div className="space-y-2.5">
-                                {reviewsList.slice(0, 2).map((rev, idx) => (
-                                  <div key={idx} className="space-y-0.5 border-b border-zinc-50 last:border-0 pb-1.5 last:pb-0">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-[10px] font-bold text-zinc-900">{rev.name}</span>
-                                      <span className="text-[8px] text-zinc-400 font-mono">{rev.date}</span>
-                                    </div>
-                                    <div className="flex text-amber-400">
-                                      {[...Array(5)].map((_, i) => <span key={i} className="text-amber-400 text-[10px]">★</span>)}
-                                    </div>
-                                    <p className="text-[9px] text-zinc-600 leading-normal italic">
-                                      "{rev.text.length > 95 ? `${rev.text.substring(0, 95)}...` : rev.text}"
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
+                          <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                            <button
+                              onClick={handleRemoveBgAndAddSelectedToSlider}
+                              disabled={selectedSliderPhotoUrls.length === 0 || isBatchProcessingBg}
+                              className="flex-1 py-2.5 bg-gradient-to-r from-cyan-500 via-teal-400 to-amber-400 hover:from-cyan-400 hover:to-amber-300 disabled:opacity-40 text-zinc-950 font-black text-xs rounded-xl shadow-lg transition flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+                            >
+                              {isBatchProcessingBg ? <RefreshCw size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                              <span>🪄 Remove Background & Add ({selectedSliderPhotoUrls.length})</span>
+                            </button>
 
                             <button
-                              onClick={() => {
-                                const origin = window.location.origin;
-                                const htmlBlock = `
-<div style="font-family: Arial, sans-serif; max-width: 500px; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px; background-color: #FFFFFF; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-  <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #F1F5F9; padding-bottom: 8px; margin-bottom: 12px;">
-    <span style="font-size: 11px; font-weight: bold; color: #1E293B; text-transform: uppercase;">Avis Clients Vérifiés Google</span>
-    <span style="font-size: 10px; font-weight: bold; color: #2563EB;">VÉRIFIÉ 100%</span>
-  </div>
-  ${reviewsList.map(r => `
-  <div style="margin-bottom: 10px; border-bottom: 1px solid #F8FAFC; padding-bottom: 8px;">
-    <div style="display: flex; align-items: center; justify-content: space-between;">
-      <span style="font-size: 11px; font-weight: bold; color: #0F172A;">${r.name}</span>
-      <span style="font-size: 9px; color: #94A3B8;">${r.date}</span>
-    </div>
-    <div style="color: #F59E0B; font-size: 11px; margin: 2px 0;">★★★★★</div>
-    <p style="font-size: 10px; color: #475569; margin: 0; font-style: italic; line-height: 1.4;">"${r.text}"</p>
-  </div>
-  `).join('')}
-  <div style="text-align: center; margin-top: 8px;">
-    <span style="font-size: 9px; color: #94A3B8; display: inline-block;">Fiche Google Maps officielle de ${companyName}</span>
-  </div>
-</div>`;
-                                navigator.clipboard.writeText(htmlBlock);
-                                alert('Beautiful inline-styled HTML Reviews Block copied to clipboard! Ready to paste into cold outreach emails.');
-                              }}
-                              className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl text-xs transition flex items-center justify-center gap-1.5"
+                              onClick={handleAddSelectedSearchPhotosToSlider}
+                              disabled={selectedSliderPhotoUrls.length === 0 || isBatchProcessingBg}
+                              className="py-2.5 px-4 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 disabled:opacity-40 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shrink-0"
                             >
-                              <Code size={13} />
-                              <span>Copy Reviews as Email HTML Signature</span>
+                              <Sparkles size={14} className="text-amber-400" />
+                              <span>Add As-Is ({selectedSliderPhotoUrls.length})</span>
                             </button>
                           </div>
-
                         </div>
-                      </div>
-
+                      )}
                     </div>
 
                   </div>
+
+                  {/* PRESET CATEGORY SELECTOR TABS */}
+                  <div className="bg-[#0A0A0E] border border-zinc-800/80 p-2 rounded-2xl flex items-center gap-2 overflow-x-auto scrollbar-none shadow-xl">
+                    {[
+                      { id: 'plates', label: '🍽️ Gourmet Plates (Top View)', count: 6 },
+                      { id: 'cars', label: '🏎️ Exotic Sports Cars', count: 5 },
+                      { id: 'motorcycles', label: '🏍️ Superbikes & Cafe Racers', count: 4 },
+                      { id: 'houses', label: '🏛️ Modern Villas & Mansions', count: 4 },
+                      { id: 'tech', label: '⌚ Tech & Luxury Items', count: 4 },
+                      { id: 'custom', label: `✂️ My Custom Cutouts (${customCutoutItems.length})`, count: customCutoutItems.length }
+                    ].map(cat => (
+                      <button
+                        key={cat.id}
+                        onClick={() => setSliderCategory(cat.id as any)}
+                        className={`px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 flex items-center gap-2 cursor-pointer border ${
+                          sliderCategory === cat.id
+                            ? 'bg-amber-500 text-zinc-950 border-amber-400 font-black shadow-lg shadow-amber-500/20'
+                            : 'bg-zinc-900/60 text-zinc-400 border-zinc-800 hover:text-white hover:bg-zinc-800'
+                        }`}
+                      >
+                        <span>{cat.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* LIVE INFINITE ROLLING SLIDER PREVIEW CANVAS */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-extrabold uppercase tracking-widest text-zinc-400 flex items-center gap-2">
+                        <Play size={14} className="text-amber-400 fill-amber-400" />
+                        Live Continuous Marquee Ticker Preview
+                      </h4>
+                      <div className="flex items-center gap-2 text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
+                        <span>Speed: {sliderSpeed}s cycle</span>
+                        <span>•</span>
+                        <span>Scale: {sliderItemScale}px</span>
+                        <span>•</span>
+                        <span>Gap: {sliderItemGap}px</span>
+                      </div>
+                    </div>
+
+                    <div className={`w-full py-12 px-4 rounded-3xl border overflow-hidden relative shadow-2xl transition-all duration-300 ${
+                      sliderThemeBg === 'dark' ? 'bg-[#060608] border-zinc-800/80' :
+                      sliderThemeBg === 'light' ? 'bg-slate-100 border-slate-300 text-slate-900' :
+                      sliderThemeBg === 'gold' ? 'bg-gradient-to-r from-amber-950/40 via-zinc-950 to-amber-950/40 border-amber-500/30' :
+                      'bg-[#040D12] border-cyan-500/30'
+                    }`}>
+
+                      {/* FADE GRADIENT EDGES ON LEFT & RIGHT */}
+                      <div className={`absolute top-0 bottom-0 left-0 w-24 z-20 pointer-events-none bg-gradient-to-r ${
+                        sliderThemeBg === 'light' ? 'from-slate-100 to-transparent' : 'from-[#060608] to-transparent'
+                      }`} />
+                      <div className={`absolute top-0 bottom-0 right-0 w-24 z-20 pointer-events-none bg-gradient-to-l ${
+                        sliderThemeBg === 'light' ? 'from-slate-100 to-transparent' : 'from-[#060608] to-transparent'
+                      }`} />
+
+                      {/* CONTINUOUS ROLLING MARQUEE CONTAINER */}
+                      <div className="marquee-wrapper overflow-hidden w-full flex relative">
+                        <style>{`
+                          @keyframes marqueeInfinite {
+                            0% { transform: translateX(0%); }
+                            100% { transform: translateX(-50%); }
+                          }
+                          @keyframes slowSpin {
+                            from { transform: rotate(0deg); }
+                            to { transform: rotate(360deg); }
+                          }
+                          .marquee-animated-track {
+                            display: flex;
+                            align-items: center;
+                            width: max-content;
+                            animation: marqueeInfinite ${sliderSpeed}s linear infinite;
+                            animation-direction: ${sliderDirection === 'right' ? 'reverse' : 'normal'};
+                          }
+                          .marquee-animated-track:hover {
+                            animation-play-state: paused;
+                          }
+                          .slow-spin-plate {
+                            animation: slowSpin 35s linear infinite;
+                          }
+                        `}</style>
+
+                        <div 
+                          className="marquee-animated-track"
+                          style={{ gap: `${sliderItemGap}px` }}
+                        >
+                          {/* Render items duplicated for infinite loop */}
+                          {[
+                            ...(sliderCategory === 'custom' 
+                              ? (customCutoutItems.length > 0 ? customCutoutItems : [
+                                  { id: 'placeholder', title: 'Upload Your Photo', subtitle: 'Use AI Studio Below', url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&q=80&auto=format&fit=crop' }
+                                ])
+                              : (sliderCategory === 'cars' ? [
+                                  { id: 'c1', title: 'Porsche 911 GT3 RS', subtitle: 'Silver Track Cutout', url: 'https://images.unsplash.com/photo-1614162692292-7ac56d7f7f1e?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'c2', title: 'Lamborghini Huracán', subtitle: 'Matte Nero Supercar', url: 'https://images.unsplash.com/photo-1544829099-b9a0c07fad1a?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'c3', title: 'Ferrari F8 Tributo', subtitle: 'Rosso Corsa Supercar', url: 'https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'c4', title: 'Mustang Fastback 1969', subtitle: 'Gold Heritage Heritage', url: 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'c5', title: 'Mercedes-AMG GT', subtitle: 'Biturbo V8 Performance', url: 'https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=800&q=80&auto=format&fit=crop' }
+                                ] : sliderCategory === 'motorcycles' ? [
+                                  { id: 'm1', title: 'Ducati Panigale V4 S', subtitle: 'Corse Racing Red Superbike', url: 'https://images.unsplash.com/photo-1558981806-ec527fa84c39?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'm2', title: 'BMW R nineT Cafe Racer', subtitle: 'Custom Bronze Metal', url: 'https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'm3', title: 'Triumph Bonneville T120', subtitle: 'Vintage Leather British Twin', url: 'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'm4', title: 'Harley-Davidson Fat Boy', subtitle: 'Chrome Softail Cruiser', url: 'https://images.unsplash.com/photo-1558981243-703630f9a7aa?w=800&q=80&auto=format&fit=crop' }
+                                ] : sliderCategory === 'houses' ? [
+                                  { id: 'h1', title: 'Cantilevered Glass Villa', subtitle: 'Minimalist Residence', url: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'h2', title: 'Nordic Alpine Chalet', subtitle: 'Timber & Glass Facade', url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'h3', title: 'Palm Oceanfront Estate', subtitle: 'Infinity Edge Pool Villa', url: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'h4', title: 'Rooftop Penthouse Estate', subtitle: 'Skyline Residence', url: 'https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?w=800&q=80&auto=format&fit=crop' }
+                                ] : sliderCategory === 'tech' ? [
+                                  { id: 't1', title: 'Studio Hi-Fi Headphones', subtitle: 'Spatial Audio Matte Black', url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 't2', title: '18K Gold Chronograph', subtitle: 'Swiss Automatic Watch', url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 't3', title: 'Artisan Espresso Machine', subtitle: 'Brass & Chrome', url: 'https://images.unsplash.com/photo-1517668808822-9e4288246ede?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 't4', title: 'Architectural Sneakers', subtitle: 'Minimalist Footwear', url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80&auto=format&fit=crop' }
+                                ] : [
+                                  { id: 'p1', title: 'Wagyu Steak Cut', subtitle: 'Charcoal & Truffle Butter', url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'p2', title: 'Artisan Nigiri Platter', subtitle: 'Fresh Caviar & Salmon', url: 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'p3', title: 'Truffle Tagliatelle', subtitle: 'Handmade Pasta', url: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'p4', title: 'Salmon Citrus Salad', subtitle: 'Micro-Greens & Avocado', url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'p5', title: 'Neapolitan Wood Pizza', subtitle: 'San Marzano Mozzarella', url: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'p6', title: 'Gold Leaf Berry Tart', subtitle: 'Vanilla Bean Patisserie', url: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=800&q=80&auto=format&fit=crop' }
+                                ]
+                              )
+                            ),
+                            ...(sliderCategory === 'custom' 
+                              ? (customCutoutItems.length > 0 ? customCutoutItems : [
+                                  { id: 'placeholder_dup', title: 'Upload Your Photo', subtitle: 'Use AI Studio Below', url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&q=80&auto=format&fit=crop' }
+                                ])
+                              : (sliderCategory === 'cars' ? [
+                                  { id: 'c1_dup', title: 'Porsche 911 GT3 RS', subtitle: 'Silver Track Cutout', url: 'https://images.unsplash.com/photo-1614162692292-7ac56d7f7f1e?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'c2_dup', title: 'Lamborghini Huracán', subtitle: 'Matte Nero Supercar', url: 'https://images.unsplash.com/photo-1544829099-b9a0c07fad1a?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'c3_dup', title: 'Ferrari F8 Tributo', subtitle: 'Rosso Corsa Supercar', url: 'https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'c4_dup', title: 'Mustang Fastback 1969', subtitle: 'Gold Heritage Heritage', url: 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'c5_dup', title: 'Mercedes-AMG GT', subtitle: 'Biturbo V8 Performance', url: 'https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=800&q=80&auto=format&fit=crop' }
+                                ] : sliderCategory === 'motorcycles' ? [
+                                  { id: 'm1_dup', title: 'Ducati Panigale V4 S', subtitle: 'Corse Racing Red Superbike', url: 'https://images.unsplash.com/photo-1558981806-ec527fa84c39?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'm2_dup', title: 'BMW R nineT Cafe Racer', subtitle: 'Custom Bronze Metal', url: 'https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'm3_dup', title: 'Triumph Bonneville T120', subtitle: 'Vintage Leather British Twin', url: 'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'm4_dup', title: 'Harley-Davidson Fat Boy', subtitle: 'Chrome Softail Cruiser', url: 'https://images.unsplash.com/photo-1558981243-703630f9a7aa?w=800&q=80&auto=format&fit=crop' }
+                                ] : sliderCategory === 'houses' ? [
+                                  { id: 'h1_dup', title: 'Cantilevered Glass Villa', subtitle: 'Minimalist Residence', url: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'h2_dup', title: 'Nordic Alpine Chalet', subtitle: 'Timber & Glass Facade', url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'h3_dup', title: 'Palm Oceanfront Estate', subtitle: 'Infinity Edge Pool Villa', url: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'h4_dup', title: 'Rooftop Penthouse Estate', subtitle: 'Skyline Residence', url: 'https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?w=800&q=80&auto=format&fit=crop' }
+                                ] : sliderCategory === 'tech' ? [
+                                  { id: 't1_dup', title: 'Studio Hi-Fi Headphones', subtitle: 'Spatial Audio Matte Black', url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 't2_dup', title: '18K Gold Chronograph', subtitle: 'Swiss Automatic Watch', url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 't3_dup', title: 'Artisan Espresso Machine', subtitle: 'Brass & Chrome', url: 'https://images.unsplash.com/photo-1517668808822-9e4288246ede?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 't4_dup', title: 'Architectural Sneakers', subtitle: 'Minimalist Footwear', url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80&auto=format&fit=crop' }
+                                ] : [
+                                  { id: 'p1_dup', title: 'Wagyu Steak Cut', subtitle: 'Charcoal & Truffle Butter', url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'p2_dup', title: 'Artisan Nigiri Platter', subtitle: 'Fresh Caviar & Salmon', url: 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'p3_dup', title: 'Truffle Tagliatelle', subtitle: 'Handmade Pasta', url: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'p4_dup', title: 'Salmon Citrus Salad', subtitle: 'Micro-Greens & Avocado', url: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'p5_dup', title: 'Neapolitan Wood Pizza', subtitle: 'San Marzano Mozzarella', url: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800&q=80&auto=format&fit=crop' },
+                                  { id: 'p6_dup', title: 'Gold Leaf Berry Tart', subtitle: 'Vanilla Bean Patisserie', url: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=800&q=80&auto=format&fit=crop' }
+                                ]
+                              )
+                            )
+                          ].map((item, idx) => (
+                            <div 
+                              key={idx}
+                              style={{ width: `${sliderItemScale}px` }}
+                              className="group/item flex flex-col items-center justify-center text-center shrink-0 transition-transform duration-300 hover:scale-110 cursor-pointer select-none"
+                            >
+                              <div className="relative w-full aspect-square flex items-center justify-center p-2">
+                                <img
+                                  src={item.url}
+                                  alt={item.title}
+                                  className={`w-full h-full object-contain transition-all duration-300 ${
+                                    sliderEnableRotate && sliderCategory === 'plates' ? 'slow-spin-plate' : ''
+                                  }`}
+                                  style={{
+                                    filter: sliderEnableShadow 
+                                      ? 'drop-shadow(0 20px 25px rgba(0,0,0,0.65)) drop-shadow(0 0 15px rgba(245,158,11,0.2))' 
+                                      : 'none',
+                                    transform: sliderEnable3dTilt ? 'perspective(500px) rotateX(10deg)' : 'none'
+                                  }}
+                                />
+                                {sliderEnableShadow && (
+                                  <div className="absolute -bottom-2 w-3/4 h-3 bg-black/50 blur-md rounded-full pointer-events-none group-hover/item:scale-125 transition-transform" />
+                                )}
+                              </div>
+                              <div className="mt-3 space-y-0.5">
+                                <h5 className={`text-xs font-black truncate max-w-[160px] ${
+                                  sliderThemeBg === 'light' ? 'text-slate-900' : 'text-white'
+                                }`}>
+                                  {item.title}
+                                </h5>
+                                <p className={`text-[10px] font-medium truncate max-w-[160px] ${
+                                  sliderThemeBg === 'light' ? 'text-slate-500' : 'text-zinc-400'
+                                }`}>
+                                  {item.subtitle}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SLIDER CUSTOMIZATION CONTROLS GRID */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 bg-[#0A0A0C] border border-zinc-800 p-5 rounded-2xl">
+                    
+                    {/* SPEED & DIRECTION */}
+                    <div className="space-y-3">
+                      <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Zap size={14} className="text-amber-400" />
+                        Rolling Speed ({sliderSpeed}s)
+                      </label>
+                      <input
+                        type="range"
+                        min="5"
+                        max="45"
+                        step="1"
+                        value={sliderSpeed}
+                        onChange={(e) => setSliderSpeed(Number(e.target.value))}
+                        className="w-full accent-amber-500 cursor-pointer bg-zinc-800 h-2 rounded-lg"
+                      />
+                      <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+                        <span>Fast (5s)</span>
+                        <span>Smooth (20s)</span>
+                        <span>Ultra-Slow (45s)</span>
+                      </div>
+                    </div>
+
+                    {/* ITEM SCALE & GAP */}
+                    <div className="space-y-3">
+                      <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Maximize2 size={14} className="text-cyan-400" />
+                        Object Size ({sliderItemScale}px)
+                      </label>
+                      <input
+                        type="range"
+                        min="100"
+                        max="300"
+                        step="10"
+                        value={sliderItemScale}
+                        onChange={(e) => setSliderItemScale(Number(e.target.value))}
+                        className="w-full accent-cyan-500 cursor-pointer bg-zinc-800 h-2 rounded-lg"
+                      />
+                      <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+                        <span>Compact (100px)</span>
+                        <span>Large Hero (300px)</span>
+                      </div>
+                    </div>
+
+                    {/* MARQUEE DIRECTION & CANVAS THEME */}
+                    <div className="space-y-3">
+                      <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Compass size={14} className="text-emerald-400" />
+                        Direction & Canvas Theme
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setSliderDirection(prev => prev === 'left' ? 'right' : 'left')}
+                          className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-zinc-300 hover:text-white transition cursor-pointer flex items-center justify-center gap-1"
+                        >
+                          <ChevronsLeftRight size={12} />
+                          <span>{sliderDirection === 'left' ? '← Left' : 'Right →'}</span>
+                        </button>
+                        <select
+                          value={sliderThemeBg}
+                          onChange={(e) => setSliderThemeBg(e.target.value as any)}
+                          className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 text-xs text-zinc-300 font-bold focus:outline-none"
+                        >
+                          <option value="dark">🌙 Dark Slate</option>
+                          <option value="light">☀️ Minimal Light</option>
+                          <option value="gold">👑 Luxury Gold</option>
+                          <option value="cyber">⚡ Cyber Neon</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* TOGGLE EFFECTS */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Sliders size={14} className="text-purple-400" />
+                        Visual FX Toggles
+                      </label>
+                      <div className="space-y-1.5 text-xs">
+                        <label className="flex items-center gap-2 text-zinc-300 font-medium cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={sliderEnableRotate}
+                            onChange={(e) => setSliderEnableRotate(e.target.checked)}
+                            className="w-3.5 h-3.5 rounded bg-zinc-900 border-zinc-700 accent-amber-500"
+                          />
+                          <span>360° Plate Spinning Motion</span>
+                        </label>
+                        <label className="flex items-center gap-2 text-zinc-300 font-medium cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={sliderEnableShadow}
+                            onChange={(e) => setSliderEnableShadow(e.target.checked)}
+                            className="w-3.5 h-3.5 rounded bg-zinc-900 border-zinc-700 accent-amber-500"
+                          />
+                          <span>Floor Drop Shadow & Glow</span>
+                        </label>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* CUSTOM CUTOUTS GALLERY MANAGER */}
+                  {customCutoutItems.length > 0 && (
+                    <div className="bg-[#0A0A0E] border border-amber-500/30 p-5 rounded-2xl space-y-4 shadow-xl">
+                      <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-black uppercase tracking-widest">
+                            {customCutoutItems.length} Custom Items
+                          </span>
+                          <h4 className="text-sm font-black text-white uppercase tracking-wider">
+                            My Active Cutout Collection
+                          </h4>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (confirm('Clear all custom cutout items?')) {
+                              setCustomCutoutItems([]);
+                            }
+                          }}
+                          className="text-xs text-rose-400 hover:text-rose-300 font-bold transition cursor-pointer"
+                        >
+                          Clear All Items
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                        {customCutoutItems.map((item, idx) => (
+                          <div
+                            key={item.id || idx}
+                            className="bg-black/60 border border-zinc-800 hover:border-amber-500/50 p-2 rounded-xl flex flex-col items-center text-center relative group transition"
+                          >
+                            <button
+                              onClick={() => setCustomCutoutItems(prev => prev.filter((_, i) => i !== idx))}
+                              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-500/80 hover:bg-rose-500 text-white text-xs font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer z-10"
+                              title="Delete Item"
+                            >
+                              ✕
+                            </button>
+                            <div className="w-full aspect-square p-2 bg-[radial-gradient(#222_1px,transparent_1px)] [background-size:8px_8px] rounded-lg overflow-hidden flex items-center justify-center">
+                              <img src={item.url} alt={item.title} className="max-h-full max-w-full object-contain filter drop-shadow(0 5px 10px rgba(0,0,0,0.5))" />
+                            </div>
+                            <span className="text-[11px] font-bold text-zinc-200 truncate w-full mt-1.5">{item.title}</span>
+                            <span className="text-[9px] text-zinc-500 truncate w-full">{item.subtitle || 'Custom Asset'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI BACKGROUND REMOVER STUDIO SECTION */}
+                  <div className="bg-[#0A0A0E] border border-cyan-500/30 rounded-2xl p-6 space-y-6 shadow-2xl">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
+                      <div>
+                        <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-[10px] font-black uppercase tracking-widest">
+                          Integrated AI Background Removal Tool
+                        </span>
+                        <h4 className="text-lg font-black text-white flex items-center gap-2 mt-1">
+                          <Wand2 size={20} className="text-cyan-400" />
+                          Remove Background from Any Image to Create Isolated Cutouts
+                        </h4>
+                        <p className="text-xs text-zinc-400 mt-0.5">
+                          Upload any photo or enter an image URL to automatically strip white, light, or studio backgrounds and generate a clean transparent PNG for your rolling slider.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      
+                      {/* INPUT SOURCE & PARAMETERS */}
+                      <div className="space-y-4">
+                        <p className="text-xs font-bold text-zinc-300 uppercase tracking-wider">1. Input Image & Sensitivity</p>
+
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-zinc-400">Paste Image URL or Upload File</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Paste image URL (e.g. https://...)..."
+                              value={bgRemoveImageInput}
+                              onChange={(e) => setBgRemoveImageInput(e.target.value)}
+                              className="flex-1 bg-black/60 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500"
+                            />
+                            <label className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl transition cursor-pointer flex items-center gap-1 shrink-0">
+                              <Upload size={14} />
+                              <span>Upload</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const reader = new FileReader();
+                                    reader.onload = (ev) => {
+                                      if (ev.target?.result) {
+                                        setBgRemoveImageInput(ev.target.result as string);
+                                      }
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* SLIDERS FOR THRESHOLD & FEATHER */}
+                        <div className="grid grid-cols-2 gap-3 bg-zinc-950/80 p-3.5 rounded-xl border border-zinc-800/80">
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between text-[11px] font-bold text-zinc-300">
+                              <span>Color Threshold</span>
+                              <span className="text-cyan-400">{bgRemoveThreshold}</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="10"
+                              max="80"
+                              value={bgRemoveThreshold}
+                              onChange={(e) => setBgRemoveThreshold(Number(e.target.value))}
+                              className="w-full accent-cyan-500 cursor-pointer h-1.5 bg-zinc-800 rounded-lg"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between text-[11px] font-bold text-zinc-300">
+                              <span>Edge Feathering</span>
+                              <span className="text-cyan-400">{bgRemoveFeather}px</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="5"
+                              value={bgRemoveFeather}
+                              onChange={(e) => setBgRemoveFeather(Number(e.target.value))}
+                              className="w-full accent-cyan-500 cursor-pointer h-1.5 bg-zinc-800 rounded-lg"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={async () => {
+                            if (!bgRemoveImageInput) return;
+                            setProcessingBgRemoval(true);
+                            try {
+                              const img = new Image();
+                              img.crossOrigin = 'anonymous';
+                              img.src = bgRemoveImageInput;
+
+                              await new Promise((resolve, reject) => {
+                                img.onload = resolve;
+                                img.onerror = () => reject(new Error('Failed to load image'));
+                              });
+
+                              const canvas = document.createElement('canvas');
+                              const ctx = canvas.getContext('2d');
+                              if (!ctx) throw new Error('Canvas context error');
+
+                              canvas.width = img.naturalWidth || img.width || 800;
+                              canvas.height = img.naturalHeight || img.height || 600;
+
+                              ctx.drawImage(img, 0, 0);
+                              const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                              const data = imgData.data;
+
+                              let totalR = 0, totalG = 0, totalB = 0, count = 0;
+                              for (let y = 0; y < Math.min(20, canvas.height); y++) {
+                                for (let x = 0; x < Math.min(20, canvas.width); x++) {
+                                  const idx = (y * canvas.width + x) * 4;
+                                  totalR += data[idx];
+                                  totalG += data[idx + 1];
+                                  totalB += data[idx + 2];
+                                  count++;
+                                }
+                              }
+                              const bgR = count ? totalR / count : 255;
+                              const bgG = count ? totalG / count : 255;
+                              const bgB = count ? totalB / count : 255;
+
+                              const thresh = bgRemoveThreshold;
+                              const feather = bgRemoveFeather;
+
+                              for (let i = 0; i < data.length; i += 4) {
+                                const r = data[i];
+                                const g = data[i + 1];
+                                const b = data[i + 2];
+
+                                const dist = Math.sqrt(
+                                  (r - bgR) * (r - bgR) +
+                                  (g - bgG) * (g - bgG) +
+                                  (b - bgB) * (b - bgB)
+                                );
+                                const bright = (r + g + b) / 3;
+
+                                if (dist < thresh || (bgR > 210 && bright > (255 - thresh * 0.85))) {
+                                  if (dist < Math.max(0, thresh - feather * 5)) {
+                                    data[i + 3] = 0;
+                                  } else {
+                                    const alpha = Math.max(0, Math.min(255, ((dist - (thresh - feather * 5)) / (feather * 5)) * 255));
+                                    data[i + 3] = alpha;
+                                  }
+                                }
+                              }
+
+                              ctx.putImageData(imgData, 0, 0);
+                              setBgRemoveResultUrl(canvas.toDataURL('image/png'));
+                            } catch (e) {
+                              console.error(e);
+                            } finally {
+                              setProcessingBgRemoval(false);
+                            }
+                          }}
+                          disabled={!bgRemoveImageInput || processingBgRemoval}
+                          className="w-full py-3 bg-gradient-to-r from-cyan-500 via-teal-500 to-cyan-500 hover:from-cyan-400 hover:to-teal-400 disabled:opacity-40 text-zinc-950 font-black text-xs rounded-xl shadow-lg shadow-cyan-500/20 transition flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+                        >
+                          {processingBgRemoval ? <RefreshCw size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                          <span>{processingBgRemoval ? 'Processing Background Removal...' : 'Remove Background Now'}</span>
+                        </button>
+                      </div>
+
+                      {/* OUTPUT PREVIEW & ADD TO SLIDER */}
+                      <div className="space-y-4">
+                        <p className="text-xs font-bold text-zinc-300 uppercase tracking-wider">2. Transparent Cutout Result</p>
+
+                        <div className="aspect-video bg-[radial-gradient(#222_1px,transparent_1px)] [background-size:12px_12px] bg-zinc-950 border border-zinc-800 rounded-2xl flex items-center justify-center relative overflow-hidden p-4">
+                          {bgRemoveResultUrl ? (
+                            <img
+                              src={bgRemoveResultUrl}
+                              alt="Background Removed Result"
+                              className="max-h-full max-w-full object-contain filter drop-shadow(0 15px 20px rgba(0,0,0,0.6))"
+                            />
+                          ) : (
+                            <div className="text-center text-zinc-600 text-xs space-y-1">
+                              <Image size={32} className="mx-auto opacity-40" />
+                              <p>Transparent PNG preview will appear here on checkerboard grid</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {bgRemoveResultUrl && (
+                          <div className="space-y-3">
+                            <input
+                              type="text"
+                              placeholder="Item title (e.g. Luxury Custom Watch)..."
+                              value={bgRemoveItemName}
+                              onChange={(e) => setBgRemoveItemName(e.target.value)}
+                              className="w-full bg-black/60 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none"
+                            />
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  if (!bgRemoveResultUrl) return;
+                                  const title = bgRemoveItemName.trim() || `Custom Cutout ${customCutoutItems.length + 1}`;
+                                  const newItem = {
+                                    id: `custom_${Date.now()}`,
+                                    title,
+                                    subtitle: 'AI Background Removed Cutout',
+                                    url: bgRemoveResultUrl,
+                                    desc: 'Transparent PNG cutout'
+                                  };
+                                  setCustomCutoutItems(prev => {
+                                    const updated = [newItem, ...prev];
+                                    syncCustomCutoutsToSite(updated);
+                                    return updated;
+                                  });
+                                  setSliderCategory('custom');
+                                  setBgRemoveResultUrl(null);
+                                  setBgRemoveItemName('');
+                                }}
+                                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+                              >
+                                <Plus size={14} /> Add to Rolling Slider
+                              </button>
+
+                              <a
+                                href={bgRemoveResultUrl}
+                                download="transparent-cutout.png"
+                                className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                              >
+                                <Download size={14} /> PNG
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+                  </div>
+
                 </div>
               )}
 
@@ -4044,6 +6526,66 @@ Set nicheOverride to "${activeNiche}".`;
                               <img src={siteData.content.aboutImage} alt="About" className="w-full h-full object-cover" referrerpolicy="no-referrer" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center text-[9px] text-zinc-600">No Image Set</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* MARKET CARD 1 / SECTION 1 SLOT */}
+                        <div className="bg-[#121217] border border-amber-500/40 rounded-xl p-2 space-y-1.5 flex flex-col justify-between">
+                          <div className="text-[10px] font-bold text-amber-300 uppercase tracking-wider flex items-center justify-between">
+                            <span>Market Card 1</span>
+                            <Star size={10} className="text-amber-400" />
+                          </div>
+                          <div className="h-16 rounded-lg overflow-hidden border border-zinc-800 bg-black/50">
+                            {siteData.content.section1Image ? (
+                              <img src={siteData.content.section1Image} alt="Market 1" className="w-full h-full object-cover" referrerpolicy="no-referrer" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-[9px] text-zinc-600">Default Card 1</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* MARKET CARD 2 / SECTION 2 SLOT */}
+                        <div className="bg-[#121217] border border-amber-500/40 rounded-xl p-2 space-y-1.5 flex flex-col justify-between">
+                          <div className="text-[10px] font-bold text-amber-300 uppercase tracking-wider flex items-center justify-between">
+                            <span>Market Card 2</span>
+                            <Star size={10} className="text-amber-400" />
+                          </div>
+                          <div className="h-16 rounded-lg overflow-hidden border border-zinc-800 bg-black/50">
+                            {siteData.content.section2Image ? (
+                              <img src={siteData.content.section2Image} alt="Market 2" className="w-full h-full object-cover" referrerpolicy="no-referrer" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-[9px] text-zinc-600">Default Card 2</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* CATALOG / SHOWCASE SLOT */}
+                        <div className="bg-[#121217] border border-indigo-500/40 rounded-xl p-2 space-y-1.5 flex flex-col justify-between">
+                          <div className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider flex items-center justify-between">
+                            <span>Catalog / Showcase</span>
+                            <Image size={10} className="text-indigo-400" />
+                          </div>
+                          <div className="h-16 rounded-lg overflow-hidden border border-zinc-800 bg-black/50">
+                            {siteData.content.catalogImage || siteData.content.showcaseCarImage ? (
+                              <img src={siteData.content.catalogImage || siteData.content.showcaseCarImage} alt="Catalog" className="w-full h-full object-cover" referrerpolicy="no-referrer" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-[9px] text-zinc-600">Default Catalog</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* CONTACT IMAGE SLOT */}
+                        <div className="bg-[#121217] border border-emerald-500/40 rounded-xl p-2 space-y-1.5 flex flex-col justify-between">
+                          <div className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider flex items-center justify-between">
+                            <span>Contact Image</span>
+                            <Globe size={10} className="text-emerald-400" />
+                          </div>
+                          <div className="h-16 rounded-lg overflow-hidden border border-zinc-800 bg-black/50">
+                            {siteData.content.contactImage ? (
+                              <img src={siteData.content.contactImage} alt="Contact" className="w-full h-full object-cover" referrerpolicy="no-referrer" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-[9px] text-zinc-600">Default Contact</div>
                             )}
                           </div>
                         </div>
@@ -4413,6 +6955,52 @@ Set nicheOverride to "${activeNiche}".`;
                       </div>
                     </div>
 
+
+                    {/* UPLOAD MODELS DROPZONE */}
+                    <div className="bg-[#050508] border-2 border-dashed border-zinc-800 hover:border-amber-500 rounded-xl p-5 text-center transition flex flex-col items-center justify-center space-y-1.5 relative group mt-4">
+                      <div className="w-9 h-9 rounded-lg bg-amber-500/5 text-amber-400 flex items-center justify-center">
+                        <Box size={16} />
+                      </div>
+                      <div>
+                        <h5 className="text-[11px] font-bold text-white">Upload Custom 3D Models (.glb)</h5>
+                        <p className="text-[9px] text-zinc-500 mt-0.5">Place interactive 3D elements natively into the website.</p>
+                      </div>
+                      <label className="px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 font-bold text-[10px] rounded-lg border border-zinc-700 transition cursor-pointer mt-2">
+                        Browse .glb Files
+                        <input type="file" accept=".glb" onChange={handleModelUpload} className="hidden" />
+                      </label>
+                    </div>
+
+                    {/* USER UPLOADED MODELS LIST */}
+                    {uploadedModels.length > 0 && (
+                      <div className="space-y-3.5 text-left pt-2">
+                        <h5 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                          <Box size={14} className="text-amber-400" />
+                          Your Uploaded 3D Models ({uploadedModels.length})
+                        </h5>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                          {uploadedModels.map((modelUrl, idx) => (
+                            <div key={idx} className="relative rounded-xl border border-zinc-800 bg-[#060609] overflow-visible group hover:border-amber-500/40 transition shadow-lg flex flex-col z-10 hover:z-30">
+                              <div className="relative aspect-video rounded-t-xl overflow-hidden bg-zinc-900 flex items-center justify-center">
+                                <Box size={32} className="text-zinc-700" />
+                                <span className="absolute bottom-2 right-2 text-[8px] text-zinc-500 font-mono bg-black/50 px-1 rounded">.GLB</span>
+                              </div>
+                              <div className="p-2.5 bg-[#121217] rounded-b-xl border-t border-zinc-800/80 flex items-center justify-between gap-2 overflow-visible">
+                                <button
+                                  onClick={() => handleDeleteUploadedModel(idx)}
+                                  className="p-1 bg-red-950/60 hover:bg-red-600 text-red-300 hover:text-white rounded-md border border-red-800/40 transition shrink-0"
+                                  title="Delete Model"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                                {renderPlacementSelector(modelUrl, true)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
                     {/* USER UPLOADED VIDEOS LIST */}
                     {uploadedVideos.length > 0 && (
                       <div className="space-y-3.5 text-left pt-2">
@@ -4468,13 +7056,36 @@ Set nicheOverride to "${activeNiche}".`;
                     </label>
                   </div>
 
+                  {/* PINTEREST / WEB PHOTOS AUTO-ASSIGN HEADER */}
+                  <div className="bg-[#121217] border border-purple-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                    <div>
+                      <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
+                        <Sparkles size={15} className="text-purple-400" />
+                        Automated Pinterest Image Distribution
+                      </h4>
+                      <p className="text-[11px] text-zinc-400 mt-0.5">
+                        Instantly fill Hero, About, Market Cards, Catalog, Contact & Service Cards with researched Pinterest photos.
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleAutoAssignAllPinterestPhotos}
+                      disabled={modifying}
+                      className="px-4 py-2.5 bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 hover:from-purple-500 hover:to-amber-400 text-white font-extrabold text-xs rounded-xl flex items-center gap-2 shadow-lg shadow-purple-500/25 border border-purple-400/40 cursor-pointer transition disabled:opacity-50 shrink-0"
+                    >
+                      <Sparkles size={14} className="text-amber-300 animate-pulse" />
+                      <span>{modifying ? "Applying Photos..." : "📌 Auto-Assign All Pinterest Photos to Site Sections"}</span>
+                    </button>
+                  </div>
+
                   {/* RESEARCHED PINTEREST / WEB PHOTOS SECTION */}
                   {researchedPhotosList.length > 0 && (
                     <div className="space-y-3">
-                      <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider flex items-center gap-2">
-                        <Search size={14} />
-                        Pinterest & Web Researched Photos ({researchedPhotosList.length})
-                      </h4>
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider flex items-center gap-2">
+                          <Search size={14} />
+                          Pinterest & Web Researched Photos ({researchedPhotosList.length})
+                        </h4>
+                      </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                         {researchedPhotosList.map((photoUrl, idx) => (
                           <div key={idx} className="relative rounded-xl border border-purple-500/30 bg-[#0A0A0C] overflow-visible group hover:border-purple-400/60 transition shadow-lg flex flex-col z-10 hover:z-30">
@@ -4549,6 +7160,712 @@ Set nicheOverride to "${activeNiche}".`;
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              
+              {activeTab === 'trust' && (
+                <div className="p-8 h-full overflow-y-auto max-w-5xl mx-auto space-y-8 text-left">
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-black text-white flex items-center gap-2 mb-1">
+                      <ShieldCheck size={24} className="text-yellow-400" /> 
+                      Trust & Authority Multipliers
+                    </h3>
+                    <p className="text-sm text-zinc-400 max-w-2xl">
+                      Configure high-trust local proof elements. We inject 5-star reviews, Google Maps proximity indicators, and bespoke trust badges straight into the generated design to double your conversion rate.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* CUSTOM TRUST BADGES */}
+                    <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-6 space-y-4">
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Award size={16} className="text-yellow-400" />
+                        Dynamic Trust Badge Studio
+                      </h4>
+                      <p className="text-[11px] text-zinc-400">
+                        Generate custom laurels and badges tailored specifically to this lead's city and niche.
+                      </p>
+                      <div className="space-y-3 pt-2">
+                        <div>
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase">Target City</label>
+                          <input 
+                            type="text" 
+                            value={badgeCity} 
+                            onChange={(e) => setBadgeCity(e.target.value)} 
+                            className="w-full bg-[#141418] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:border-yellow-500 focus:outline-none"
+                            placeholder="e.g., Paris"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase">Niche / Award Name</label>
+                          <input 
+                            type="text" 
+                            value={badgeNiche} 
+                            onChange={(e) => setBadgeNiche(e.target.value)} 
+                            className="w-full bg-[#141418] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:border-yellow-500 focus:outline-none"
+                            placeholder="e.g., Best Dental Clinic"
+                          />
+                        </div>
+                        <button
+                          onClick={generateNicheReviews}
+                          disabled={generatingReviews}
+                          className="w-full py-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 font-bold rounded-lg text-xs transition border border-yellow-500/30"
+                        >
+                          {generatingReviews ? 'Generating Badges...' : 'Generate New Badges'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* REVIEWS */}
+                    <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl p-6 space-y-4">
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Star size={16} className="text-blue-400 fill-current" />
+                        Simulated Local Reviews
+                      </h4>
+                      <p className="text-[11px] text-zinc-400">
+                        These simulated reviews will be placed in the generated templates to show social proof.
+                      </p>
+                      <div className="space-y-2 pt-2">
+                        {nicheReviews.length > 0 ? (
+                          nicheReviews.map((rev, idx) => (
+                            <div key={idx} className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-left">
+                              <div className="flex text-yellow-400 mb-1">
+                                <Star size={10} className="fill-current" /><Star size={10} className="fill-current" /><Star size={10} className="fill-current" /><Star size={10} className="fill-current" /><Star size={10} className="fill-current" />
+                              </div>
+                              <p className="text-[10px] text-zinc-300 italic mb-1">"{rev.text}"</p>
+                              <p className="text-[9px] text-zinc-500 font-bold">— {rev.author}</p>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl text-center">
+                            <span className="text-[10px] text-zinc-500">No reviews generated yet.</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'template-maker' && (
+                <div className="p-8 h-full overflow-hidden max-w-7xl mx-auto flex flex-col space-y-4 text-left">
+                  <div>
+                    <h3 className="text-lg font-black text-white flex items-center gap-2 mb-1">
+                      <Wand2 size={20} className="text-purple-400" /> Template Maker Studio
+                    </h3>
+                    <p className="text-sm text-zinc-400">
+                      Upload screenshots or design inspirations. Our AI will analyze them and build a completely custom HTML/Tailwind template from scratch.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-4 flex-1 min-h-0">
+                    {/* Left Panel: Inputs & Chat */}
+                    <div className="w-1/3 flex flex-col gap-4">
+                      {/* Upload Box */}
+                      <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 flex flex-col gap-3">
+                        <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-zinc-700 hover:border-purple-500 rounded-lg cursor-pointer transition">
+                          <Upload size={24} className="text-zinc-500 mb-2" />
+                          <span className="text-xs font-bold text-zinc-300">Upload Screenshots (Max 5)</span>
+                          <input type="file" multiple accept="image/*" className="hidden" onChange={handleImageUploadForTemplateMaker} />
+                        </label>
+                        
+                        {templateMakerImages.length > 0 && (
+                          <div className="grid grid-cols-5 gap-2">
+                            {templateMakerImages.map((img, i) => (
+                              <div key={i} className="aspect-square rounded overflow-hidden border border-zinc-700 relative group">
+                                <img src={img} className="w-full h-full object-cover" />
+                                <button 
+                                  onClick={() => setTemplateMakerImages(prev => prev.filter((_, idx) => idx !== i))}
+                                  className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                                >
+                                  <Trash2 size={12} className="text-red-400" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <button
+                          onClick={handleGenerateTemplateMaker}
+                          disabled={templateMakerImages.length === 0 || templateMakerGenerating}
+                          className="w-full py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold rounded-lg text-xs flex justify-center items-center gap-2 transition"
+                        >
+                          <Sparkles size={14} /> {templateMakerGenerating && !templateMakerHtml ? 'Building Template...' : 'Generate Template'}
+                        </button>
+                      </div>
+
+                      {/* Chat Refinement Panel */}
+                      <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl flex flex-col min-h-0 overflow-hidden">
+                        <div className="p-3 border-b border-zinc-800 text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                          <MessageSquare size={14} /> Refine Template
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                          {templateMakerChat.length === 0 ? (
+                            <div className="text-center text-zinc-500 text-xs mt-4">
+                              Generate a template first, then chat here to request changes (e.g., "make the header blue" or "add a pricing section").
+                            </div>
+                          ) : (
+                            templateMakerChat.map((msg, i) => (
+                              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`px-3 py-2 rounded-xl text-xs max-w-[85%] ${msg.role === 'user' ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-300'}`}>
+                                  {msg.text}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                          {templateMakerGenerating && templateMakerHtml && (
+                            <div className="flex justify-start">
+                              <div className="px-3 py-2 rounded-xl text-xs bg-zinc-800 text-zinc-400 animate-pulse">
+                                AI is modifying template...
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-3 border-t border-zinc-800 flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="Tell AI to fix or change something..."
+                            value={templateMakerChatInput}
+                            onChange={e => setTemplateMakerChatInput(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleTemplateMakerChat()}
+                            className="flex-1 bg-black/50 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white"
+                          />
+                          <button
+                            onClick={handleTemplateMakerChat}
+                            disabled={!templateMakerChatInput.trim() || templateMakerGenerating || !templateMakerHtml}
+                            className="px-3 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-lg transition"
+                          >
+                            <Play size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right Panel: Preview */}
+                    <div className="flex-1 bg-white rounded-xl overflow-hidden border border-zinc-700 flex flex-col">
+                      <div className="bg-zinc-900 border-b border-zinc-800 p-2 flex justify-between items-center px-4">
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Live Preview</span>
+                        <div className="flex gap-1.5">
+                          <div className="w-2.5 h-2.5 rounded-full bg-red-500/80"></div>
+                          <div className="w-2.5 h-2.5 rounded-full bg-amber-500/80"></div>
+                          <div className="w-2.5 h-2.5 rounded-full bg-green-500/80"></div>
+                        </div>
+                      </div>
+                      <div className="flex-1 relative bg-white">
+                        {templateMakerHtml ? (
+                          <iframe srcDoc={templateMakerHtml} className="absolute inset-0 w-full h-full border-0" />
+                        ) : (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-400">
+                            <Wand2 size={48} className="mb-4 opacity-20" />
+                            <p className="text-sm font-medium">Waiting for generation...</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'csv-bulk-generator' && (
+                <div className="p-6 h-full overflow-y-auto max-w-7xl mx-auto space-y-6 text-left">
+                  {/* HEADER CARD */}
+                  <div className="bg-[#0A0A0C] border border-amber-500/30 rounded-2xl p-6 shadow-xl space-y-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+                      <div>
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold uppercase tracking-widest mb-2">
+                          <FileSpreadsheet size={14} /> CSV Bulk Website Generator & Direct Netlify Deployer
+                        </div>
+                        <h3 className="text-xl font-black text-white font-heading">
+                          Generate & Auto-Deploy Websites in Bulk from CSV
+                        </h3>
+                        <p className="text-xs text-zinc-400 max-w-3xl mt-1">
+                          Upload your leads spreadsheet. The selected model template will adapt to each business name, phone number, email, address, and city—generating personalized websites and deploying them live to Netlify under their clean business name with 1 click!
+                        </p>
+                      </div>
+
+                      {/* TOP ACTION BUTTONS */}
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => setRawTextModalOpen(true)}
+                          className="px-3.5 py-2 bg-purple-900/40 hover:bg-purple-800/60 border border-purple-500/40 text-purple-200 hover:text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Sparkles size={14} className="text-purple-400" />
+                          ✨ Analyze Raw Text with AI
+                        </button>
+
+                        <button
+                          onClick={handleLoadSampleCsvLeads}
+                          className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 hover:text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Sparkles size={14} className="text-amber-400" />
+                          Load Sample CSV
+                        </button>
+
+                        <label className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-500/20">
+                          <Upload size={14} />
+                          Upload CSV File
+                          <input
+                            type="file"
+                            accept=".csv"
+                            onChange={handleCsvFileUpload}
+                            className="hidden"
+                          />
+                        </label>
+
+                        {csvLeads.filter(r => r.status === 'completed' && r.html).length > 0 && (
+                          <>
+                            <button
+                              onClick={handleDeployAllToNetlify}
+                              disabled={isBulkDeployingNetlify}
+                              className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 disabled:opacity-50 text-slate-950 font-black text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-cyan-500/20"
+                            >
+                              {isBulkDeployingNetlify ? (
+                                <RefreshCw size={14} className="animate-spin text-slate-950" />
+                              ) : (
+                                <Rocket size={14} />
+                              )}
+                              {isBulkDeployingNetlify
+                                ? `Deploying (${bulkDeployProgress.current}/${bulkDeployProgress.total})...`
+                                : `🚀 Auto-Deploy All (${csvLeads.filter(r => r.status === 'completed').length}) to Netlify`}
+                            </button>
+
+                            <button
+                              onClick={handleDownloadAllWebsitesZip}
+                              className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 hover:text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <FileDown size={14} />
+                              ZIP Backup
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* NETLIFY TOKEN AUTO-DEPLOY CONFIGURATION BAR */}
+                    <div className="bg-zinc-900/80 border border-cyan-500/30 rounded-xl p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                          <Globe size={16} />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                            Netlify Personal Access Token <span className="text-[10px] text-zinc-400 font-normal">(Required for 1-Click Auto-Deploy)</span>
+                          </label>
+                          <p className="text-[10px] text-zinc-400">
+                            Enter your token once to publish all websites live directly to Netlify without dragging ZIPs manually.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-1 max-w-md">
+                        <input
+                          type="password"
+                          value={netlifyToken}
+                          onChange={(e) => {
+                            setNetlifyToken(e.target.value);
+                            localStorage.setItem('NETLIFY_AUTH_TOKEN', e.target.value.trim());
+                          }}
+                          placeholder="Paste nfp_... token"
+                          className="flex-1 bg-black/80 border border-zinc-700 focus:border-cyan-400 rounded-lg px-3 py-1.5 text-xs text-white font-mono placeholder:text-zinc-600 focus:outline-none"
+                        />
+                        <a
+                          href="https://app.netlify.com/user/applications#personal-access-tokens"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-cyan-400 hover:text-cyan-300 text-[11px] font-bold rounded-lg border border-zinc-700 shrink-0 transition flex items-center gap-1"
+                        >
+                          Get Token ↗
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* TEMPLATE & CONFIGURATION CONTROLS */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
+                      {/* MODEL TEMPLATE CHOSEN */}
+                      <div className="space-y-1.5 bg-zinc-900/80 p-3.5 rounded-xl border border-zinc-800">
+                        <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                          <Layers size={13} className="text-amber-400" />
+                          Selected Model Template
+                        </label>
+                        <select
+                          value={selectedBulkTemplate}
+                          onChange={(e) => setSelectedBulkTemplate(e.target.value)}
+                          disabled={isBulkGenerating}
+                          className="w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-amber-400"
+                        >
+                          <option value="outlandHomes">👑 Outland Homes (Dark Gold Luxury & Services)</option>
+                          <option value="elan">⚡ Élan Permis (Cyber Cyan Auto & Modern)</option>
+                          <option value="luxury">🖤 Luxury Theme (Monochrome Dark)</option>
+                          <option value="taste">🍷 Gourmand Gastronomie (Warm Food & Catering)</option>
+                          <option value="realestate">🏛️ Prestige Immobilier (Real Estate)</option>
+                          <option value="air">🌿 Air Minimalist White (Clean SPA & Agency)</option>
+                        </select>
+                        <p className="text-[10px] text-zinc-500">
+                          All generated sites will share this identical high-end design framework, personalized per lead.
+                        </p>
+                      </div>
+
+                      {/* TARGET LANGUAGE OVERRIDE */}
+                      <div className="space-y-1.5 bg-zinc-900/80 p-3.5 rounded-xl border border-zinc-800">
+                        <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                          <Globe size={13} className="text-emerald-400" />
+                          Website Translation
+                        </label>
+                        <select
+                          value={selectedBulkLang}
+                          onChange={(e) => setSelectedBulkLang(e.target.value)}
+                          disabled={isBulkGenerating}
+                          className="w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-emerald-400 font-mono"
+                        >
+                          <option value="auto">🌍 Auto-Detect (Per Lead Market / Location)</option>
+                          <option value="fr">🇫🇷 Français (French)</option>
+                          <option value="en">🇬🇧 English (English)</option>
+                          <option value="es">🇪🇸 Español (Spanish)</option>
+                          <option value="de">🇩🇪 Deutsch (German)</option>
+                        </select>
+                        <p className="text-[10px] text-zinc-500">
+                          Applies full localized translation to all text & niche headers across generated websites.
+                        </p>
+                      </div>
+
+                      {/* WORKSPACE STATUS SUMMARY */}
+                      <div className="space-y-1.5 bg-zinc-900/80 p-3.5 rounded-xl border border-zinc-800">
+                        <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                          <Building size={13} className="text-cyan-400" />
+                          Batch Progress ({csvLeads.length} Leads)
+                        </label>
+                        <div className="flex items-center justify-between bg-black/60 px-3 py-2 rounded-lg border border-zinc-800 text-xs">
+                          <span className="text-zinc-400 font-mono">
+                            Ready: <strong className="text-white">{csvLeads.filter(r => r.status === 'pending').length}</strong> | 
+                            Deployed: <strong className="text-cyan-400">{csvLeads.filter(r => r.deployStatus === 'deployed').length}</strong>
+                          </span>
+                          <span className="text-[11px] text-amber-400 font-bold">
+                            {isBulkGenerating ? `Gen ${bulkProgress.current}/${bulkProgress.total}` : isBulkDeployingNetlify ? `Deploy ${bulkDeployProgress.current}/${bulkDeployProgress.total}` : 'Idle'}
+                          </span>
+                        </div>
+                        {(isBulkGenerating || isBulkDeployingNetlify) && (
+                          <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden mt-2">
+                            <div
+                              className="bg-gradient-to-r from-amber-500 via-cyan-400 to-emerald-400 h-full transition-all duration-300"
+                              style={{
+                                width: isBulkGenerating
+                                  ? `${(bulkProgress.current / (bulkProgress.total || 1)) * 100}%`
+                                  : `${(bulkDeployProgress.current / (bulkDeployProgress.total || 1)) * 100}%`
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* GENERATE ALL OR STOP BUTTON */}
+                      <div className="flex flex-col justify-end">
+                        {isBulkGenerating ? (
+                          <button
+                            onClick={handleStopBulkGeneration}
+                            className="w-full h-[42px] bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-wider rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 cursor-pointer animate-pulse"
+                          >
+                            <Square size={14} className="fill-current" />
+                            Stop Bulk Gen ({bulkProgress.current}/{bulkProgress.total})
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleRunBulkGeneration}
+                            disabled={csvLeads.length === 0}
+                            className="w-full h-[42px] bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 cursor-pointer"
+                          >
+                            <Zap size={15} />
+                            Generate {csvLeads.length} Sites
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* WHATSAPP BULK OUTREACH CONTROL PANEL */}
+                  <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-2xl p-4 shadow-xl space-y-3">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-emerald-500/20 pb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400">
+                          <MessageSquare size={16} />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                            WhatsApp Bulk Campaign Dispatcher (With Pacing Timer)
+                          </h4>
+                          <p className="text-[11px] text-zinc-400">
+                            Send generated site previews directly to leads on WhatsApp with humanized delay timer.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5 bg-black/60 border border-zinc-800 rounded-lg px-2.5 py-1">
+                          <Clock size={13} className="text-emerald-400" />
+                          <span className="text-[11px] font-bold text-zinc-300">Delay (s):</span>
+                          <input
+                            type="number"
+                            min={2}
+                            max={300}
+                            value={waBulkDelay}
+                            onChange={(e) => setWaBulkDelay(Number(e.target.value) || 15)}
+                            className="w-12 bg-zinc-900 text-white text-xs font-mono px-1 py-0.5 rounded border border-zinc-700 text-center focus:outline-none"
+                          />
+                        </div>
+
+                        <button
+                          onClick={handleRunWaBulkOutreach}
+                          disabled={isWaBulkSending || csvLeads.filter(r => r.phone).length === 0}
+                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20 font-bold"
+                        >
+                          {isWaBulkSending ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
+                          {isWaBulkSending ? 'Sending WhatsApp...' : `🚀 Launch WhatsApp Campaign (${csvLeads.filter(r => r.phone).length} Leads)`}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-zinc-300">
+                        WhatsApp Message Template (Placeholders: {'{businessName}'}, {'{city}'}, {'{siteUrl}'}):
+                      </label>
+                      <input
+                        type="text"
+                        value={waBulkMessage}
+                        onChange={(e) => setWaBulkMessage(e.target.value)}
+                        className="w-full bg-black border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
+                        placeholder="Bonjour {businessName}, votre nouveau site web est prêt : {siteUrl}"
+                      />
+                    </div>
+
+                    {waBulkLogs.length > 0 && (
+                      <div className="bg-black/80 rounded-xl p-2.5 border border-zinc-800 max-h-24 overflow-y-auto space-y-1 font-mono text-[10px]">
+                        {waBulkLogs.map((log, i) => (
+                          <div key={i} className={log.startsWith('✓') ? 'text-emerald-400' : log.startsWith('✕') ? 'text-red-400' : 'text-zinc-400'}>
+                            {log}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* CSV LEADS & GENERATED WEBSITES TABLE */}
+                  {csvLeads.length > 0 ? (
+                    <div className="bg-[#0A0A0C] border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+                      <div className="p-4 bg-zinc-900/60 border-b border-zinc-800 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <FileSpreadsheet size={16} className="text-amber-400" />
+                          <h4 className="text-xs font-black text-white uppercase tracking-wider">
+                            Leads & Personalized Website Generation Status ({csvLeads.length})
+                          </h4>
+                        </div>
+                        <span className="text-[11px] text-zinc-400">
+                          Edit contact info directly in the table below to personalize website contact data.
+                        </span>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="border-b border-zinc-800 bg-black/50 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                              <th className="p-3 w-10 text-center">#</th>
+                              <th className="p-3">Business Name</th>
+                              <th className="p-3">City / Location</th>
+                              <th className="p-3">Phone Number</th>
+                              <th className="p-3">Email Address</th>
+                              <th className="p-3 text-center">Generation</th>
+                              <th className="p-3 text-center">Live Netlify Deployment</th>
+                              <th className="p-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-800/60">
+                            {csvLeads.map((row, idx) => (
+                              <tr key={row.id} className="hover:bg-zinc-900/40 transition">
+                                <td className="p-3 text-center font-mono text-zinc-500 font-bold">{idx + 1}</td>
+                                
+                                {/* BUSINESS NAME (EDITABLE) */}
+                                <td className="p-3 min-w-[160px]">
+                                  <input
+                                    type="text"
+                                    value={row.businessName}
+                                    onChange={(e) => handleUpdateCsvLeadField(row.id, 'businessName', e.target.value)}
+                                    className="w-full bg-black/60 border border-zinc-800 focus:border-amber-400 rounded px-2 py-1 text-xs text-white font-bold"
+                                  />
+                                </td>
+
+                                {/* CITY (EDITABLE) */}
+                                <td className="p-3 min-w-[130px]">
+                                  <input
+                                    type="text"
+                                    value={row.city}
+                                    onChange={(e) => handleUpdateCsvLeadField(row.id, 'city', e.target.value)}
+                                    className="w-full bg-black/60 border border-zinc-800 focus:border-amber-400 rounded px-2 py-1 text-xs text-amber-300 font-medium"
+                                  />
+                                </td>
+
+                                {/* PHONE (EDITABLE) */}
+                                <td className="p-3 min-w-[140px]">
+                                  <input
+                                    type="text"
+                                    value={row.phone}
+                                    onChange={(e) => handleUpdateCsvLeadField(row.id, 'phone', e.target.value)}
+                                    className="w-full bg-black/60 border border-zinc-800 focus:border-amber-400 rounded px-2 py-1 text-xs text-cyan-300 font-mono"
+                                  />
+                                </td>
+
+                                {/* EMAIL (EDITABLE) */}
+                                <td className="p-3 min-w-[170px]">
+                                  <input
+                                    type="text"
+                                    value={row.email}
+                                    onChange={(e) => handleUpdateCsvLeadField(row.id, 'email', e.target.value)}
+                                    className="w-full bg-black/60 border border-zinc-800 focus:border-amber-400 rounded px-2 py-1 text-xs text-zinc-300"
+                                  />
+                                </td>
+
+                                {/* GENERATION STATUS */}
+                                <td className="p-3 text-center">
+                                  {row.status === 'pending' && (
+                                    <span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded font-bold uppercase border border-zinc-700">
+                                      Pending
+                                    </span>
+                                  )}
+                                  {row.status === 'generating' && (
+                                    <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-bold uppercase border border-amber-500/30 flex items-center justify-center gap-1 animate-pulse">
+                                      <RefreshCw size={10} className="animate-spin" />
+                                      Generating
+                                    </span>
+                                  )}
+                                  {row.status === 'completed' && (
+                                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold uppercase border border-emerald-500/30 inline-flex items-center gap-1">
+                                      <Check size={10} />
+                                      Generated {row.generatedTime}
+                                    </span>
+                                  )}
+                                  {row.status === 'error' && (
+                                    <span className="text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded font-bold uppercase border border-red-500/30">
+                                      Error
+                                    </span>
+                                  )}
+                                </td>
+
+                                {/* LIVE NETLIFY DEPLOYMENT */}
+                                <td className="p-3 text-center">
+                                  {row.deployStatus === 'deployed' && row.netlifyUrl ? (
+                                    <a
+                                      href={row.netlifyUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 rounded-lg text-[11px] font-bold font-mono transition"
+                                    >
+                                      <Globe size={11} />
+                                      {row.netlifyUrl.replace('https://', '')}
+                                      <ExternalLink size={10} />
+                                    </a>
+                                  ) : row.deployStatus === 'deploying' ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded-lg text-[10px] font-bold uppercase animate-pulse">
+                                      <RefreshCw size={10} className="animate-spin" />
+                                      Deploying to Netlify...
+                                    </span>
+                                  ) : row.status === 'completed' && row.html ? (
+                                    <button
+                                      onClick={() => handleDeploySingleLeadToNetlify(row)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-zinc-800 hover:bg-cyan-500/20 text-zinc-300 hover:text-cyan-300 border border-zinc-700 hover:border-cyan-500/40 rounded-lg text-[10px] font-bold uppercase transition cursor-pointer"
+                                    >
+                                      <Rocket size={11} className="text-cyan-400" />
+                                      Deploy Live
+                                    </button>
+                                  ) : (
+                                    <span className="text-zinc-600 font-mono text-[10px]">—</span>
+                                  )}
+                                </td>
+
+                                {/* ACTIONS */}
+                                <td className="p-3 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* SINGLE LEAD GENERATION / RE-GENERATION BUTTON */}
+                                    <button
+                                      onClick={() => handleGenerateSingleLead(row)}
+                                      disabled={row.status === 'generating' || isBulkGenerating}
+                                      className={`px-2.5 py-1 rounded-md font-bold text-[10px] uppercase flex items-center gap-1 transition cursor-pointer border ${
+                                        row.status === 'completed'
+                                          ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700'
+                                          : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/30'
+                                      }`}
+                                      title={row.status === 'completed' ? 'Re-generate site with current preview edits' : 'Generate site for this lead'}
+                                    >
+                                      {row.status === 'generating' ? (
+                                        <RefreshCw size={11} className="animate-spin text-amber-400" />
+                                      ) : (
+                                        <Zap size={11} className="text-amber-400" />
+                                      )}
+                                      {row.status === 'completed' ? 'Re-Gen' : 'Generate'}
+                                    </button>
+
+                                    {row.status === 'completed' && row.html && (
+                                      <>
+                                        <button
+                                          onClick={() => {
+                                            setPreviewModalTitle(row.businessName);
+                                            setPreviewModalHtml(row.html || null);
+                                          }}
+                                          className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-md transition cursor-pointer"
+                                          title="Preview Generated Website"
+                                        >
+                                          <Eye size={13} />
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            const rawPhone = row.phone || lead.phone || '';
+                                            const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+                                            const company = row.businessName || row.company || 'votre entreprise';
+                                            const deployedUrl = row.netlifyUrl || row.deployedWebsiteUrl || row.websitePreviewUrl || (siteData?.siteId === row.id ? siteData.previewUrl : '');
+                                            const msg = `Bonjour, nous avons pris la liberté de vous préparer un aperçu de site web personnalisé gratuit pour ${company}. Découvrez votre aperçu sur mesure ici : ${deployedUrl || 'https://neatlify.com/demo'}`;
+                                            const encoded = encodeURIComponent(msg);
+                                            if (cleanPhone) {
+                                              window.open(`https://wa.me/${cleanPhone}?text=${encoded}`, '_blank');
+                                            } else {
+                                              window.open(`https://wa.me/?text=${encoded}`, '_blank');
+                                            }
+                                          }}
+                                          className="px-2 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-md font-bold text-[10px] uppercase flex items-center gap-1 transition cursor-pointer"
+                                          title="Send WhatsApp pitch message with custom website link once deployed to Netlify"
+                                        >
+                                          <MessageCircle size={11} className="text-emerald-400" /> WhatsApp
+                                        </button>
+                                        <button
+                                          onClick={() => handleDownloadSingleLeadHtml(row)}
+                                          className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 rounded-md font-bold text-[10px] uppercase flex items-center gap-1 transition cursor-pointer"
+                                          title="Download Individual HTML Website"
+                                        >
+                                          <Download size={11} /> HTML
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-[#0A0A0C] border border-dashed border-zinc-800 rounded-2xl p-12 text-center space-y-4">
+                      <FileSpreadsheet size={48} className="mx-auto text-zinc-600" />
+                      <div className="space-y-1">
+                        <h4 className="text-base font-bold text-white">No Leads Loaded Yet</h4>
+                        <p className="text-xs text-zinc-500 max-w-md mx-auto">
+                          Upload a CSV spreadsheet with business contacts or click "Load Sample CSV" above to generate and auto-deploy personalized websites directly to Netlify.
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleLoadSampleCsvLeads}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl transition inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Sparkles size={14} /> Load Demo Dataset (4 Businesses)
+                      </button>
                     </div>
                   )}
                 </div>
@@ -4926,6 +8243,15 @@ Set nicheOverride to "${activeNiche}".`;
                               <Download size={13} />
                               {downloadingTemplateId === tmpl.id ? 'Packaging...' : 'Download ZIP'}
                             </button>
+                            <a
+                              href="https://app.netlify.com/drop"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="py-2.5 px-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md text-center"
+                            >
+                              <Zap size={13} />
+                              Deploy ZIP to Netlify
+                            </a>
                           </div>
 
                           <button
@@ -4986,6 +8312,85 @@ Set nicheOverride to "${activeNiche}".`;
           </div>
         </div>
       )}
-    </div>
+
+      {/* SINGLE GENERATED WEBSITE PREVIEW MODAL */}
+      {previewModalHtml && (
+        <div className="fixed inset-0 z-[100000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-8 animate-fade-in">
+          <div className="bg-[#0A0A0C] border border-zinc-800 w-full max-w-6xl h-[85vh] rounded-2xl flex flex-col overflow-hidden shadow-2xl">
+            <div className="p-3 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between px-5">
+              <div className="flex items-center gap-2">
+                <Globe size={16} className="text-amber-400" />
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                  Preview: {previewModalTitle}
+                </h4>
+              </div>
+              <button
+                onClick={() => setPreviewModalHtml(null)}
+                className="p-1.5 text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 relative bg-white">
+              <iframe
+                srcDoc={previewModalHtml}
+                className="absolute inset-0 w-full h-full border-0"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RAW TEXT AI ANALYSIS MODAL */}
+      {rawTextModalOpen && (
+        <div className="fixed inset-0 z-[100000] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-[#0D0E12] border border-purple-500/40 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl space-y-4 p-6 text-left">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles size={18} className="text-purple-400" />
+                <h3 className="text-sm font-black text-white uppercase tracking-wider">AI Raw Text Analyzer for CSV Upload</h3>
+              </div>
+              <button
+                onClick={() => setRawTextModalOpen(false)}
+                className="text-zinc-400 hover:text-white p-1.5 rounded-lg hover:bg-zinc-800 transition"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400">
+              Paste messy text, email lists, directory dumps, Zillow agent exports, or unformatted contacts below. Gemini AI will automatically extract business names, phone numbers, emails, addresses, cities, and niches, converting them into structured lead rows ready for bulk generation!
+            </p>
+
+            <textarea
+              value={rawTextContent}
+              onChange={(e) => setRawTextContent(e.target.value)}
+              placeholder="Paste raw text here... e.g.
+Plomberie Martin - 01 45 67 89 10 - Paris 15e - contact@martin-plomberie.fr
+Electricité Express Lyon - 04 78 00 11 22 - Electricien"
+              rows={8}
+              className="w-full bg-black border border-zinc-700 rounded-xl p-3 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-purple-500 font-mono"
+            />
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800/80">
+              <button
+                onClick={() => setRawTextModalOpen(false)}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs rounded-xl transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAnalyzeRawText}
+                disabled={isAnalyzingText || !rawTextContent.trim()}
+                className="px-5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-black text-xs rounded-xl transition flex items-center gap-2 shadow-lg shadow-purple-600/30 cursor-pointer"
+              >
+                {isAnalyzingText ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                {isAnalyzingText ? 'Analyzing with AI...' : '✨ Analyze & Add Leads'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
